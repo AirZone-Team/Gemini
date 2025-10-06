@@ -18,7 +18,7 @@ public class CategoryPanel implements MinecraftInstance {
     private final List<ModuleComponent> moduleComponents = new ArrayList<>();
 
     // 统一的颜色主题
-    private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色
+    private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色 (主色调)
     private static final int TEXT_COLOR = Color.WHITE.getRGB();
 
     public CategoryPanel(ModuleEnum category, int x, int y, int width, int headerHeight) {

@@ -13,8 +13,8 @@ public class FloatRangeValueComponent extends ValueComponent {
 
     // 统一的颜色主题
     private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色
-    private static final int BASE_BG = new Color(15, 15, 15, 200).getRGB();
-    private static final int HOVER_BG = new Color(30, 30, 30, 200).getRGB();
+    private static final int BASE_BG = new Color(0, 0, 0, 220).getRGB(); // 优化: 更深的半透明黑
+    private static final int HOVER_BG = new Color(20, 20, 20, 220).getRGB(); // 优化: 略浅的半透明黑
     private static final int TEXT_COLOR = Color.WHITE.getRGB();
 
     // 【风格常量修改】：更厚实的轨道和更大的手柄

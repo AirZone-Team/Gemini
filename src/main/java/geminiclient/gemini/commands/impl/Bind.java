@@ -11,26 +11,25 @@ public class Bind extends Command {
     @Override
     public void onCommand(String message) {
         String[] args = message.split(" ");
+        if (!args[0].equalsIgnoreCase(".bind"))
+            return;
 
         if (args.length != 3) {
-            ClientUtils.addChatMessage(".bind <ModuleName> <key>");
-        } else {
-            if (!args[0].equalsIgnoreCase(".bind"))
-                return;
+            ClientUtils.addChatMessage(".bind <ModuleName> <Key>");
+        }
 
-            for (Module module : Gemini.moduleManager.getModules()) {
-                if (args[1].equalsIgnoreCase(module.getName())) {
-                    if (args[2].length() == 1) {
-                        int key = getKeyCodeFromCharString(args[2]);
-                        if (key == KeyEvent.VK_SPACE || key == KeyEvent.VK_UNDEFINED) {
-                            ClientUtils.addChatMessage("Error");
-                            return;
-                        }
-                        module.key = key;
-                        ClientUtils.addChatMessage(module.getName() + "'s key is " + key);
-                    } else {
-                        ClientUtils.addChatMessage("The input value can only be one");
+        for (Module module : Gemini.moduleManager.getModules()) {
+            if (args[1].equalsIgnoreCase(module.getName())) {
+                if (args[2].length() == 1) {
+                    int key = getKeyCodeFromCharString(args[2]);
+                    if (key == KeyEvent.VK_SPACE || key == KeyEvent.VK_UNDEFINED) {
+                        ClientUtils.addChatMessage("Error");
+                        return;
                     }
+                    module.key = key;
+                    ClientUtils.addChatMessage(module.getName() + "'s key is " + key);
+                } else {
+                    ClientUtils.addChatMessage("The input value can only be one");
                 }
             }
         }

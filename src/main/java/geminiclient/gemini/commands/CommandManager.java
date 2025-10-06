@@ -3,8 +3,9 @@ package geminiclient.gemini.commands;
 import com.cubk.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.commands.impl.Bind;
+import geminiclient.gemini.commands.impl.LoadConfig;
+import geminiclient.gemini.commands.impl.SaveConfig;
 import geminiclient.gemini.events.impl.ChatEvent;
-import geminiclient.gemini.modules.Module;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -16,7 +17,9 @@ public class CommandManager {
     public CommandManager() {
         Gemini.eventManager.register(this);
         addCommands(
-                new Bind()
+                new Bind(),
+                new SaveConfig(),
+                new LoadConfig()
         );
     }
 

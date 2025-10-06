@@ -20,9 +20,11 @@ public class ModuleComponent {
     private final List<ValueComponent> allValueComponents = new ArrayList<>();
 
     // 统一的颜色主题 (与其它组件保持一致)
-    private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色
-    private static final int BASE_BG = new Color(15, 15, 15, 200).getRGB(); // 统一的深色背景
-    private static final int HOVER_BG = new Color(30, 30, 30, 200).getRGB(); // 悬停背景
+    private static final int ACCENT_COLOR = new Color(200, 51, 153,200).getRGB(); // 亮洋红色 (主色调)
+    // 【修改】模块启用时的基础背景色 (更深、更饱和的洋红色, 对比度更高)
+    private static final int ENABLED_BG = new Color(138, 20, 84, 180).getRGB();
+    private static final int BASE_BG = new Color(10, 10, 10, 180).getRGB(); // 【修改】统一的深色背景 (略微更黑)
+    private static final int HOVER_BG = new Color(40, 40, 40, 180).getRGB(); // 【修改】悬停背景 (略微更亮, 区别更明显)
     private static final int TEXT_COLOR = Color.WHITE.getRGB(); // 统一白色文本
 
     // 【新增】判断鼠标是否在模块头部的方法
@@ -91,10 +93,10 @@ public class ModuleComponent {
         // 1. 渲染模块背景
         int bgColor;
         if (module.enabled) {
-            // 启用：使用暗主题色
-            bgColor = new Color(178, 36, 114, 200).getRGB();
+            // 【修改】启用：使用 ENABLED_BG (更深的洋红色)
+            bgColor = ENABLED_BG;
 
-            // 悬停时使用亮主题色
+            // 悬停时使用 ACCENT_COLOR (亮洋红色)
             if (isHovered) {
                 bgColor = ACCENT_COLOR;
             }

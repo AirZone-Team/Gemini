@@ -62,6 +62,16 @@ public class Module implements MinecraftInstance {
         }
     }
 
+    public void setEnabledSilently(boolean b) {
+        this.enabled = b;
+        if (b) {
+            animationXOffset = 100f;
+            Gemini.eventManager.register(this);
+        } else {
+            Gemini.eventManager.unregister(this);
+        }
+    }
+
     public final void toggle() {
         setEnabled(!enabled);
     }

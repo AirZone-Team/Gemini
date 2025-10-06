@@ -9,6 +9,8 @@ import geminiclient.gemini.modules.ModuleManager;
 import net.neoforged.neoforge.common.NeoForge;
 
 public class Gemini {
+    public static String lastConfigName;
+
     public static KeyBindHandler keyBindHandler;
     public static ModuleManager moduleManager;
     public static EventManager eventManager;
@@ -23,7 +25,8 @@ public class Gemini {
         keyBindHandler = new KeyBindHandler();
         commandManager = new CommandManager();
         fileSystem = new FileSystem(moduleManager);
-        fileSystem.loadConfig();
         NeoForge.EVENT_BUS.register(forgeEvent = new ForgeEvent());
+        fileSystem.loadConfigName();
+        fileSystem.loadConfig();
     }
 }

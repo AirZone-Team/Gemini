@@ -18,13 +18,14 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 配置管理器，负责使用 org.json 库保存和加载模块配置。
+ * Configuration manager, responsible for saving and loading module configurations
+ * using the org.json library.
  */
 public class FileSystem {
 
     private final ModuleManager moduleManager;
-    // 配置文件路径，实际应用中应确保文件可读写
-    private static final String CONFIG_FILE_PATH = Minecraft.getInstance().gameDirectory.getAbsolutePath() + "gemini\\configs\\config.json";
+    // Configuration file path. In a real application, ensure the file is readable and writable.
+    private static final String CONFIG_FILE_PATH = Minecraft.getInstance().gameDirectory.getAbsolutePath() + "gemini\\configs\\";
 
     public FileSystem(ModuleManager moduleManager) {
         Gemini.eventManager.register(this);
@@ -32,11 +33,11 @@ public class FileSystem {
     }
 
     // =========================================================================
-    // 辅助方法
+    // Helper Methods
     // =========================================================================
 
     /**
-     * 根据名称在 ModuleManager 中查找模块。
+     * Finds a module in the ModuleManager by name.
      */
     private Optional<Module> getModuleByName(String name) {
         return moduleManager.getModules().stream()
@@ -45,7 +46,7 @@ public class FileSystem {
     }
 
     /**
-     * 根据名称在指定模块中查找值。
+     * Finds a value within the specified module by name.
      */
     private Optional<ValueParent> getValueByName(Module module, String name) {
         return module.getValues().stream()
@@ -57,34 +58,81 @@ public class FileSystem {
     @EventTarget
     public void shutdown(ShutdownEvent event) {
         saveConfig();
+        saveConfigName();
+        System.out.println(Gemini.lastConfigName);
+    }
+
+    public void loadConfigName() {
+        File file = new File(Minecraft.getInstance().gameDirectory.getAbsolutePath() + "gemini\\configName.txt");
+        if (!file.exists()) {
+            try {
+                file.createNewFile();
+                try (FileWriter fileWriter = new FileWriter(file)) {
+                    fileWriter.write("config");
+                    fileWriter.flush();
+                    System.out.println("Config name successfully written to file: " + Minecraft.getInstance().gameDirectory.getAbsolutePath() + "gemini\\configName.txt");
+                }
+                Gemini.lastConfigName = "config";
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else {
+            try (BufferedReader fileReader = new BufferedReader(new FileReader(file))) {
+                String data;
+                while ((data = fileReader.readLine()) != null) {
+                    System.out.println(data);
+                    Gemini.lastConfigName = data;
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void saveConfigName() {
+        if (!Gemini.lastConfigName.isEmpty()) {
+            File file = new File(Minecraft.getInstance().gameDirectory.getAbsolutePath() + "gemini\\configName.txt");
+            try (FileWriter fileWriter = new FileWriter(file)) {
+                fileWriter.write(Gemini.lastConfigName);
+                fileWriter.flush();
+                System.out.println("Config name successfully written to file: " + Minecraft.getInstance().gameDirectory.getAbsolutePath() + "gemini\\configName.txt");
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     // ---
 
     // =========================================================================
-    // 配置保存方法 (Save Config)
+    // Save Config Methods
     // =========================================================================
 
     /**
-     * 遍历所有模块和它们的值，将配置转换为 JSONObject，并模拟保存到文件。
+     * Iterates over all modules and their values, converts the configuration to a
+     * JSONObject, and simulates saving it to a file.
      */
     public void saveConfig() {
+        this.saveConfig(Gemini.lastConfigName);
+    }
+
+    public void saveConfig(String name) {
         JSONObject configRoot = new JSONObject();
         JSONArray modulesArray = new JSONArray();
-        File configFile = new File(CONFIG_FILE_PATH);
+        File configFile = new File(CONFIG_FILE_PATH + name + ".json");
 
         List<Module> modules = moduleManager.getModules();
 
         for (Module module : modules) {
             JSONObject moduleObject = new JSONObject();
 
-            // 模块基本信息
+            // Basic Module Info
             moduleObject.put("name", module.getName());
             moduleObject.put("category", module.getModuleEnum().name());
-            moduleObject.put("enabled", module.enabled); // 模块是否启用
-            moduleObject.put("key", module.key); // 模块的绑定键
+            moduleObject.put("enabled", module.enabled); // Is the module enabled
+            moduleObject.put("key", module.key); // Module keybind
 
-            // 模块的值设置 (Values)
+            // Module Value Settings (Values)
             JSONArray valuesArray = new JSONArray();
 
             for (ValueParent value : module.getValues()) {
@@ -93,7 +141,7 @@ public class FileSystem {
 
                 valueObject.put("name", valueName);
 
-                // 检查值的具体类型并提取数据
+                // Check the specific value type and extract data
                 switch (value) {
                     case BoolValue boolValue -> {
                         valueObject.put("type", "Bool");
@@ -109,7 +157,7 @@ public class FileSystem {
                     }
                     case ListValue listValue -> {
                         valueObject.put("type", "List");
-                        valueObject.put("value", listValue.get()); // 当前选中的模式
+                        valueObject.put("value", listValue.get()); // Current selected mode
                     }
                     case IntRangeValue intRangeValue -> {
                         valueObject.put("type", "IntRange");
@@ -138,43 +186,43 @@ public class FileSystem {
 
         configRoot.put("modules", modulesArray);
 
-        // --- 模拟保存到文件 ---
-        System.out.println("--- 尝试保存配置到 " + CONFIG_FILE_PATH + " ---");
-        System.out.println(configRoot.toString(4));
-        System.out.println("--- 配置保存完成 ---");
-        // --- 真实文件写入代码（需处理 IO 异常）如下： ---
+        // --- Simulate saving to file ---
+        System.out.println("--- Attempting to save configuration to " + configFile.getAbsolutePath() + " ---");
+//        System.out.println(configRoot.toString(4));
+        System.out.println("--- Configuration save complete ---");
+        // --- Real file writing code (requires IO exception handling) follows: ---
         try {
-            // 1. 检查并创建父目录 (如果路径是 "configs/config.json")
+            // 1. Check and create parent directory (if path is "configs/config.json")
             File parentDir = configFile.getParentFile();
             if (parentDir != null && !parentDir.exists()) {
-                // 如果父目录不存在，尝试创建它
+                // If the parent directory doesn't exist, try to create it
                 if (parentDir.mkdirs()) {
-                    System.out.println("已创建配置目录: " + parentDir.getAbsolutePath());
+                    System.out.println("Created config directory: " + parentDir.getAbsolutePath());
                 } else {
-                    System.err.println("错误：无法创建配置目录。");
+                    System.err.println("Error: Failed to create config directory.");
                     return;
                 }
             }
 
-            // 2. 检查并创建文件 (如果文件不存在)
+            // 2. Check and create file (if file doesn't exist)
             if (!configFile.exists()) {
                 if (configFile.createNewFile()) {
-                    System.out.println("已创建新的配置文件: " + CONFIG_FILE_PATH);
+                    System.out.println("Created new config file: " + configFile.getAbsolutePath());
                 } else {
-                    System.err.println("错误：无法创建配置文件。");
+                    System.err.println("Error: Failed to create config file.");
                     return;
                 }
             }
 
-            // 3. 写入配置内容
+            // 3. Write config content
             try (FileWriter fileWriter = new FileWriter(configFile)) {
                 fileWriter.write(configRoot.toString(4));
                 fileWriter.flush();
-                System.out.println("配置已成功写入文件: " + CONFIG_FILE_PATH);
+                System.out.println("Configuration successfully written to file: " + configFile.getAbsolutePath());
             }
 
         } catch (IOException e) {
-            System.err.println("错误：保存配置失败 (IO异常)。请检查文件权限和路径。");
+            System.err.println("Error: Failed to save configuration (IO Exception). Please check file permissions and path.");
             e.printStackTrace();
         }
     }
@@ -182,56 +230,60 @@ public class FileSystem {
     // ---
 
     // =========================================================================
-    // 配置加载方法 (Load Config)
+    // Load Config Methods
     // =========================================================================
 
     /**
-     * 模拟从文件读取 JSON 配置并应用到模块和值。
+     * Simulates reading JSON configuration from a file and applying it to modules and values.
      */
     public void loadConfig() {
-        System.out.println("--- 开始加载配置 (从文件读取) ---");
+        this.loadConfig(Gemini.lastConfigName);
+    }
 
-        File configFile = new File(CONFIG_FILE_PATH);
+    public void loadConfig(String name) {
+        System.out.println("--- Starting configuration load (reading from file) ---");
+
+        File configFile = new File(CONFIG_FILE_PATH + name + ".json");
 
         if (!configFile.exists()) {
-            System.out.printf("警告: 配置文件 '%s' 不存在，跳过加载。\n", CONFIG_FILE_PATH);
+            System.out.printf("Warning: Config file '%s' does not exist, skipping load.\n", configFile.getAbsolutePath());
             return;
         }
 
         try (BufferedReader reader = new BufferedReader(new FileReader(configFile))) {
-            // 1. 使用 JSONTokener 从 BufferedReader 流中解析 JSON
+            // 1. Parse JSON from the BufferedReader stream using JSONTokener
             JSONObject configRoot = new JSONObject(new JSONTokener(reader));
 
             if (!configRoot.has("modules")) {
-                System.err.println("错误：JSON 根对象中缺少 'modules' 数组。");
+                System.err.println("Error: Missing 'modules' array in JSON root object.");
                 return;
             }
 
             JSONArray modulesArray = configRoot.getJSONArray("modules");
 
-            // 2. 遍历 JSON 中的模块配置
+            // 2. Iterate over module configurations in JSON
             for (int i = 0; i < modulesArray.length(); i++) {
                 JSONObject moduleJson = modulesArray.getJSONObject(i);
                 String moduleName = moduleJson.getString("name");
 
                 Optional<Module> moduleOpt = getModuleByName(moduleName);
                 if (moduleOpt.isEmpty()) {
-                    System.err.printf("警告: 未找到名为 '%s' 的模块，跳过加载。\n", moduleName);
+                    System.err.printf("Warning: Module named '%s' not found, skipping load.\n", moduleName);
                     continue;
                 }
                 Module module = moduleOpt.get();
 
-                // 3. 设置模块状态
+                // 3. Set module state
                 if (moduleJson.has("enabled")) {
-                    module.enabled = moduleJson.getBoolean("enabled");
+                    module.setEnabledSilently(moduleJson.getBoolean("enabled"));
                 }
                 if (moduleJson.has("key")) {
                     module.key = moduleJson.getInt("key");
                 }
 
-                System.out.printf("  [模块] %s -> 已设置基本状态\n", moduleName);
+                System.out.printf("  [Module] %s -> Basic state set\n", moduleName);
 
-                // 4. 遍历模块中的值配置
+                // 4. Iterate over value configurations in the module
                 if (moduleJson.has("values")) {
                     JSONArray valuesArray = moduleJson.getJSONArray("values");
                     for (int j = 0; j < valuesArray.length(); j++) {
@@ -241,35 +293,35 @@ public class FileSystem {
 
                         Optional<ValueParent> valueOpt = getValueByName(module, valueName);
                         if (valueOpt.isEmpty()) {
-                            System.err.printf("  警告: 模块 %s 中未找到值 '%s'，跳过加载。\n", moduleName, valueName);
+                            System.err.printf("  Warning: Value '%s' not found in module %s, skipping load.\n", moduleName, valueName);
                             continue;
                         }
 
-                        // 5. 应用值
+                        // 5. Apply value
                         if (valueJson.has("value")) {
                             applyValue(valueOpt.get(), valueType, valueJson.get("value"));
-                            System.out.printf("    [值] %s (%s) -> 已设置\n", valueName, valueType);
+                            System.out.printf("    [Value] %s (%s) -> Set\n", valueName, valueType);
                         }
                     }
                 }
             }
         } catch (IOException e) {
-            System.err.println("错误：读取配置文件失败。");
+            System.err.println("Error: Failed to read configuration file.");
             e.printStackTrace();
         } catch (Exception e) {
-            // 捕获 JSON 解析错误或结构错误
-            System.err.println("错误：配置加载过程中发生 JSON 格式/结构异常：");
+            // Catch JSON parsing errors or structure errors
+            System.err.println("Error: JSON format/structure exception occurred during config load:");
             e.printStackTrace();
         }
 
-        System.out.println("--- 配置加载完成 ---");
+        System.out.println("--- Configuration load complete ---");
     }
 
     /**
-     * 根据类型将 JSON 值应用到 ValueParent 实例上。
-     * @param value 目标 ValueParent 实例
-     * @param type JSON中记录的类型字符串
-     * @param jsonValue JSON中的值对象 (可以是 boolean, int, float, String, JSONObject)
+     * Applies the JSON value to the ValueParent instance based on the type.
+     * @param value The target ValueParent instance
+     * @param type The type string recorded in the JSON
+     * @param jsonValue The value object from JSON (can be boolean, int, float, String, JSONObject)
      */
     private void applyValue(ValueParent value, String type, Object jsonValue) {
         try {
@@ -281,7 +333,7 @@ public class FileSystem {
                     ((IntValue) value).setValue((int) jsonValue);
                     break;
                 case "Float":
-                    // JSON 将所有数字解析为 Number (通常是 Double 或 Integer)
+                    // JSON parses all numbers as Number (usually Double or Integer)
                     ((FloatValue) value).setValue(((Number) jsonValue).floatValue());
                     break;
                 case "List":
@@ -290,23 +342,23 @@ public class FileSystem {
                 case "IntRange":
                     JSONObject intRange = (JSONObject) jsonValue;
                     IntRangeValue irValue = (IntRangeValue) value;
-                    // 先设置 MaxValue 再设置 MinValue，以避免范围约束错误
+                    // Set MaxValue first, then MinValue, to avoid range constraint errors
                     irValue.setMaxValue(intRange.getInt("max"));
                     irValue.setMinValue(intRange.getInt("min"));
                     break;
                 case "FloatRange":
                     JSONObject floatRange = (JSONObject) jsonValue;
                     FloatRangeValue frValue = (FloatRangeValue) value;
-                    // 先设置 MaxValue 再设置 MinValue
+                    // Set MaxValue first, then MinValue
                     frValue.setMaxValue((float) floatRange.getDouble("max"));
                     frValue.setMinValue((float) floatRange.getDouble("min"));
                     break;
                 default:
-                    System.err.println("  警告: 未知值类型: " + type);
+                    System.err.println("  Warning: Unknown value type: " + type);
                     break;
             }
         } catch (ClassCastException | NullPointerException e) {
-            System.err.printf("  警告: 设置值 '%s' 时发生类型转换错误。配置与代码不匹配。\n", value.getName());
+            System.err.printf("  Warning: Type conversion error occurred while setting value '%s'. Configuration does not match code.\n", value.getName());
         }
     }
 }
