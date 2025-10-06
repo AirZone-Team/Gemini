@@ -101,8 +101,8 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 dependencies {
     implementation 'com.github.cubk1:EventManager:-SNAPSHOT'
-    // https://mvnrepository.com/artifact/org.reflections/reflections
-    implementation 'org.reflections:reflections:0.10.2'
+    // https://mvnrepository.com/artifact/org.json/json
+    implementation 'org.json:json:20250517'
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

@@ -100,7 +100,7 @@ public class ClickGui extends Module {
             // vScroll 为垂直滚动量，正值通常代表向下滚动 (取决于系统设置，但 Minecraft 通常是正值向下)
 
             // 1. 更新滚动偏移量
-            scrollOffset -= vScroll * SCROLL_SPEED;
+            scrollOffset -= (float) (vScroll * SCROLL_SPEED);
 
             // 2. 【可选但推荐】限制滚动范围
             // 防止用户滚动到顶部太远（例如，限制 scrollOffset 最小为 0）
@@ -160,6 +160,7 @@ public class ClickGui extends Module {
     @Override
     public void onDisabled() {
         super.onDisabled();
+        Gemini.fileSystem.saveConfig();
         if (mc.screen instanceof ClickGuiScreen) {
             mc.setScreen(null);
         }

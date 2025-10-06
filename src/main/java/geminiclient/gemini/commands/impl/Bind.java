@@ -8,10 +8,6 @@ import geminiclient.gemini.utils.ClientUtils;
 import java.awt.event.KeyEvent;
 
 public class Bind extends Command {
-    public Bind() {
-        super("bind",3);
-    }
-
     @Override
     public void onCommand(String message) {
         String[] args = message.split(" ");

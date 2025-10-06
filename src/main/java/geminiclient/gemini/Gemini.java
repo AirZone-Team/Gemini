@@ -1,6 +1,7 @@
 package geminiclient.gemini;
 
 import com.cubk.event.EventManager;
+import geminiclient.gemini.base.FileSystem;
 import geminiclient.gemini.commands.CommandManager;
 import geminiclient.gemini.events.ForgeEvent;
 import geminiclient.gemini.base.KeyBindHandler;
@@ -13,6 +14,7 @@ public class Gemini {
     public static EventManager eventManager;
     public static ForgeEvent forgeEvent;
     public static CommandManager commandManager;
+    public static FileSystem fileSystem;
     public static void init() {
         eventManager = new EventManager();
         System.out.println("EventManager already");
@@ -20,6 +22,8 @@ public class Gemini {
         System.out.println("Add All modules");
         keyBindHandler = new KeyBindHandler();
         commandManager = new CommandManager();
+        fileSystem = new FileSystem(moduleManager);
+        fileSystem.loadConfig();
         NeoForge.EVENT_BUS.register(forgeEvent = new ForgeEvent());
     }
 }
