@@ -8,8 +8,13 @@ import static geminiclient.gemini.base.MinecraftInstance.mc;
 
 public class BoolValueComponent extends ValueComponent {
 
+    // 统一的颜色主题
+    private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色
+    private static final int BASE_BG = new Color(15, 15, 15, 200).getRGB();
+    private static final int HOVER_BG = new Color(30, 30, 30, 200).getRGB();
+    private static final int TEXT_COLOR = Color.WHITE.getRGB();
+
     public BoolValueComponent(BoolValue value, int x, int y, int width, int height) {
-        // 使用 BoolValue 构造函数，并传入所需的默认尺寸
         super(value, x, y, width, 14);
     }
 
@@ -17,38 +22,47 @@ public class BoolValueComponent extends ValueComponent {
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
         BoolValue boolValue = (BoolValue) this.value;
 
-        // 1. 渲染背景
-        int bgColor = new Color(20, 20, 20, 180).getRGB();
+        // 1. 渲染背景 (悬停时有轻微变化)
+        int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
         guiGraphics.fill(x, y, x + width, y + height, bgColor);
 
         // 2. 渲染值名称
-        int textColor = isHovered(mouseX, mouseY) ? Color.CYAN.getRGB() : Color.WHITE.getRGB();
-        guiGraphics.drawString(mc.font, boolValue.getName(), x + 2, y + 3, textColor, true);
+        guiGraphics.drawString(mc.font, boolValue.getName(), x + 3, y + 3, TEXT_COLOR, true);
 
-        // 3. 渲染开关/复选框
-        int boxSize = height - 4; // 例如 10 像素大小
-        int boxX = x + width - boxSize - 2;
-        int boxY = y + 2;
+        // 3. 渲染开关 (现代开关样式)
+        int switchWidth = 18;
+        int switchHeight = height - 6;
+        int switchX = x + width - switchWidth - 3;
+        int switchY = y + 3;
 
-        // 渲染外框
-        guiGraphics.fill(boxX, boxY, boxX + boxSize, boxY + boxSize, Color.DARK_GRAY.getRGB());
+        // 轨道颜色：启用时为主题色，禁用时为深灰色
+        int trackColor = boolValue.enabled ? ACCENT_COLOR : new Color(50, 50, 50).getRGB();
 
-        // 渲染开关状态 (如果启用，则填充颜色)
+        // 渲染轨道
+        guiGraphics.fill(switchX, switchY, switchX + switchWidth, switchY + switchHeight, trackColor);
+
+        // 渲染滑块/手柄
+        int handleSize = switchHeight - 2;
+        int handleY = switchY + 1;
+        int handleX;
+
         if (boolValue.enabled) {
-            guiGraphics.fill(boxX + 1, boxY + 1, boxX + boxSize - 1, boxY + boxSize - 1, Color.GREEN.getRGB());
+            // 启用：滑块在右侧
+            handleX = switchX + switchWidth - handleSize - 1;
         } else {
-            // 填充一个小空心
-            guiGraphics.fill(boxX + 1, boxY + 1, boxX + boxSize - 1, boxY + boxSize - 1, new Color(50, 50, 50).getRGB());
+            // 未启用：滑块在左侧
+            handleX = switchX + 1;
         }
+
+        // 渲染手柄 (白色小方块)
+        guiGraphics.fill(handleX, handleY, handleX + handleSize, handleY + handleSize, TEXT_COLOR);
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         BoolValue boolValue = (BoolValue) this.value;
 
-        // 如果鼠标在组件内点击，并且是左键
         if (isHovered(mouseX, mouseY) && button == 0) {
-            // 切换布尔值状态
             boolValue.enabled = !boolValue.enabled;
             return true;
         }

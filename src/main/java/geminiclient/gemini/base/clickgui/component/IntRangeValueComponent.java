@@ -6,30 +6,35 @@ import java.awt.Color;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 
-// 假设 ValueComponent 是所有值组件的基类
 public class IntRangeValueComponent extends ValueComponent {
 
     private boolean isDraggingMin = false;
     private boolean isDraggingMax = false;
 
-    // 【风格常量】：与 FloatRangeValueComponent 保持一致
-    private static final int TRACK_HEIGHT = 1;
-    private static final int HANDLE_SIZE = 4;
+    // 统一的颜色主题
+    private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色
+    private static final int BASE_BG = new Color(15, 15, 15, 200).getRGB();
+    private static final int HOVER_BG = new Color(30, 30, 30, 200).getRGB();
+    private static final int TEXT_COLOR = Color.WHITE.getRGB();
+
+    // 【风格常量修改】：与 FloatRangeValueComponent 保持一致
+    private static final int TRACK_HEIGHT = 2;
+    private static final int HANDLE_SIZE = 6;
 
     public IntRangeValueComponent(IntRangeValue value, int x, int y, int width, int height) {
-        super(value, x, y, width, 16); // 组件高度为 16
+        super(value, x, y, width, 16);
     }
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
         IntRangeValue rangeValue = (IntRangeValue) this.value;
 
-        // 1. 如果正在拖拽，根据鼠标位置更新值
         if (isDraggingMin || isDraggingMax) {
             updateValueFromMouse(mouseX);
         }
 
-        int bgColor = new Color(20, 20, 20, 180).getRGB();
+        // 1. 渲染背景
+        int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
         guiGraphics.fill(x, y, x + width, y + height, bgColor);
 
         float absMin = rangeValue.getMin();
@@ -37,35 +42,33 @@ public class IntRangeValueComponent extends ValueComponent {
         float range = absMax - absMin;
 
         // 2. 渲染滑块轨道和手柄
-        int trackY = y + height - 5; // 轨道位置 (位于组件底部上方 5 像素处)
-        int trackX = x + 2;
-        int trackWidth = width - 4;
+        int trackY = y + height - 5;
+        int trackX = x + 4;
+        int trackWidth = width - 8;
 
-        // 计算当前范围的百分比
         float minPercent = (rangeValue.getMinValue() - absMin) / range;
         float maxPercent = (rangeValue.getMaxValue() - absMin) / range;
 
-        // 计算手柄的屏幕位置
         int minHandleX = (int) (trackX + trackWidth * minPercent);
         int maxHandleX = (int) (trackX + trackWidth * maxPercent);
 
-        // A. 渲染基础轨道 (整个绝对范围)
-        guiGraphics.fill(trackX, trackY, trackX + trackWidth, trackY + TRACK_HEIGHT, new Color(50, 50, 50, 200).getRGB());
+        // A. 渲染基础轨道 (整个绝对范围) - 深灰色
+        guiGraphics.fill(trackX, trackY, trackX + trackWidth, trackY + TRACK_HEIGHT,
+                new Color(50, 50, 50, 200).getRGB());
 
-        // B. 渲染选中范围 (Min 手柄到 Max 手柄之间)
-        int highlightColor = new Color(0, 150, 255).getRGB(); // 亮蓝色
-        guiGraphics.fill(minHandleX, trackY, maxHandleX, trackY + TRACK_HEIGHT, highlightColor);
+        // B. 渲染选中范围 - 主题色
+        guiGraphics.fill(minHandleX, trackY, maxHandleX, trackY + TRACK_HEIGHT, ACCENT_COLOR);
 
         // C. 渲染手柄
-        int handleY = trackY - (HANDLE_SIZE - TRACK_HEIGHT) / 2; // 使手柄垂直居中于轨道
+        int handleY = trackY - (HANDLE_SIZE - TRACK_HEIGHT) / 2;
 
         // Min Handle
         guiGraphics.fill(minHandleX - HANDLE_SIZE / 2, handleY, minHandleX + HANDLE_SIZE / 2, handleY + HANDLE_SIZE,
-                isDraggingMin ? Color.CYAN.getRGB() : Color.WHITE.getRGB());
+                isDraggingMin ? ACCENT_COLOR : TEXT_COLOR);
 
         // Max Handle
         guiGraphics.fill(maxHandleX - HANDLE_SIZE / 2, handleY, maxHandleX + HANDLE_SIZE / 2, handleY + HANDLE_SIZE,
-                isDraggingMax ? Color.CYAN.getRGB() : Color.WHITE.getRGB());
+                isDraggingMax ? ACCENT_COLOR : TEXT_COLOR);
 
         // 3. 渲染名称和当前值
         String minVal = String.valueOf(rangeValue.getMinValue());
@@ -73,8 +76,7 @@ public class IntRangeValueComponent extends ValueComponent {
 
         String displayString = String.format("%s: %s/%s", this.value.getName(), minVal, maxVal);
 
-        int textColor = isHovered(mouseX, mouseY) ? Color.CYAN.getRGB() : Color.WHITE.getRGB();
-        guiGraphics.drawString(mc.font, displayString, x + 2, y + 2, textColor, true);
+        guiGraphics.drawString(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
     }
 
     private void updateValueFromMouse(double mouseX) {
@@ -84,18 +86,17 @@ public class IntRangeValueComponent extends ValueComponent {
         float absMax = rangeValue.getMax();
         float range = absMax - absMin;
 
-        float trackX = x + 2;
-        float trackWidth = width - 4;
+        float trackX = x + 4;
+        float trackWidth = width - 8;
 
         float relativeMouseX = (float) (mouseX - trackX);
         float percent = relativeMouseX / trackWidth;
 
-        // 确保百分比在 [0, 1] 之间
         percent = Math.max(0.0f, Math.min(1.0f, percent));
 
         float rawNewValue = absMin + range * percent;
 
-        // 【关键】：将计算出的浮点值四舍五入到最近的整数
+        // 将计算出的浮点值四舍五入到最近的整数
         int newValue = Math.round(rawNewValue);
 
         if (isDraggingMin) {
@@ -114,28 +115,25 @@ public class IntRangeValueComponent extends ValueComponent {
             float absMax = rangeValue.getMax();
             float range = absMax - absMin;
 
-            float trackX = x + 2;
-            float trackWidth = width - 4;
+            float trackX = x + 4;
+            float trackWidth = width - 8;
             float minPercent = (rangeValue.getMinValue() - absMin) / range;
             float maxPercent = (rangeValue.getMaxValue() - absMin) / range;
 
             int minHandleX = (int) (trackX + trackWidth * minPercent);
             int maxHandleX = (int) (trackX + trackWidth * maxPercent);
 
-            // 点击检测的垂直范围 (与 FloatRangeValueComponent 相同)
             int sliderY = y + height - 5;
             int clickTolerance = 5;
 
             boolean isVerticalHit = mouseY >= sliderY - clickTolerance && mouseY <= sliderY + clickTolerance;
 
             if (isVerticalHit) {
-                // 检查是否点击在 Min 手柄附近
                 if (mouseX >= minHandleX - HANDLE_SIZE && mouseX <= minHandleX + HANDLE_SIZE) {
                     isDraggingMin = true;
                     return true;
                 }
 
-                // 检查是否点击在 Max 手柄附近
                 if (mouseX >= maxHandleX - HANDLE_SIZE && mouseX <= maxHandleX + HANDLE_SIZE) {
                     isDraggingMax = true;
                     return true;

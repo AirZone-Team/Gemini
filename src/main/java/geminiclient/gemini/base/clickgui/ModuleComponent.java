@@ -19,6 +19,17 @@ public class ModuleComponent {
     private boolean isExpanded = false;
     private final List<ValueComponent> allValueComponents = new ArrayList<>();
 
+    // 统一的颜色主题 (与其它组件保持一致)
+    private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色
+    private static final int BASE_BG = new Color(15, 15, 15, 200).getRGB(); // 统一的深色背景
+    private static final int HOVER_BG = new Color(30, 30, 30, 200).getRGB(); // 悬停背景
+    private static final int TEXT_COLOR = Color.WHITE.getRGB(); // 统一白色文本
+
+    // 【新增】判断鼠标是否在模块头部的方法
+    protected boolean isModuleHeaderHovered(double mouseX, double mouseY) {
+        return mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
+    }
+
     public ModuleComponent(Module module, int x, int y, int width, int height) {
         this.module = module;
         this.x = x;
@@ -26,31 +37,24 @@ public class ModuleComponent {
         this.width = width;
         this.height = height; // 默认高度 (模块头部)
 
-        // 【关键修改：填充 allValueComponents 列表】
-        int componentHeight = 14; // 每个值组件的高度
-
-        // 遍历模块中的所有 ValueParent
+        // ... (ValueComponent 实例化逻辑保持不变)
+        int componentHeight = 14;
         for (ValueParent value : module.getValues()) {
             ValueComponent component = null;
 
             if (value instanceof BoolValue) {
-                // 使用 BoolValueComponent
                 component = new BoolValueComponent((BoolValue) value, 0, 0, width, componentHeight);
             } else if (value instanceof FloatValue) {
-                // 使用 FloatValueComponent
                 component = new FloatValueComponent((FloatValue) value, 0, 0, width, componentHeight);
             } else if (value instanceof IntValue) {
-                // 使用 IntValueComponent
                 component = new IntValueComponent((IntValue) value, 0, 0, width, componentHeight);
             } else if (value instanceof ListValue) {
-                // 使用 ListValueComponent
                 component = new ListValueComponent((ListValue) value, 0, 0, width, componentHeight);
             } else if (value instanceof FloatRangeValue) {
-                component = new FloatRangeValueComponent((FloatRangeValue) value,0,0,width,componentHeight);
+                component = new FloatRangeValueComponent((FloatRangeValue) value, 0, 0, width, componentHeight);
             } else if (value instanceof IntRangeValue) {
-                component = new IntRangeValueComponent((IntRangeValue) value,0,0,width,componentHeight);
+                component = new IntRangeValueComponent((IntRangeValue) value, 0, 0, width, componentHeight);
             }
-            // ... 可以添加其他 ValueParent 类型 (如 IntValue, EnumValue 等)
 
             if (component != null) {
                 this.allValueComponents.add(component);
@@ -59,16 +63,14 @@ public class ModuleComponent {
     }
 
     public int getTotalHeight() {
-        int totalHeight = this.height; // 模块头部高度
+        // ... (getTotalHeight 逻辑保持不变)
+        int totalHeight = this.height;
 
         if (isExpanded) {
             for (ValueComponent component : getVisibleValueComponents()) {
-                // 所有组件的基础高度 (例如 14)
                 totalHeight += component.height;
 
-                // 【关键修复】：检查是否为展开的 ListValueComponent
                 if (component instanceof ListValueComponent listComp) {
-                    // 如果展开，加上列表的额外高度
                     totalHeight += listComp.getExpandedListHeight();
                 }
             }
@@ -82,22 +84,46 @@ public class ModuleComponent {
                 .collect(Collectors.toList());
     }
 
+    // 【删除 @Override】
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+        boolean isHovered = isModuleHeaderHovered(mouseX, mouseY);
+
         // 1. 渲染模块背景
-        int bgColor = module.enabled ? new Color(0, 150, 0, 200).getRGB() : new Color(30, 30, 30, 200).getRGB();
-        guiGraphics.fill(x, y, x + width, y + height, bgColor);
+        int bgColor;
+        if (module.enabled) {
+            // 启用：使用暗主题色
+            bgColor = new Color(178, 36, 114, 200).getRGB();
 
-        // 2. 渲染模块名称
-        guiGraphics.drawString(mc.font, module.getName(), x + 2, y + 3, Color.WHITE.getRGB(), true);
-
-        // 3. 渲染展开箭头 (如果有值组件)
-        if (!allValueComponents.isEmpty()) {
-            // 渲染一个箭头或指示符
-            String arrow = isExpanded ? "v" : ">";
-            guiGraphics.drawString(mc.font, arrow, x + width - 8, y + 3, Color.WHITE.getRGB(), true);
+            // 悬停时使用亮主题色
+            if (isHovered) {
+                bgColor = ACCENT_COLOR;
+            }
+        } else {
+            // 未启用：深黑背景
+            bgColor = isHovered ? HOVER_BG : BASE_BG;
         }
 
-        // 4. 渲染值组件 (如果已展开)
+        guiGraphics.fill(x, y, x + width, y + height, bgColor);
+
+        // 2. 启用时，在左侧添加主题色高亮条
+        if (module.enabled) {
+            guiGraphics.fill(x, y, x + 1, y + height, ACCENT_COLOR);
+        }
+
+        // 3. 渲染模块名称
+        guiGraphics.drawString(mc.font, module.getName(), x + 3, y + 3, TEXT_COLOR, true);
+
+        // 4. 渲染展开箭头 (如果有值组件)
+        if (!allValueComponents.isEmpty()) {
+            String symbol = isExpanded ? "▼" : "▶";
+
+            // 悬停或展开时使用主题色高亮箭头
+            int arrowColor = (isExpanded || isHovered) ? ACCENT_COLOR : TEXT_COLOR;
+
+            guiGraphics.drawString(mc.font, symbol, x + width - 10, y + 3, arrowColor, true);
+        }
+
+        // 5. 渲染值组件 (如果已展开)
         if (isExpanded) {
             int currentY = y + height;
 
@@ -107,10 +133,8 @@ public class ModuleComponent {
                 component.width = width;
                 component.render(guiGraphics, mouseX, mouseY, partialTicks);
 
-                // 【关键修复】：更新下一个组件的 Y 坐标
                 int componentRenderHeight = component.height;
                 if (component instanceof ListValueComponent listComp) {
-                    // 如果 ListValueComponent 展开，需要加上列表的额外高度
                     componentRenderHeight += listComp.getExpandedListHeight();
                 }
                 currentY += componentRenderHeight;
@@ -118,9 +142,10 @@ public class ModuleComponent {
         }
     }
 
+    // 【删除 @Override】
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         // 检查是否点击了模块名称部分
-        if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
+        if (isModuleHeaderHovered(mouseX, mouseY)) {
             if (button == 0) { // 左键：切换模块状态
                 module.toggle();
                 return true;
@@ -132,35 +157,47 @@ public class ModuleComponent {
 
         // 传递点击事件给展开的值组件
         if (isExpanded) {
-            int currentY = y + height; // 从 Module Header Content Y 之后开始
+            int currentY = y + height;
 
             for (ValueComponent component : getVisibleValueComponents()) {
 
-                // 【关键修复】：在点击检测前，必须设置 ValueComponent 的 Content Y 坐标
                 component.x = x;
-                component.y = currentY; // 将 Content Y 设置给 ValueComponent
+                component.y = currentY;
 
                 if (component.mouseClicked(mouseX, mouseY, button)) {
                     return true;
                 }
 
-                // 高度修正：使用动态高度来计算下一个组件的位置
                 int componentInteractionHeight = component.height;
                 if (component instanceof ListValueComponent listComp) {
                     componentInteractionHeight += listComp.getExpandedListHeight();
                 }
-                currentY += componentInteractionHeight; // 移动到下一个组件的起始 Content Y
+                currentY += componentInteractionHeight;
             }
         }
         return false;
     }
 
+    // 【删除 @Override】
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (isExpanded) {
+            int currentY = y + height;
             for (ValueComponent component : getVisibleValueComponents()) {
+
+                // 必须更新组件坐标
+                component.x = x;
+                component.y = currentY;
+
                 if (component.mouseReleased(mouseX, mouseY, button)) {
                     return true;
                 }
+
+                // 更新 Y 坐标
+                int componentInteractionHeight = component.height;
+                if (component instanceof ListValueComponent listComp) {
+                    componentInteractionHeight += listComp.getExpandedListHeight();
+                }
+                currentY += componentInteractionHeight;
             }
         }
         return false;

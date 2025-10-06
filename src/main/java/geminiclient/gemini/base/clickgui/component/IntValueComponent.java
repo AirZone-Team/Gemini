@@ -10,6 +10,12 @@ public class IntValueComponent extends ValueComponent {
 
     private boolean isDragging = false;
 
+    // 统一的颜色主题
+    private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色
+    private static final int BASE_BG = new Color(15, 15, 15, 200).getRGB();
+    private static final int HOVER_BG = new Color(30, 30, 30, 200).getRGB();
+    private static final int TEXT_COLOR = Color.WHITE.getRGB();
+
     public IntValueComponent(IntValue value, int x, int y, int width, int height) {
         super(value, x, y, width, 14);
     }
@@ -23,26 +29,37 @@ public class IntValueComponent extends ValueComponent {
             updateValueFromMouse(mouseX);
         }
 
-        // 2. 渲染背景
-        int bgColor = new Color(20, 20, 20, 180).getRGB();
+        // 2. 渲染背景 (悬停时有轻微变化)
+        int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
         guiGraphics.fill(x, y, x + width, y + height, bgColor);
 
         // 3. 计算滑块位置和长度
         float range = intValue.getMax() - intValue.getMin();
-        // 使用浮点数计算百分比，但操作的是整数值
         float valuePercent = (intValue.getValue() - intValue.getMin()) / range;
 
         int sliderStart = x + 2;
         int sliderWidth = width - 4;
         int filledWidth = (int) (sliderWidth * valuePercent);
 
-        // 4. 渲染填充条
-        guiGraphics.fill(sliderStart, y + height - 3, sliderStart + filledWidth, y + height - 1, Color.ORANGE.getRGB());
+        int sliderY = y + height - 3;
+        int sliderThickness = 2;
+        int handleSize = 4;
 
-        // 5. 渲染名称和当前值
+        // 4. 渲染轨道 (深灰色作为背景)
+        guiGraphics.fill(sliderStart, sliderY, sliderStart + sliderWidth, sliderY + sliderThickness,
+                new Color(50, 50, 50).getRGB());
+
+        // 5. 渲染填充条 (主题色)
+        guiGraphics.fill(sliderStart, sliderY, sliderStart + filledWidth, sliderY + sliderThickness, ACCENT_COLOR);
+
+        // 6. 渲染手柄
+        guiGraphics.fill(sliderStart + filledWidth - handleSize / 2, sliderY - (handleSize - sliderThickness) / 2,
+                sliderStart + filledWidth + handleSize / 2, sliderY + (handleSize + sliderThickness) / 2,
+                TEXT_COLOR);
+
+        // 7. 渲染名称和当前值
         String displayString = String.format("%s: %d", intValue.getName(), intValue.getValue());
-        int textColor = isHovered(mouseX, mouseY) ? Color.CYAN.getRGB() : Color.WHITE.getRGB();
-        guiGraphics.drawString(mc.font, displayString, x + 2, y + 2, textColor, true);
+        guiGraphics.drawString(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
     }
 
     private void updateValueFromMouse(double mouseX) {
