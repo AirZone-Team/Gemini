@@ -56,6 +56,8 @@ public class ModuleComponent {
                 component = new FloatRangeValueComponent((FloatRangeValue) value, 0, 0, width, componentHeight);
             } else if (value instanceof IntRangeValue) {
                 component = new IntRangeValueComponent((IntRangeValue) value, 0, 0, width, componentHeight);
+            } else if (value instanceof CheckboxValue) {
+                component = new CheckboxValueComponent((CheckboxValue) value,0,0,width,componentHeight);
             }
 
             if (component != null) {
@@ -65,7 +67,6 @@ public class ModuleComponent {
     }
 
     public int getTotalHeight() {
-        // ... (getTotalHeight 逻辑保持不变)
         int totalHeight = this.height;
 
         if (isExpanded) {
@@ -74,6 +75,10 @@ public class ModuleComponent {
 
                 if (component instanceof ListValueComponent listComp) {
                     totalHeight += listComp.getExpandedListHeight();
+                }
+                // 【新增/修改】处理 CheckboxValueComponent 的额外高度
+                else if (component instanceof CheckboxValueComponent checkboxComp) {
+                    totalHeight += checkboxComp.getExpandedListHeight();
                 }
             }
         }
@@ -139,6 +144,10 @@ public class ModuleComponent {
                 if (component instanceof ListValueComponent listComp) {
                     componentRenderHeight += listComp.getExpandedListHeight();
                 }
+                // 【新增/修改】处理 CheckboxValueComponent 的额外高度
+                else if (component instanceof CheckboxValueComponent checkboxComp) {
+                    componentRenderHeight += checkboxComp.getExpandedListHeight();
+                }
                 currentY += componentRenderHeight;
             }
         }
@@ -174,6 +183,10 @@ public class ModuleComponent {
                 if (component instanceof ListValueComponent listComp) {
                     componentInteractionHeight += listComp.getExpandedListHeight();
                 }
+
+                if (component instanceof CheckboxValueComponent valueComponent) {
+                    componentInteractionHeight += valueComponent.getExpandedListHeight();
+                }
                 currentY += componentInteractionHeight;
             }
         }
@@ -198,6 +211,9 @@ public class ModuleComponent {
                 int componentInteractionHeight = component.height;
                 if (component instanceof ListValueComponent listComp) {
                     componentInteractionHeight += listComp.getExpandedListHeight();
+                }
+                if (component instanceof CheckboxValueComponent valueComponent) {
+                    componentInteractionHeight += valueComponent.getExpandedListHeight();
                 }
                 currentY += componentInteractionHeight;
             }

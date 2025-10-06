@@ -6,6 +6,7 @@ import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.utils.TimerUtils;
 import geminiclient.gemini.values.impl.BoolValue;
+import geminiclient.gemini.values.impl.CheckboxValue;
 import geminiclient.gemini.values.impl.FloatValue;
 import geminiclient.gemini.values.impl.IntRangeValue;
 import net.minecraft.world.InteractionHand;
@@ -17,9 +18,7 @@ import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.monster.Slime;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.phys.Vec3;
 
-import java.util.ArrayList; 
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -40,6 +39,9 @@ public class KillAura extends Module {
     private final BoolValue attackPlayers = new BoolValue("AttackPlayers", true);
     private final BoolValue attackMobs = new BoolValue("AttackMobs", true);
     private final BoolValue attackAnimals = new BoolValue("AttackAnimals", false);
+    private final CheckboxValue targets = new CheckboxValue("Targets",new BoolValue[]{
+            attackPlayers,attackAnimals,attackMobs
+    });
     
     // --- 重新添加 SilentRotate ---
     private final BoolValue silentRotate = new BoolValue("SilentRotate", true);
@@ -51,18 +53,20 @@ public class KillAura extends Module {
     public KillAura() {
         super("KillAura", ModuleEnum.Combat, true);
         // 重新添加 silentRotate
-        addValue(noCoolDown, cps, range, fov, 
-                attackPlayers, attackMobs, attackAnimals,
+        addValue(noCoolDown, cps, range, fov,
+                targets,
                 silentRotate); 
     }
-    
-    public void onEnable() {
+
+    @Override
+    public void onEnabled() {
         if (player != null) {
             yawLogic = player.getYRot();
             pitchLogic = player.getXRot();
         }
     }
 
+    @SuppressWarnings("unused")
     @EventTarget
     public void onUpdate(UpdateEvent event) {
         if (player == null || mc.gameMode == null) return;
@@ -121,24 +125,23 @@ public class KillAura extends Module {
     private void findTargets() {
         entities.clear();
         curr = null;
-        if (mc.level == null) return;
-        
-        List<Entity> potentialTargets = new ArrayList<>();
+        if (mc.level == null || player == null) return;
 
         for (Entity entity : mc.level.entitiesForRendering()) {
             if (isValidTarget(entity) && isInFov(entity)) {
-                potentialTargets.add(entity);
+                entities.add(entity);
             }
         }
 
-        if (potentialTargets.isEmpty()) return;
+        if (entities.isEmpty()) return;
         
-        potentialTargets.sort(Comparator.comparingDouble(player::distanceTo));
+        entities.sort(Comparator.comparingDouble(player::distanceTo));
 
-        curr = potentialTargets.get(0);
+        curr = entities.getFirst();
     }
 
     private boolean isValidTarget(Entity entity) {
+        if (player == null) return false;
         if (entity == null || entity == player || !entity.isAlive()) return false;
         if (!(entity instanceof LivingEntity)) return false; 
         if (entity instanceof ArmorStand) return false;
@@ -147,13 +150,14 @@ public class KillAura extends Module {
         if (entity instanceof Player && attackPlayers.enabled) return true;
         
         if ((entity instanceof Mob || entity instanceof Slime || entity instanceof Bat) && attackMobs.enabled) return true;
-        
-        if (entity instanceof Animal && attackAnimals.enabled) return true;
 
-        return false;
+        return entity instanceof Animal && attackAnimals.enabled;
     }
 
     private boolean isInFov(Entity entity) {
+        if (player == null)
+            return false;
+
         if (fov.getValue() >= 360f) return true;
         double dx = entity.getX() - player.getX();
         double dz = entity.getZ() - player.getZ();
@@ -166,6 +170,8 @@ public class KillAura extends Module {
      * 瞬时瞄准，不进行平滑或预测。
      */
     private void updateTargetAngles(Entity entity) {
+        if (player == null)
+            return;
         // 直接瞄准目标当前位置
         double dx = entity.getX() - player.getX();
         double dz = entity.getZ() - player.getZ();

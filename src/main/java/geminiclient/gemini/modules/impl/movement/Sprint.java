@@ -5,11 +5,17 @@ import geminiclient.gemini.events.impl.UpdateEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.utils.MovementUtils;
+import geminiclient.gemini.values.impl.BoolValue;
+import geminiclient.gemini.values.impl.CheckboxValue;
 
 public class Sprint extends Module {
+    CheckboxValue checkboxValue = new CheckboxValue("test",new BoolValue[]{
+            new BoolValue("fw"),new BoolValue("sb")
+    });
     public Sprint() {
         super("Sprint", ModuleEnum.Movement,true);
         addValue(
+                checkboxValue
         );
     }
 
