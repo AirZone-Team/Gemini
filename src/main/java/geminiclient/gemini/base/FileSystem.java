@@ -275,7 +275,7 @@ public class FileSystem {
 
                 // 3. Set module state
                 if (moduleJson.has("enabled")) {
-                    module.setEnabledSilently(moduleJson.getBoolean("enabled"));
+                    module.setEnabled(moduleJson.getBoolean("enabled"));
                 }
                 if (moduleJson.has("key")) {
                     module.key = moduleJson.getInt("key");

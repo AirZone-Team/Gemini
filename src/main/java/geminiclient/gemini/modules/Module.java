@@ -51,6 +51,9 @@ public class Module implements MinecraftInstance {
     }
 
     public void setEnabled(boolean b) {
+        if (this.enabled == b)
+            return;
+
         this.enabled = b;
         if (b) {
             animationXOffset = 100f;
@@ -59,16 +62,6 @@ public class Module implements MinecraftInstance {
         } else {
             Gemini.eventManager.unregister(this);
             onDisabled();
-        }
-    }
-
-    public void setEnabledSilently(boolean b) {
-        this.enabled = b;
-        if (b) {
-            animationXOffset = 100f;
-            Gemini.eventManager.register(this);
-        } else {
-            Gemini.eventManager.unregister(this);
         }
     }
 
