@@ -6,7 +6,9 @@ import net.minecraft.world.entity.player.Input;
 
 public class MovementUtils implements MinecraftInstance {
     public static boolean moving() {
-        boolean idk = Input.EMPTY.forward() || Input.EMPTY.backward();
-        return idk;
+        if (mc.player == null)
+            return false;
+
+        return mc.player.input.getMoveVector().x != 0.0 || mc.player.input.getMoveVector().y != 0.0f;
     }
 }

@@ -1,7 +1,7 @@
 package geminiclient.mixin;
 
 import geminiclient.gemini.Gemini;
-import geminiclient.gemini.events.impl.Render2DEvent;
+import geminiclient.gemini.event.events.impl.Render2DEvent;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;

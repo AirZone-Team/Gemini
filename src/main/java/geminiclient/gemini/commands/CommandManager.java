@@ -1,11 +1,11 @@
 package geminiclient.gemini.commands;
 
-import com.cubk.event.annotations.EventTarget;
+import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.commands.impl.Bind;
 import geminiclient.gemini.commands.impl.LoadConfig;
 import geminiclient.gemini.commands.impl.SaveConfig;
-import geminiclient.gemini.events.impl.ChatEvent;
+import geminiclient.gemini.event.events.impl.ChatEvent;
 
 import java.util.ArrayList;
 import java.util.Arrays;

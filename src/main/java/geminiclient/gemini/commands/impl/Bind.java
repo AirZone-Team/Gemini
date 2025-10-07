@@ -16,6 +16,7 @@ public class Bind extends Command {
 
         if (args.length != 3) {
             ClientUtils.addChatMessage(".bind <ModuleName> <Key>");
+            return;
         }
 
         for (Module module : Gemini.moduleManager.getModules()) {

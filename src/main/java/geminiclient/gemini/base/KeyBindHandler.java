@@ -1,8 +1,8 @@
 package geminiclient.gemini.base;
 
-import com.cubk.event.annotations.EventTarget;
+import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
-import geminiclient.gemini.events.impl.KeyEvent;
+import geminiclient.gemini.event.events.impl.KeyEvent;
 import geminiclient.gemini.modules.Module;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;

@@ -12,7 +12,7 @@ public class FullLight extends Module {
 
     @Override
     public void onEnabled() {
-        if (player != null && !player.hasEffect(MobEffects.NIGHT_VISION)) {
+        if (mc.player != null && !mc.player.hasEffect(MobEffects.NIGHT_VISION)) {
             MobEffectInstance instance = new MobEffectInstance(
                     MobEffects.NIGHT_VISION,
                     Integer.MAX_VALUE,
@@ -21,14 +21,14 @@ public class FullLight extends Module {
                     false, // showParticles
                     true // showIcon
             );
-            player.addEffect(instance);
+            mc.player.addEffect(instance);
         }
     }
 
     @Override
     public void onDisabled() {
-        if (player != null && player.hasEffect(MobEffects.NIGHT_VISION)) {
-            player.removeEffect(MobEffects.NIGHT_VISION);
+        if (mc.player != null && mc.player.hasEffect(MobEffects.NIGHT_VISION)) {
+            mc.player.removeEffect(MobEffects.NIGHT_VISION);
         }
     }
 }

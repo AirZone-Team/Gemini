@@ -1,6 +1,6 @@
-package geminiclient.gemini.events.impl;
+package geminiclient.gemini.event.events.impl;
 
-import com.cubk.event.impl.CancellableEvent;
+import geminiclient.gemini.event.impl.CancellableEvent;
 
 public class ChatEvent extends CancellableEvent {
     public String message;

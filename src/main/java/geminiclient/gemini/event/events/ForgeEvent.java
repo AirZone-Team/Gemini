@@ -1,7 +1,7 @@
-package geminiclient.gemini.events;
+package geminiclient.gemini.event.events;
 
 import geminiclient.gemini.Gemini;
-import geminiclient.gemini.events.impl.ChatEvent;
+import geminiclient.gemini.event.events.impl.ChatEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientChatEvent;
 
@@ -14,4 +14,14 @@ public class ForgeEvent {
             event.setCanceled(true);
         }
     }
+//
+//    @SubscribeEvent
+//    public void onClientTick(PlayerTickEvent.Pre event) {
+//        Gemini.eventManager.call(new UpdateEvent());
+//    }
+//
+//    @SubscribeEvent
+//    public void post(PlayerTickEvent.Post event) {
+//        Gemini.eventManager.call(new UpdateEvent());
+//    }
 }

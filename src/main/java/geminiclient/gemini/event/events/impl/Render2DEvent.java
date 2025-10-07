@@ -1,6 +1,6 @@
-package geminiclient.gemini.events.impl;
+package geminiclient.gemini.event.events.impl;
 
-import com.cubk.event.impl.Event;
+import geminiclient.gemini.event.impl.Event;
 import net.minecraft.client.gui.GuiGraphics;
 import org.joml.Matrix3x2fStack;
 

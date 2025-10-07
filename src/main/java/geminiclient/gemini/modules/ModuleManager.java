@@ -1,11 +1,13 @@
 package geminiclient.gemini.modules;
 
 import geminiclient.gemini.modules.impl.combat.KillAura;
+import geminiclient.gemini.modules.impl.combat.Velocity;
+import geminiclient.gemini.modules.impl.movement.NoSlow;
 import geminiclient.gemini.modules.impl.movement.Sprint;
+import geminiclient.gemini.modules.impl.player.NoFall;
 import geminiclient.gemini.modules.impl.visual.Arraylists;
 import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.modules.impl.visual.FullLight;
-import geminiclient.gemini.modules.impl.visual.ItemPhysic;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,9 +22,22 @@ public class ModuleManager {
                 new FullLight(),
                 new ClickGui(),
                 new Arraylists(),
-                new ItemPhysic()
+                new Velocity(),
+                new NoFall(),
+                new NoSlow()
         );
     }
+
+    @SuppressWarnings("unchecked")
+    public <T> T getModule(final Class<T> clazz) {
+        for (final Module module : moduleList) {
+            if (module.getClass() == clazz) {
+                return (T) module;
+            }
+        }
+        return null;
+    }
+
 
     private void addAll(Module... modules) {
         Collections.addAll(moduleList, modules);
