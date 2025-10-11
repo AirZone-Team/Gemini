@@ -18,7 +18,7 @@ public class CategoryPanel implements MinecraftInstance {
     private final List<ModuleComponent> moduleComponents = new ArrayList<>();
 
     // 统一的颜色主题
-    private static final int ACCENT_COLOR = new Color(0, 0, 0).getRGB(); // 亮洋红色 (主色调)
+    private static final int ACCENT_COLOR = new Color(0, 0, 0).getRGB(); // 黑色头部背景
     private static final int TEXT_COLOR = Color.WHITE.getRGB();
 
     public CategoryPanel(ModuleEnum category, int x, int y, int width, int headerHeight) {
@@ -32,7 +32,8 @@ public class CategoryPanel implements MinecraftInstance {
         int currentY = y + headerHeight + 2;
         for (Module module : Gemini.moduleManager.getModules()) {
             if (module.getModuleEnum() == category) {
-                ModuleComponent component = new ModuleComponent(module, this.x, currentY, this.width, 14);
+                // ✅ 左右各缩 2 像素（比类别少 4 像素宽）
+                ModuleComponent component = new ModuleComponent(module, this.x + 2, currentY, this.width - 4, 14);
                 moduleComponents.add(component);
                 currentY += 14;
             }
@@ -45,7 +46,7 @@ public class CategoryPanel implements MinecraftInstance {
     }
 
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks, float scrollOffset) {
-        // 1. 处理拖拽
+        // 1. 拖拽逻辑
         if (isDragging) {
             double newRenderY = mouseY - dragOffsetY;
             this.x = (int) (mouseX - dragOffsetX);
@@ -54,19 +55,17 @@ public class CategoryPanel implements MinecraftInstance {
 
         this.renderY = this.y + (int) scrollOffset;
 
-        // 2. 渲染面板头部（类别名称）
+        // 2. 渲染类别头部
         int headerHeight = 15;
-        // 渲染背景矩形 (使用主题色作为头部背景)
         guiGraphics.fill(x, renderY, x + width, renderY + headerHeight, ACCENT_COLOR);
-
-        // 渲染文本 (白色)
         guiGraphics.drawString(mc.font, category.name(), x + 2, renderY + 3, TEXT_COLOR, true);
 
-        // 3. 渲染模块列表和组件
+        // 3. 渲染模块列表（左右各缩 2px）
         int currentY = this.renderY + headerHeight;
         for (ModuleComponent component : moduleComponents) {
-            component.x = this.x;
+            component.x = this.x + 2; // ✅ 左右各缩 2 像素
             component.y = currentY;
+            component.width = this.width - 4; // ✅ 宽度减 4
             component.render(guiGraphics, mouseX, mouseY, partialTicks);
 
             currentY += component.getTotalHeight();
@@ -76,9 +75,8 @@ public class CategoryPanel implements MinecraftInstance {
     public boolean mouseClicked(double mouseX, double mouseY, int button, float scrollOffset) {
         double adjustedMouseY = mouseY - scrollOffset;
 
-        // 检查鼠标是否点击在面板头部
+        // 检查点击类别头部（拖动）
         if (mouseX >= x && mouseX <= x + width && adjustedMouseY >= y && adjustedMouseY <= y + 15) {
-
             if (button == 0) {
                 isDragging = true;
                 dragOffsetX = mouseX - x;
@@ -87,11 +85,12 @@ public class CategoryPanel implements MinecraftInstance {
             }
         }
 
-        // 传递点击事件给模块组件
+        // 传递点击事件到模块组件
         int currentY = this.y + 15;
         for (ModuleComponent component : moduleComponents) {
-            component.x = this.x;
+            component.x = this.x + 2; // ✅ 一致性
             component.y = currentY;
+            component.width = this.width - 4;
 
             if (component.mouseClicked(mouseX, adjustedMouseY, button)) {
                 return true;
@@ -108,11 +107,12 @@ public class CategoryPanel implements MinecraftInstance {
             return true;
         }
 
-        // 传递释放事件给模块组件 (需要重新计算组件的 Y 坐标)
+        // 传递释放事件给模块组件
         int currentY = this.y + 15;
         for (ModuleComponent component : moduleComponents) {
-            component.x = this.x;
+            component.x = this.x + 2; // ✅ 对齐渲染偏移
             component.y = currentY;
+            component.width = this.width - 4;
 
             if (component.mouseReleased(mouseX, mouseY, button)) {
                 return true;
