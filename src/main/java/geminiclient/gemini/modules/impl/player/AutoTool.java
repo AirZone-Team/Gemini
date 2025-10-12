@@ -1,10 +1,10 @@
 package geminiclient.gemini.modules.impl.player;
 
-import geminiclient.gemini.base.MinecraftInstance;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.MotionEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.utils.TimerUtils;
 import geminiclient.gemini.values.impl.BoolValue;
 import geminiclient.gemini.values.impl.ListValue;
 import geminiclient.gemini.values.impl.IntValue; 
@@ -21,22 +21,6 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.core.BlockPos;
-
-import java.util.concurrent.atomic.AtomicLong; 
-
-// 计时器辅助类 (TimerUtil)
-class TimerUtil implements MinecraftInstance {
-    private final AtomicLong lastTime = new AtomicLong(System.currentTimeMillis());
-
-    public boolean hasElapsedTime(long ms) {
-        return System.currentTimeMillis() - lastTime.get() >= ms;
-    }
-
-    public void reset() {
-        lastTime.set(System.currentTimeMillis());
-    }
-}
-
 
 public final class AutoTool extends Module {
     
@@ -58,12 +42,12 @@ public final class AutoTool extends Module {
     // 只有当 protectTool.enabled 为 true 时才显示
     private static final IntValue minThreshold = new IntValue("Min Threshold", 10, 1, 100, () -> protectTool.enabled); 
 
-    private final TimerUtil switchTimer = new TimerUtil();
+    private final TimerUtils switchTimer = new TimerUtils();
     private ActionState currentState = ActionState.IDLE;
     private int previousSlot = -1;
 
     public AutoTool() {
-        super("Auto Tool", ModuleEnum.Player);
+        super("AutoTool", ModuleEnum.Player);
         // 更新 addValue 列表，使用新名称
         this.addValue(switchDelay, switchMode, switchForCombat, requireSneak, protectTool, minThreshold);
     }
@@ -72,6 +56,8 @@ public final class AutoTool extends Module {
      * 【Access Transformer访问】设置热键栏槽位。
      */
     private void setQuickbarSlot(int slot) {
+        if (mc.player == null)
+            return;
         mc.player.getInventory().selected = slot; 
         
         // 发送数据包同步到服务器 (重要!)
@@ -82,6 +68,8 @@ public final class AutoTool extends Module {
      * 【Access Transformer访问】读取当前热键栏槽位。
      */
     private int getCurrentSlot() {
+        if (mc.player == null)
+            return -1;
         return mc.player.getInventory().selected; 
     }
 
@@ -96,6 +84,7 @@ public final class AutoTool extends Module {
         super.onDisabled();
     }
 
+    @SuppressWarnings("unused")
     @EventTarget
     private void onMotionEvent(MotionEvent event) {
         if (mc.player == null || mc.level == null) return; 
@@ -124,6 +113,9 @@ public final class AutoTool extends Module {
     }
     
     private void handleMining(BlockHitResult blockHit) {
+        if (mc.player == null || mc.level == null)
+            return;
+
         BlockPos blockPos = blockHit.getBlockPos();
         BlockState blockState = mc.level.getBlockState(blockPos);
 
@@ -131,7 +123,7 @@ public final class AutoTool extends Module {
 
         int bestToolSlot = findBestTool(blockState);
         if (bestToolSlot != -1 && bestToolSlot != getCurrentSlot()) { 
-            if (!switchTimer.hasElapsedTime(switchDelay.getValue())) return;
+            if (!switchTimer.hasTimeElapsed(switchDelay.getValue(),false)) return;
 
             if (switchMode.is(SMART_MODE)) {
                 ItemStack currentTool = mc.player.getMainHandItem();
@@ -161,7 +153,7 @@ public final class AutoTool extends Module {
 
         int bestWeaponSlot = findBestWeapon();
         if (bestWeaponSlot != -1 && bestWeaponSlot != getCurrentSlot()) { 
-            if (!switchTimer.hasElapsedTime(switchDelay.getValue())) return;
+            if (!switchTimer.hasTimeElapsed(switchDelay.getValue(),false)) return;
 
             setQuickbarSlot(bestWeaponSlot); 
             currentState = ActionState.ATTACKING;
@@ -170,6 +162,8 @@ public final class AutoTool extends Module {
     }
     
     private int findBestWeapon() {
+        if (mc.player == null)
+            return -1;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = mc.player.getInventory().getItem(i);
             if (!stack.isEmpty()) {
@@ -203,6 +197,8 @@ public final class AutoTool extends Module {
     }
     
     private int findBestTool(BlockState blockState) {
+        if (mc.player == null)
+            return -1;
         int bestSlot = -1;
         float bestScore = 0;
 

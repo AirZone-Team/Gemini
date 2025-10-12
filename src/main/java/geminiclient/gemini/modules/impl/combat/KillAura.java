@@ -174,7 +174,7 @@ public class KillAura extends Module {
         entities.clear();
         curr = null;
         for (Entity entity : mc.level.entitiesForRendering()) {
-            if (isValidTarget(entity) && isInFov(entity)) {
+            if (isValidTarget(entity) && isInFov(entity) && mc.player.distanceTo(entity) < range.getValue()) {
                 entities.add(entity);
             }
         }
@@ -204,17 +204,17 @@ public class KillAura extends Module {
 
     private boolean isValidTarget(Entity entity) {
         if (mc.player == null) return false;
-        if (entity == null || entity == mc.player || !entity.isAlive()) return false;
+        if (entity == null || entity == mc.player) return false;
         if (!(entity instanceof LivingEntity)) return false;
         if (((LivingEntity) entity).hurtTime > hurtTime.getValue()) return false;
         if (entity instanceof ArmorStand) return false;
-        if (mc.player.distanceTo(entity) > range.getValue()) return false;
-        if (entity instanceof Player && targets.boolValues[0].enabled) return true;
-        if ((entity instanceof Mob || entity instanceof Slime || entity instanceof Bat) && targets.boolValues[1].enabled)
-            return true;
-        if (entity.isAlive() || targets.boolValues[3].enabled) return true;
-        if (mc.player.distanceTo(entity) < range.getValue()) return true;
-        return entity instanceof Animal && targets.boolValues[2].enabled;
+        if (entity.isAlive() || targets.boolValues[3].enabled) {
+            if (entity instanceof Player && targets.boolValues[0].enabled) return true;
+            if ((entity instanceof Mob || entity instanceof Slime || entity instanceof Bat) && targets.boolValues[1].enabled)
+                return true;
+            return entity instanceof Animal && targets.boolValues[2].enabled;
+        }
+        return false;
     }
 
     private boolean isInFov(Entity entity) {

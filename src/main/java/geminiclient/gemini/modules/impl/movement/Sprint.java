@@ -10,7 +10,7 @@ import net.minecraft.world.level.GameType;
 
 public class Sprint extends Module {
     private final BoolValue checkHunger = new BoolValue("CheckHunger", true);
-    private final BoolValue sprintUsingItem = new BoolValue("Using Item", false); // 使用物品也能疾跑
+    private final BoolValue sprintUsingItem = new BoolValue("UsingItem", false); // 使用物品也能疾跑
 
     public Sprint() {
         super("Sprint", ModuleEnum.Movement);

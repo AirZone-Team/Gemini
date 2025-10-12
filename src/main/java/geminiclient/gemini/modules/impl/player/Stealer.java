@@ -242,7 +242,9 @@ public class Stealer extends Module {
         if (stack.getEquipmentSlot().isArmor()) {
             float value = 0;
             if (stack.has(DataComponents.EQUIPPABLE)) {
-                value += stack.get(DataComponents.DAMAGE);
+                if (stack.getItem() == Items.CHAINMAIL_HELMET) {
+
+                }
             }
         }
 

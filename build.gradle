@@ -101,7 +101,7 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 
 dependencies {
-    runtimeOnly "curse.maven:viaforge-418933:7061702"
+//    runtimeOnly "curse.maven:viaforge-418933:7061702"
     jarJar(implementation 'org.json:json:20250517')
 }
 
