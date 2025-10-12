@@ -4,10 +4,13 @@ import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.SlowDownEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.values.impl.FloatValue;
 
 public class NoSlow extends Module {
+    private final FloatValue factor = new FloatValue("Factor",0.98f,0.2f,0.98f);
     public NoSlow() {
         super("NoSlow", ModuleEnum.Movement);
+        addValue(factor);
     }
 
     @SuppressWarnings("unused")
@@ -17,7 +20,7 @@ public class NoSlow extends Module {
             return;
 
         if (mc.player.isUsingItem()) {
-            event.setCancelled(true);
+            event.setFactor(factor.getValue());
         }
     }
 }

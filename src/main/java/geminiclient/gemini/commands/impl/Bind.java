@@ -28,6 +28,7 @@ public class Bind extends Command {
                         return;
                     }
                     module.key = key;
+                    Gemini.fileSystem.saveConfig();
                     ClientUtils.addChatMessage(module.getName() + "'s key is " + key);
                 } else {
                     ClientUtils.addChatMessage("The input value can only be one");

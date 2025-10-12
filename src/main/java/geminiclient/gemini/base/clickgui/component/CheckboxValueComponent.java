@@ -33,7 +33,7 @@ public class CheckboxValueComponent extends ValueComponent {
     private boolean isExpanded = false;
 
     public CheckboxValueComponent(CheckboxValue value, int x, int y, int width, int height) {
-        super(value, x, y, width, 14); // 头部默认高度为 14
+        super(value, x, y, width, 16); // 头部默认高度为 14
 
         // 实例化所有子 BoolValue 的组件
         for (BoolValue boolValue : value.boolValues) {
@@ -76,6 +76,7 @@ public class CheckboxValueComponent extends ValueComponent {
 
         // 4. 渲染子组件 (如果已展开)
         if (isExpanded) {
+            guiGraphics.fill(x, y + height - 1, x + width, y + height, ACCENT_COLOR);
             int currentY = y + height;
 
             for (BoolValueComponent component : subComponents) {

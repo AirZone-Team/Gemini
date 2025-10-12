@@ -17,6 +17,7 @@ public class Sprint extends Module {
         addValue(checkHunger);
     }
 
+    @SuppressWarnings("unused")
     @EventTarget
     public void onUpdate(UpdateEvent event) {
         // 使用更高效的空值检查

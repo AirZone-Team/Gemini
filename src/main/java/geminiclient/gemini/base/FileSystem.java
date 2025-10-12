@@ -1,10 +1,12 @@
 package geminiclient.gemini.base;
 
+import ca.weblite.objc.Client;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.events.impl.ShutdownEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleManager;
+import geminiclient.gemini.utils.ClientUtils;
 import geminiclient.gemini.values.ValueParent;
 import geminiclient.gemini.values.impl.*;
 import net.minecraft.client.Minecraft;
@@ -170,6 +172,9 @@ public class FileSystem {
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Failed to save configuration: " + configFile, e);
         }
+        Gemini.lastConfigName = name;
+        loadConfig(Gemini.lastConfigName);
+        LOGGER.info("Configuration successfully loaded: " + configFile);
     }
 
     /**
@@ -288,7 +293,7 @@ public class FileSystem {
             return;
         }
 
-        Path configFile = configDirectory.resolve(name + ".json");
+        Path configFile = Path.of(configDirectory + File.separator + name + ".json");
         LOGGER.info("Loading configuration from: " + configFile);
 
         if (!Files.exists(configFile)) {

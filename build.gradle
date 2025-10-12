@@ -12,6 +12,7 @@ repositories {
     mavenLocal()
     mavenCentral()
     maven { url 'https://jitpack.io' }
+    maven { url 'https://cursemaven.com' }
 }
 
 base {
@@ -100,7 +101,8 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 
 dependencies {
-    implementation 'org.json:json:20250517'
+    runtimeOnly "curse.maven:viaforge-418933:7061702"
+    jarJar(implementation 'org.json:json:20250517')
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

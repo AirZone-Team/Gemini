@@ -17,7 +17,7 @@ public class IntValueComponent extends ValueComponent {
     private static final int TEXT_COLOR = Color.WHITE.getRGB();
 
     public IntValueComponent(IntValue value, int x, int y, int width, int height) {
-        super(value, x, y, width, 14);
+        super(value, x, y, width, 16);
     }
 
     @Override

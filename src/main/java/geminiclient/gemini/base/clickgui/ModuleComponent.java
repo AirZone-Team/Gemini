@@ -125,7 +125,7 @@ public class ModuleComponent {
             String symbol = isExpanded ? "▼" : "▶";
 
             // 悬停或展开时使用主题色高亮箭头
-            int arrowColor = (isExpanded || isHovered) ? ACCENT_COLOR : TEXT_COLOR;
+            int arrowColor = (isExpanded || isHovered) ? new Color(255, 51, 153).getRGB() : TEXT_COLOR;
 
             guiGraphics.drawString(mc.font, symbol, x + width - 10, y + 3, arrowColor, true);
         }

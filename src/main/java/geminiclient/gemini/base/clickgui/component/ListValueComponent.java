@@ -22,7 +22,7 @@ public class ListValueComponent extends ValueComponent {
     private static final int TEXT_COLOR = Color.WHITE.getRGB();
 
     public ListValueComponent(ListValue value, int x, int y, int width, int height) {
-        super(value, x, y, width, 14);
+        super(value, x, y, width, 16);
     }
 
     public boolean isExpanded() {
@@ -51,7 +51,7 @@ public class ListValueComponent extends ValueComponent {
         }
 
         // 2. 渲染名称和当前模式
-        String displayString = String.format("%s: [ %s ]", this.value.getName(), listValue.get());
+        String displayString = String.format("%s: %s", this.value.getName(), listValue.get());
         guiGraphics.drawString(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
 
         // 3. 如果展开，则渲染模式列表
@@ -80,7 +80,7 @@ public class ListValueComponent extends ValueComponent {
             if (isModeHovered || isSelected) {
                 // 悬停使用浅灰色，选中时使用主题色
                 int highlightColor = isSelected ? ACCENT_COLOR : LIST_HOVER_BG;
-                guiGraphics.fill(listX + 1, currentY, listX + listWidth - 1, currentY + MODE_HEIGHT, highlightColor);
+                guiGraphics.fill(listX, currentY, listX + listWidth, currentY + MODE_HEIGHT, highlightColor);
             }
 
             // 文本颜色：选中白色，未选中略灰

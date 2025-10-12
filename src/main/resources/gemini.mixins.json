@@ -4,12 +4,16 @@
   "package": "geminiclient.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "MixinConnection"
+    "MixinConnection",
+    "MixinEntity",
+    "MixinLivingEntity",
+    "MixinPlayer"
   ],
   "client": [
     "MixinGameRenderer",
     "MixinItemEntityRenderer",
     "MixinKeyboardHandler",
+    "MixinKeyboardInput",
     "MixinLivingEntityRenderer",
     "MixinLocalPlayer",
     "MixinMinecraft",
