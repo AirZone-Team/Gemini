@@ -10,26 +10,26 @@ import net.minecraft.world.level.GameType;
 
 public class Sprint extends Module {
     private final BoolValue checkHunger = new BoolValue("CheckHunger", true);
+    private final BoolValue sprintUsingItem = new BoolValue("Using Item", false); // 使用物品也能疾跑
 
     public Sprint() {
         super("Sprint", ModuleEnum.Movement);
 
         addValue(checkHunger);
+        addValue(sprintUsingItem);
     }
 
     @SuppressWarnings("unused")
     @EventTarget
     public void onUpdate(UpdateEvent event) {
-        // 使用更高效的空值检查
         if (!isPlayerValid()) {
             return;
         }
 
         LocalPlayer player = mc.player;
 
-        // 检查玩家是否正在移动（优化性能）
+        // 玩家没有移动输入，不需要疾跑
         if (player.xxa == 0 && player.zza == 0) {
-            // 玩家没有移动输入，不需要疾跑
             if (player.isSprinting()) {
                 player.setSprinting(false);
             }
@@ -41,45 +41,40 @@ public class Sprint extends Module {
         }
     }
 
-    /**
-     * 检查玩家是否有效且可用
-     */
     private boolean isPlayerValid() {
         return mc != null && mc.player != null && mc.level != null;
     }
 
-    /**
-     * 判断玩家是否可以疾跑
-     */
     private boolean canSprint(LocalPlayer player) {
-        // 基础条件检查
-        if (player.isUsingItem() || // 使用物品中
-                player.isShiftKeyDown() || // 潜行中
-                player.horizontalCollision || // 水平碰撞
-                player.isPassenger()) { // 乘坐载具
+        // 蹲下时不疾跑
+        if (player.isShiftKeyDown()) {
             return false;
         }
 
-        // 检查是否在液体中（水或熔岩）
+        // 使用物品检查（开关关闭时阻止疾跑）
+        if (!sprintUsingItem.enabled && player.isUsingItem()) {
+            return false;
+        }
+
+        if (player.horizontalCollision || player.isPassenger()) {
+            return false;
+        }
+
         if (player.isInWater() || player.isInLava()) {
             return false;
         }
 
-        // 可选的饥饿值检查（固定为6）
         if (checkHunger.enabled && player.getFoodData().getFoodLevel() <= 6) {
             return false;
         }
 
-        // 检查玩家游戏模式
         GameType gameType = mc.gameMode.getPlayerMode();
         boolean isCreativeOrSpectator = gameType == GameType.CREATIVE || gameType == GameType.SPECTATOR;
 
-        // 如果玩家在飞行，只有在创造模式或旁观模式下才允许疾跑
         if (player.getAbilities().flying) {
             return isCreativeOrSpectator;
         }
 
-        // 对于非飞行状态，允许在地面或空中疾跑
         return true;
     }
 
