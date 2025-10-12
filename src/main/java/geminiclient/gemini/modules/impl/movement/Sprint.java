@@ -46,11 +46,6 @@ public class Sprint extends Module {
     }
 
     private boolean canSprint(LocalPlayer player) {
-        // 蹲下时不疾跑
-        if (player.isShiftKeyDown()) {
-            return false;
-        }
-
         // 使用物品检查（开关关闭时阻止疾跑）
         if (!sprintUsingItem.enabled && player.isUsingItem()) {
             return false;
