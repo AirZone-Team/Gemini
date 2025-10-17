@@ -43,15 +43,19 @@ public class NoSlow extends Module {
             return;
 
         // 食物 / 药水
-        if (isFoodOrPotion(item) && foodMode.is("Vanilla")) {
-            event.setFactor(factor.getValue());
-            return;
+        if (isFoodOrPotion(item)) {
+            if (foodMode.is("Vanilla")) {
+                event.setFactor(factor.getValue());
+            }
+            return; // 明确返回，防止继续处理其他模式
         }
 
         // 弓 / 弩
-        if ((item == Items.BOW || item == Items.CROSSBOW) && bowMode.is("Vanilla")) {
-            event.setFactor(factor.getValue());
-            return;
+        if (item == Items.BOW || item == Items.CROSSBOW) {
+            if (bowMode.is("Vanilla")) {
+                event.setFactor(factor.getValue());
+            }
+            return; // 明确返回，防止继续处理其他模式
         }
 
         // 其他可使用物品（盾牌等）
