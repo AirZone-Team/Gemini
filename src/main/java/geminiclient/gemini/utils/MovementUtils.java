@@ -1,7 +1,7 @@
 package geminiclient.gemini.utils;
 
 import geminiclient.gemini.base.MinecraftInstance;
-import geminiclient.gemini.event.events.impl.moveFixEvent.StrafeEvent;
+import geminiclient.gemini.event.events.impl.StrafeEvent;
 
 public class MovementUtils implements MinecraftInstance {
     public static boolean moving() {

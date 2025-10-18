@@ -6,6 +6,7 @@ import geminiclient.gemini.modules.impl.movement.NoSlow;
 import geminiclient.gemini.modules.impl.movement.Sprint;
 import geminiclient.gemini.modules.impl.player.AutoTool;
 import geminiclient.gemini.modules.impl.player.NoFall;
+import geminiclient.gemini.modules.impl.player.Stealer;
 import geminiclient.gemini.modules.impl.visual.Arraylists;
 import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.modules.impl.visual.FullLight;
@@ -28,7 +29,8 @@ public class ModuleManager {
                 new NoFall(),
                 new NoSlow(),
                 new Notification(),
-                new AutoTool()
+                new AutoTool(),
+                new Stealer()
         );
     }
 

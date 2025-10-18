@@ -10,8 +10,6 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.PotionItem;
 
-import java.lang.reflect.Method;
-
 public class NoSlow extends Module {
 
     // 使用物品时的最大速度倍率
@@ -30,6 +28,7 @@ public class NoSlow extends Module {
         addValue(otherMode);
     }
 
+    @SuppressWarnings("unused")
     @EventTarget
     public void onSlowDown(SlowDownEvent event) {
         if (mc.player == null)
@@ -39,8 +38,6 @@ public class NoSlow extends Module {
         if (!mc.player.isUsingItem())
             return;
         Item item = mc.player.getUseItem().getItem();
-        if (item == null)
-            return;
 
         // 食物 / 药水
         if (isFoodOrPotion(item) && foodMode.is("Vanilla")) {
@@ -66,13 +63,6 @@ public class NoSlow extends Module {
     private boolean isFoodOrPotion(Item item) {
         if (item instanceof PotionItem || item == Items.MILK_BUCKET)
             return true;
-
-        try {
-            Method m = item.getClass().getMethod("getFoodProperties", net.minecraft.world.entity.LivingEntity.class);
-            Object result = m.invoke(item, new Object[] { null });
-            return result != null;
-        } catch (Exception ignored) {
-        }
 
         String name = item.toString().toLowerCase();
         return name.contains("food") || name.contains("meat") || name.contains("apple") || name.contains("bread");

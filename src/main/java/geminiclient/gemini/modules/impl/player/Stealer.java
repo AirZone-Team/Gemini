@@ -9,27 +9,16 @@ import geminiclient.gemini.utils.TimerUtils;
 import geminiclient.gemini.values.impl.IntRangeValue;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.ContainerScreen;
-import net.minecraft.core.Holder;
-import net.minecraft.core.Registry;
-import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ClickType;
-import net.minecraft.world.item.ArmorStandItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.enchantment.Enchantment;
-import net.minecraft.world.item.enchantment.EnchantmentHelper;
-import net.minecraft.world.item.enchantment.Enchantments;
-import net.minecraft.world.item.equipment.ArmorMaterials;
-import net.minecraft.world.item.equipment.ArmorType;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -39,90 +28,6 @@ public class Stealer extends Module {
     private static final String LARGE_CHEST_KEY = "container.chestDouble";
     private static final String ENDER_CHEST_KEY = "container.enderchest";
     private static final String FALLBACK_CHEST_TITLE = "Chest"; // 备用检查，以防本地化失败
-    private static final String[] leather_armor = new String[] {
-            Component.translatable("item.minecraft.leather_boots").getString(),
-            Component.translatable("item.minecraft.leather_helmet").getString(),
-            Component.translatable("item.minecraft.leather_chestplate").getString(),
-            Component.translatable("item.minecraft.leather_leggings").getString()
-    };
-    private static final String[] iron_armor = new String[] {
-            Component.translatable("item.minecraft.iron_leggings").getString(),
-            Component.translatable("item.minecraft.iron_boots").getString(),
-            Component.translatable("item.minecraft.iron_chestplate").getString(),
-            Component.translatable("item.minecraft.iron_helmet").getString(),
-    };
-    private static final String[] copper_armor = new String[] {
-            Component.translatable("item.minecraft.copper_helmet").getString(),
-            Component.translatable("item.minecraft.copper_boots").getString(),
-            Component.translatable("item.minecraft.copper_leggings").getString(),
-            Component.translatable("item.minecraft.copper_chestplate").getString(),
-    };
-    private static final String[] golden_armor = new String[] {
-            Component.translatable("item.minecraft.golden_helmet").getString(),
-            Component.translatable("item.minecraft.golden_leggings").getString(),
-            Component.translatable("item.minecraft.golden_chestplate").getString(),
-            Component.translatable("item.minecraft.golden_boots").getString()
-    };
-    private static final String[] diamond_armor = new String[] {
-            Component.translatable("item.minecraft.diamond_helmet").getString(),
-            Component.translatable("item.minecraft.diamond_leggings").getString(),
-            Component.translatable("item.minecraft.diamond_boots").getString(),
-            Component.translatable("item.minecraft.diamond_chestplate").getString(),
-    };
-    private static final String[] netherite_armor = new String[] {
-            Component.translatable("item.minecraft.netherite_helmet").getString(),
-            Component.translatable("item.minecraft.netherite_leggings").getString(),
-            Component.translatable("item.minecraft.netherite_boots").getString(),
-            Component.translatable("item.minecraft.netherite_chestplate").getString(),
-    };
-    private static final String[] chainmain_armor = new String[]{
-            Component.translatable("item.minecraft.chainmail_helmet").getString(),
-            Component.translatable("item.minecraft.chainmail_boots").getString(),
-            Component.translatable("item.minecraft.chainmail_leggings").getString(),
-            Component.translatable("item.minecraft.chainmail_chestplate").getString(),
-    };
-    private static final String[] other_armor = new String[] {
-            Component.translatable("item.minecraft.turtle_helmet").getString()
-    };
-    private static final String[] armor = new String[] {//傻逼MoJang删你妈的ArmorItem
-            Component.translatable("item.minecraft.leather_boots").getString(),
-            Component.translatable("item.minecraft.leather_helmet").getString(),
-            Component.translatable("item.minecraft.leather_chestplate").getString(),
-            Component.translatable("item.minecraft.leather_leggings").getString(),
-
-            Component.translatable("item.minecraft.iron_leggings").getString(),
-            Component.translatable("item.minecraft.iron_boots").getString(),
-            Component.translatable("item.minecraft.iron_chestplate").getString(),
-            Component.translatable("item.minecraft.iron_helmet").getString(),
-
-            Component.translatable("item.minecraft.copper_helmet").getString(),
-            Component.translatable("item.minecraft.copper_boots").getString(),
-            Component.translatable("item.minecraft.copper_leggings").getString(),
-            Component.translatable("item.minecraft.copper_chestplate").getString(),
-
-            Component.translatable("item.minecraft.golden_helmet").getString(),
-            Component.translatable("item.minecraft.golden_leggings").getString(),
-            Component.translatable("item.minecraft.golden_chestplate").getString(),
-            Component.translatable("item.minecraft.golden_boots").getString(),
-
-            Component.translatable("item.minecraft.diamond_helmet").getString(),
-            Component.translatable("item.minecraft.diamond_leggings").getString(),
-            Component.translatable("item.minecraft.diamond_boots").getString(),
-            Component.translatable("item.minecraft.diamond_chestplate").getString(),
-
-            Component.translatable("item.minecraft.netherite_helmet").getString(),
-            Component.translatable("item.minecraft.netherite_leggings").getString(),
-            Component.translatable("item.minecraft.netherite_boots").getString(),
-            Component.translatable("item.minecraft.netherite_chestplate").getString(),
-
-            Component.translatable("item.minecraft.chainmail_helmet").getString(),
-            Component.translatable("item.minecraft.chainmail_boots").getString(),
-            Component.translatable("item.minecraft.chainmail_leggings").getString(),
-            Component.translatable("item.minecraft.chainmail_chestplate").getString(),
-
-            Component.translatable("item.minecraft.turtle_helmet").getString()
-
-    };
 
     private final IntRangeValue delay = new IntRangeValue("Delay", 100, 200, 0, 500);
 
@@ -227,32 +132,156 @@ public class Stealer extends Module {
     }
 
     /**
-     * **TODO: 完整的物品判断逻辑**
      * 检查物品是否值得偷取。
-     * 目前仅检查物品是否非空。你需要在这里添加实际的过滤逻辑 (如：不偷工具、只偷钻石等)。
      * @param stack 要检查的物品堆
      * @return 物品是否值得偷取
      */
     private boolean isItemUseful(ItemStack stack) {
         // 基础检查：物品非空
-        if (stack.isEmpty() || stack.getEquipmentSlot() == null) {
+        if (stack.isEmpty()) {
             return false;
         }
 
-        if (stack.getEquipmentSlot().isArmor()) {
-            float value = 0;
-            if (stack.has(DataComponents.EQUIPPABLE)) {
-                if (stack.getItem() == Items.CHAINMAIL_HELMET) {
+        // 获取物品
+        var item = stack.getItem();
 
-                }
-            }
+        // 2. 检查工具和武器
+        if (isValuableToolOrWeapon(item)) {
+            return true;
         }
 
-        // TODO: 在这里添加更复杂的逻辑：
-        // 1. 检查物品ID/名称
-        // 2. 检查附魔、耐久
-        // 3. 检查玩家背包中是否已有同类/更好的物品 (用于 isBestItemInChest 的逻辑)
+        // 3. 检查护甲
+        if (isValuableArmor(stack)) {
+            return true;
+        }
 
-        return true;
+        // 4. 检查其他有价值的物品
+        if (isOtherValuableItem(item)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * 检查是否为有价值的工具或武器
+     */
+    private boolean isValuableToolOrWeapon(Item item) {
+        return item == Items.DIAMOND_PICKAXE ||
+                item == Items.DIAMOND_AXE ||
+                item == Items.DIAMOND_SWORD ||
+                item == Items.DIAMOND_SHOVEL ||
+                item == Items.DIAMOND_HOE ||
+                item == Items.NETHERITE_PICKAXE ||
+                item == Items.NETHERITE_AXE ||
+                item == Items.NETHERITE_SWORD ||
+                item == Items.NETHERITE_SHOVEL ||
+                item == Items.NETHERITE_HOE ||
+                item == Items.TRIDENT ||
+                item == Items.BOW ||
+                item == Items.CROSSBOW ||
+                item == Items.SHIELD ||
+                item == Items.FISHING_ROD ||
+                item == Items.FLINT_AND_STEEL ||
+                item == Items.SHEARS;
+    }
+
+    /**
+     * 检查是否为有价值的护甲
+     */
+    private boolean isValuableArmor(ItemStack stack) {
+        var item = stack.getItem();
+
+        // 检查基础护甲类型
+        boolean isArmor = item == Items.DIAMOND_HELMET ||
+                item == Items.DIAMOND_CHESTPLATE ||
+                item == Items.DIAMOND_LEGGINGS ||
+                item == Items.DIAMOND_BOOTS ||
+                item == Items.NETHERITE_HELMET ||
+                item == Items.NETHERITE_CHESTPLATE ||
+                item == Items.NETHERITE_LEGGINGS ||
+                item == Items.NETHERITE_BOOTS ||
+                item == Items.IRON_HELMET ||
+                item == Items.IRON_CHESTPLATE ||
+                item == Items.IRON_LEGGINGS ||
+                item == Items.IRON_BOOTS ||
+                item == Items.GOLDEN_HELMET ||
+                item == Items.GOLDEN_CHESTPLATE ||
+                item == Items.GOLDEN_LEGGINGS ||
+                item == Items.GOLDEN_BOOTS ||
+                item == Items.CHAINMAIL_HELMET ||
+                item == Items.CHAINMAIL_CHESTPLATE ||
+                item == Items.CHAINMAIL_LEGGINGS ||
+                item == Items.CHAINMAIL_BOOTS ||
+                item == Items.TURTLE_HELMET ||
+                item == Items.ELYTRA;
+
+        if (!isArmor) {
+            return false;
+        }
+
+        // 检查附魔 - 如果有任何附魔，认为有价值
+        if (stack.has(DataComponents.ENCHANTMENTS) && !stack.get(DataComponents.ENCHANTMENTS).isEmpty()) {
+            return true;
+        }
+
+        // 对于钻石和下界合金护甲，即使没有附魔也认为有价值
+        return item == Items.DIAMOND_HELMET ||
+                item == Items.DIAMOND_CHESTPLATE ||
+                item == Items.DIAMOND_LEGGINGS ||
+                item == Items.DIAMOND_BOOTS ||
+                item == Items.NETHERITE_HELMET ||
+                item == Items.NETHERITE_CHESTPLATE ||
+                item == Items.NETHERITE_LEGGINGS ||
+                item == Items.NETHERITE_BOOTS ||
+                item == Items.ELYTRA;
+    }
+
+    /**
+     * 检查其他有价值的物品
+     */
+    private boolean isOtherValuableItem(Item item) {
+        return item == Items.ENCHANTED_BOOK ||
+                item == Items.EXPERIENCE_BOTTLE ||
+                item == Items.GOLDEN_APPLE ||
+                item == Items.ENCHANTED_GOLDEN_APPLE ||
+                item == Items.ENDER_CHEST ||
+                item == Items.BEACON ||
+                item == Items.CONDUIT ||
+                item == Items.HEART_OF_THE_SEA ||
+                item == Items.NETHER_STAR ||
+                item == Items.DRAGON_EGG ||
+                item == Items.TOTEM_OF_UNDYING ||
+                item == Items.MUSIC_DISC_5 ||
+                item == Items.MUSIC_DISC_11 ||
+                item == Items.MUSIC_DISC_13 ||
+                item == Items.MUSIC_DISC_BLOCKS ||
+                item == Items.MUSIC_DISC_CAT ||
+                item == Items.MUSIC_DISC_CHIRP ||
+                item == Items.MUSIC_DISC_FAR ||
+                item == Items.MUSIC_DISC_MALL ||
+                item == Items.MUSIC_DISC_MELLOHI ||
+                item == Items.MUSIC_DISC_STAL ||
+                item == Items.MUSIC_DISC_STRAD ||
+                item == Items.MUSIC_DISC_WARD ||
+                item == Items.MUSIC_DISC_WAIT ||
+                item == Items.MUSIC_DISC_OTHERSIDE ||
+                item == Items.MUSIC_DISC_PIGSTEP ||
+                item == Items.MUSIC_DISC_RELIC;
+    }
+
+    /**
+     * 检查物品是否在排除列表中（可选功能）
+     */
+    private boolean isJunkItem(Item item) {
+        return item == Items.ROTTEN_FLESH ||
+                item == Items.BONE ||
+                item == Items.STRING ||
+                item == Items.SPIDER_EYE ||
+                item == Items.GUNPOWDER ||
+                item == Items.WHEAT_SEEDS ||
+                item == Items.PUMPKIN_SEEDS ||
+                item == Items.MELON_SEEDS ||
+                item == Items.BEETROOT_SEEDS;
     }
 }

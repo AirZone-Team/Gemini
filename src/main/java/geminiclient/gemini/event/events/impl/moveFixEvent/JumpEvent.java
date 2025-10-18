@@ -12,7 +12,13 @@ public class JumpEvent implements Event {
     }
 
     private float yaw;
+    private boolean jump = false;
     public JumpEvent(float yaw) {
         this.yaw = yaw;
+        jump = false;
+    }
+
+    public JumpEvent(boolean jump) {
+        this.jump = jump;
     }
 }

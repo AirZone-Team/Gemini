@@ -39,5 +39,9 @@ public class SpoofLandingNoFall extends Mode {
             prevOnGround = ((ServerboundMovePlayerPacket) packet).onGround;
             prevFallDistance = mc.player.fallDistance;
         }
+
+        if (flag && mc.player.onGround()) {
+            flag = false;
+        }
     }
 }

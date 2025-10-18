@@ -7,6 +7,7 @@ import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.modules.impl.Mode;
 import geminiclient.gemini.modules.impl.player.nofalls.PacketNoFall;
+import geminiclient.gemini.modules.impl.player.nofalls.SpoofLandingNoFall;
 import geminiclient.gemini.values.impl.ListValue;
 
 import java.util.ArrayList;
@@ -21,6 +22,7 @@ public class NoFall extends Module {
         super("NoFall", ModuleEnum.Player);
         addValue(modes);
         modeList.add(new PacketNoFall());
+        modeList.add(new SpoofLandingNoFall());
     }
 
     @SuppressWarnings("unused")

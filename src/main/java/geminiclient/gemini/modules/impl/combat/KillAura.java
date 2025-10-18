@@ -5,7 +5,7 @@ import geminiclient.gemini.event.events.impl.moveFixEvent.AttackYawEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.JumpEvent;
 import geminiclient.gemini.event.events.impl.MotionEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.RayTraceEvent;
-import geminiclient.gemini.event.events.impl.moveFixEvent.StrafeEvent;
+import geminiclient.gemini.event.events.impl.StrafeEvent;
 import geminiclient.gemini.event.events.impl.UpdateEvent;
 import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.modules.Module;
@@ -28,6 +28,8 @@ import net.minecraft.world.entity.player.Player;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+
+import static net.minecraft.util.Mth.clamp;
 
 public class KillAura extends Module {
     private final BoolValue noCoolDown = new BoolValue("NoCoolDown", false);
@@ -76,8 +78,14 @@ public class KillAura extends Module {
     @SuppressWarnings("unused")
     @EventTarget(0)
     public void onStrafe(StrafeEvent event) {
+        if (mc.player == null)
+            return;
         if (curr != null && moveFix.enabled) {
             MovementUtils.fixMovement(event,rotation.getYaw());
+//            mc.player.input.getMoveVector() = new Vec2(this.keyPresses.left() == this.keyPresses.right() ? 0.0F : (this.keyPresses.left() ? 1.0F : -1.0F),
+//                    this.keyPresses.forward() == this.keyPresses.backward() ? 0.0F : (this.keyPresses.forward() ? 1.0F : -1.0F));
+            event.setStrafe(mc.player.input.keyPresses.left() == mc.player.input.keyPresses.right() ? 0.0F : (mc.player.input.keyPresses.left() ? 1.0F : -1.0F));
+            event.setForward(mc.player.input.keyPresses.forward() == mc.player.input.keyPresses.backward() ? 0.0F : (mc.player.input.keyPresses.forward() ? 1.0F : -1.0F));
             event.setYaw(rotation.getYaw());
         }
     }
@@ -232,27 +240,40 @@ public class KillAura extends Module {
      */
     private void updateTargetAngles(Entity entity) {
         if (mc.player == null) return;
-        // ... (保持原有的 X/Y/Z size 和 theta/yaw/pitch 计算不变)
+
         final double xSize = entity.getX() - mc.player.getX();
         final double ySize = entity.getY() + entity.getEyeHeight() / 2 - (mc.player.getY() + mc.player.getEyeHeight());
         final double zSize = entity.getZ() - mc.player.getZ();
         final double theta = MathHelper.sqrt_double(xSize * xSize + zSize * zSize);
-        final float yaw = (float) (Math.atan2(zSize, xSize) * 180 / Math.PI) - 90;
-        final float pitch = (float) (-(Math.atan2(ySize, theta) * 180 / Math.PI));
 
-        // 瞬时更新角度 - 关键修改在这里！
+        final float targetYaw = (float) (Math.atan2(zSize, xSize) * 180 / Math.PI) - 90;
+        final float targetPitch = (float) (-(Math.atan2(ySize, theta) * 180 / Math.PI));
 
-        // YAW: 使用 MathHelper.wrapAngleTo180_float 包装最终的 Yaw 值。
-        // 这将把角度限制在 [-180, 180] 范围内，这是标准的 Minecraft 逻辑。
-        float newYaw = mc.player.getYRot() + MathHelper.wrapAngleTo180_float(yaw - mc.player.getYRot());
+        // 包装角度
+        float wrappedTargetYaw = MathHelper.wrapAngleTo180_float(targetYaw);
+        float wrappedTargetPitch = net.minecraft.util.Mth.clamp(targetPitch, -90.0f, 90.0f);
 
-        // PITCH: 同样计算增量，然后使用 Mth.clamp 限制在 [-90, 90] 范围内。
-        // Pitch 的计算不需要最后的 MathHelper.wrapAngleTo180_float，因为 Mth.clamp 会处理边界。
-        float newPitch = mc.player.getXRot() + MathHelper.wrapAngleTo180_float(pitch - mc.player.getXRot());
-        newPitch = net.minecraft.util.Mth.clamp(newPitch, -90.0f, 90.0f); // Minecraft 角度限制
+        // 获取当前角度
+        float currentYaw = mc.player.getYRot();
+        float currentPitch = mc.player.getXRot();
 
-        rotation.setYaw(newYaw);
-        rotation.setPitch(newPitch);
+        // 计算角度差（考虑角度环绕）
+        float deltaYaw = MathHelper.wrapAngleTo180_float(wrappedTargetYaw - currentYaw);
+
+        // 限制单次旋转变化不超过安全阈值（远小于320度）
+        float maxRotationPerTick = 120.0f; // 安全阈值
+
+        if (Math.abs(deltaYaw) > maxRotationPerTick) {
+            // 逐步旋转：只旋转最大允许的角度
+            float stepYaw = Math.signum(deltaYaw) * maxRotationPerTick;
+            rotation.setYaw(currentYaw + stepYaw);
+        } else {
+            // 直接旋转到目标
+            rotation.setYaw(wrappedTargetYaw);
+        }
+
+        // Pitch 通常变化较小，可以直接设置
+        rotation.setPitch(wrappedTargetPitch);
     }
 
     private float wrapDegrees(double degrees) {
