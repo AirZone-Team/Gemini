@@ -64,27 +64,13 @@ public class Stealer extends Module {
         static final Map<Item, Integer> BASE_VALUES = createBaseValueMap();
 
         private static Map<Item, Integer> createBaseValueMap() {
-            Map<Item, Integer> values = new HashMap<>();
 
             // 材料价值
-            values.put(Items.NETHERITE_INGOT, 100);
-            values.put(Items.NETHERITE_SCRAP, 100);
-            values.put(Items.DIAMOND, 80);
-            values.put(Items.EMERALD, 60);
-            values.put(Items.GOLD_INGOT, 40);
-            values.put(Items.GOLD_NUGGET, 40);
-            values.put(Items.IRON_INGOT, 30);
-            values.put(Items.IRON_NUGGET, 30);
 
-            // 特殊物品价值
-            values.put(Items.BEACON, 150);
-            values.put(Items.ENCHANTED_GOLDEN_APPLE, 200);
-            values.put(Items.ENCHANTED_BOOK, 100);
-            values.put(Items.ENDER_EYE, 70);
-            values.put(Items.SHULKER_SHELL, 70);
-            values.put(Items.GOLDEN_APPLE, 50);
+            return Map.ofEntries(Map.entry(Items.NETHERITE_INGOT, 100), Map.entry(Items.NETHERITE_SCRAP, 100), Map.entry(Items.DIAMOND, 80), Map.entry(Items.EMERALD, 60), Map.entry(Items.GOLD_INGOT, 40), Map.entry(Items.GOLD_NUGGET, 40), Map.entry(Items.IRON_INGOT, 30), Map.entry(Items.IRON_NUGGET, 30),
 
-            return Collections.unmodifiableMap(values);
+                    // 特殊物品价值
+                    Map.entry(Items.BEACON, 150), Map.entry(Items.ENCHANTED_GOLDEN_APPLE, 200), Map.entry(Items.ENCHANTED_BOOK, 100), Map.entry(Items.ENDER_EYE, 70), Map.entry(Items.SHULKER_SHELL, 70), Map.entry(Items.GOLDEN_APPLE, 50));
         }
 
         // 材料类型价值加成
@@ -103,15 +89,14 @@ public class Stealer extends Module {
     }
 
     // 模块配置
-    private final IntRangeValue stealDelay = new IntRangeValue("Steal Delay", 100, 200, 0, 500);
-    private final IntRangeValue closeDelay = new IntRangeValue("Close Delay", 100, 200, 0, 500);
+    private final IntRangeValue stealDelay = new IntRangeValue("StealDelay", 100, 200, 0, 500);
+    private final IntRangeValue closeDelay = new IntRangeValue("CloseDelay", 100, 200, 0, 500);
 
     // 状态管理
     private final TimerUtils stealTimer = new TimerUtils();
     private final TimerUtils closeTimer = new TimerUtils();
     private final Random random = new Random();
     private Screen lastScreen;
-    private boolean isStealing = false;
 
     public Stealer() {
         super("Stealer", ModuleEnum.Player);
@@ -151,7 +136,7 @@ public class Stealer extends Module {
         int closeDelayMs = random.nextInt(closeDelay.getMinValue(), closeDelay.getMaxValue());
 
         if (shouldCloseChest(menu)) {
-            handleChestClosing(menu, closeDelayMs);
+            handleChestClosing(closeDelayMs);
         } else {
             handleItemStealing(menu, stealDelayMs);
         }
@@ -160,11 +145,12 @@ public class Stealer extends Module {
     /**
      * 处理箱子关闭逻辑
      */
-    private void handleChestClosing(ChestMenu menu, int closeDelayMs) {
+    private void handleChestClosing(int closeDelayMs) {
         if (closeTimer.hasTimeElapsed(closeDelayMs, false)) {
-            mc.player.closeContainer();
+            if (mc.player != null) {
+                mc.player.closeContainer();
+            }
             closeTimer.reset();
-            isStealing = false;
         }
     }
 
@@ -175,7 +161,6 @@ public class Stealer extends Module {
         if (stealTimer.hasTimeElapsed(stealDelayMs, true)) {
             attemptSteal(menu);
             stealTimer.reset();
-            isStealing = true;
         }
     }
 
@@ -184,8 +169,14 @@ public class Stealer extends Module {
      */
     private void attemptSteal(ChestMenu menu) {
         Optional<Integer> valuableSlot = findMostValuableSlot(menu);
-        valuableSlot.ifPresent(slotId -> mc.gameMode.handleInventoryMouseClick(menu.containerId, slotId, 0,
-                ClickType.QUICK_MOVE, mc.player));
+        valuableSlot.ifPresent(slotId -> {
+            if (mc.player != null) {
+                if (mc.gameMode != null) {
+                    mc.gameMode.handleInventoryMouseClick(menu.containerId, slotId, 0,
+                            ClickType.QUICK_MOVE, mc.player);
+                }
+            }
+        });
     }
 
     // ========== 工具方法 ==========
@@ -202,7 +193,6 @@ public class Stealer extends Module {
      */
     private void handleScreenChange(Screen newScreen) {
         lastScreen = newScreen;
-        isStealing = false;
     }
 
     /**
@@ -211,7 +201,6 @@ public class Stealer extends Module {
     private void resetState() {
         stealTimer.reset();
         closeTimer.reset();
-        isStealing = false;
     }
 
     /**

@@ -129,13 +129,37 @@ public class IntRangeValueComponent extends ValueComponent {
             boolean isVerticalHit = mouseY >= sliderY - clickTolerance && mouseY <= sliderY + clickTolerance;
 
             if (isVerticalHit) {
+                // 首先检查最大值手柄（当手柄重叠时，优先选择最大值手柄）
+                if (mouseX >= maxHandleX - HANDLE_SIZE && mouseX <= maxHandleX + HANDLE_SIZE) {
+                    isDraggingMax = true;
+                    return true;
+                }
+
+                // 然后检查最小值手柄
                 if (mouseX >= minHandleX - HANDLE_SIZE && mouseX <= minHandleX + HANDLE_SIZE) {
                     isDraggingMin = true;
                     return true;
                 }
 
-                if (mouseX >= maxHandleX - HANDLE_SIZE && mouseX <= maxHandleX + HANDLE_SIZE) {
-                    isDraggingMax = true;
+                // 如果点击在轨道上但没有点击到手柄，可以添加直接跳转功能（可选）
+                if (mouseX >= trackX && mouseX <= trackX + trackWidth) {
+                    // 计算点击位置对应的值
+                    float relativeMouseX = (float) (mouseX - trackX);
+                    float percent = relativeMouseX / trackWidth;
+                    percent = Math.max(0.0f, Math.min(1.0f, percent));
+                    int newValue = Math.round(absMin + range * percent);
+
+                    // 判断点击位置更靠近哪个手柄，或者设置两个手柄
+                    int distanceToMin = Math.abs(newValue - rangeValue.getMinValue());
+                    int distanceToMax = Math.abs(newValue - rangeValue.getMaxValue());
+
+                    if (distanceToMin < distanceToMax) {
+                        rangeValue.setMinValue(newValue);
+                        isDraggingMin = true;
+                    } else {
+                        rangeValue.setMaxValue(newValue);
+                        isDraggingMax = true;
+                    }
                     return true;
                 }
             }

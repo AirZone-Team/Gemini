@@ -2,6 +2,7 @@ package geminiclient.gemini.modules;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.MinecraftInstance;
+import geminiclient.gemini.modules.impl.visual.Arraylists;
 import geminiclient.gemini.modules.impl.visual.notice.ModuleNotification;
 import geminiclient.gemini.values.ValueParent;
 
@@ -56,6 +57,7 @@ public class Module implements MinecraftInstance {
             return;
 
         this.enabled = b;
+        Arraylists.onModuleStateChange();
         if (b) {
             animationXOffset = 100f;
             Gemini.eventManager.register(this);
