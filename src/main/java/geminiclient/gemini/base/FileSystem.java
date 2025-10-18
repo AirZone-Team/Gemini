@@ -1,12 +1,10 @@
 package geminiclient.gemini.base;
 
-import ca.weblite.objc.Client;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.events.impl.ShutdownEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleManager;
-import geminiclient.gemini.utils.ClientUtils;
 import geminiclient.gemini.values.ValueParent;
 import geminiclient.gemini.values.impl.*;
 import net.minecraft.client.Minecraft;
@@ -23,7 +21,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Configuration manager, responsible for saving and loading module configurations
+ * Configuration manager, responsible for saving and loading module
+ * configurations
  * using the org.json library.
  */
 public class FileSystem {

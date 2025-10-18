@@ -5,7 +5,6 @@ import geminiclient.gemini.event.events.impl.MotionEvent;
 import geminiclient.gemini.event.events.impl.SlowDownEvent;
 import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.event.events.impl.UpdateEvent;
-import geminiclient.gemini.modules.impl.movement.NoSlow;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -19,7 +18,6 @@ import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -72,7 +70,7 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
     @Unique
     Vec2 gemini$move;
 
-    @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/AbstractClientPlayer;tick()V",shift = At.Shift.BEFORE,ordinal = 0))
+    @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/AbstractClientPlayer;tick()V", shift = At.Shift.BEFORE, ordinal = 0))
     private void registerUpdateEvent(CallbackInfo ci) {
         Gemini.eventManager.call(new UpdateEvent());
     }
@@ -83,7 +81,8 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
      */
     @Overwrite
     private void sendPosition() {
-        MotionEvent motionEvent = new MotionEvent(this.position(),this.getYRot(), this.getXRot(), this.onGround(), this.horizontalCollision, TimeEnum.Pre);
+        MotionEvent motionEvent = new MotionEvent(this.position(), this.getYRot(), this.getXRot(), this.onGround(),
+                this.horizontalCollision, TimeEnum.Pre);
         Gemini.eventManager.call(motionEvent);
 
         this.sendIsSprintingIfNeeded();
@@ -91,19 +90,25 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
             double d0 = motionEvent.getX() - this.xLast;
             double d1 = motionEvent.getY() - this.yLast;
             double d2 = motionEvent.getZ() - this.zLast;
-            double d3 = (double)(motionEvent.getyRot() - this.yRotLast);
-            double d4 = (double)(motionEvent.getxRot() - this.xRotLast);
+            double d3 = (double) (motionEvent.getyRot() - this.yRotLast);
+            double d4 = (double) (motionEvent.getxRot() - this.xRotLast);
             ++this.positionReminder;
             boolean flag = Mth.lengthSquared(d0, d1, d2) > Mth.square(2.0E-4) || this.positionReminder >= 20;
-            boolean flag1 = d3 != (double)0.0F || d4 != (double)0.0F;
+            boolean flag1 = d3 != (double) 0.0F || d4 != (double) 0.0F;
             if (flag && flag1) {
-                this.connection.send(new ServerboundMovePlayerPacket.PosRot(this.position(), motionEvent.getyRot(), motionEvent.getxRot(), motionEvent.isOnGround(), motionEvent.isHorizontalCollision()));
+                this.connection.send(new ServerboundMovePlayerPacket.PosRot(this.position(), motionEvent.getyRot(),
+                        motionEvent.getxRot(), motionEvent.isOnGround(), motionEvent.isHorizontalCollision()));
             } else if (flag) {
-                this.connection.send(new ServerboundMovePlayerPacket.Pos(new Vec3(motionEvent.getX(),motionEvent.getY(),motionEvent.getZ()), motionEvent.isOnGround(), motionEvent.isHorizontalCollision()));
+                this.connection.send(new ServerboundMovePlayerPacket.Pos(
+                        new Vec3(motionEvent.getX(), motionEvent.getY(), motionEvent.getZ()), motionEvent.isOnGround(),
+                        motionEvent.isHorizontalCollision()));
             } else if (flag1) {
-                this.connection.send(new ServerboundMovePlayerPacket.Rot(motionEvent.getyRot(), motionEvent.getxRot(), motionEvent.isOnGround(), motionEvent.isHorizontalCollision()));
-            } else if (this.lastOnGround != motionEvent.isOnGround() || this.lastHorizontalCollision != motionEvent.isHorizontalCollision()) {
-                this.connection.send(new ServerboundMovePlayerPacket.StatusOnly(motionEvent.isOnGround(),motionEvent.isHorizontalCollision()));
+                this.connection.send(new ServerboundMovePlayerPacket.Rot(motionEvent.getyRot(), motionEvent.getxRot(),
+                        motionEvent.isOnGround(), motionEvent.isHorizontalCollision()));
+            } else if (this.lastOnGround != motionEvent.isOnGround()
+                    || this.lastHorizontalCollision != motionEvent.isHorizontalCollision()) {
+                this.connection.send(new ServerboundMovePlayerPacket.StatusOnly(motionEvent.isOnGround(),
+                        motionEvent.isHorizontalCollision()));
             }
 
             if (flag) {
@@ -120,14 +125,14 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
 
             this.lastOnGround = motionEvent.isOnGround();
             this.lastHorizontalCollision = motionEvent.isHorizontalCollision();
-            this.autoJumpEnabled = (Boolean)this.minecraft.options.autoJump().get();
+            this.autoJumpEnabled = (Boolean) this.minecraft.options.autoJump().get();
         }
-        MotionEvent motionEvent1 = new MotionEvent(this.getYRot(), this.getXRot(),TimeEnum.Post);
+        MotionEvent motionEvent1 = new MotionEvent(this.getYRot(), this.getXRot(), TimeEnum.Post);
         Gemini.eventManager.call(motionEvent1);
 
     }
 
-    @Inject(method = "modifyInput",at = @At("HEAD"))
+    @Inject(method = "modifyInput", at = @At("HEAD"))
     public void setMove(Vec2 moveVector, CallbackInfoReturnable<Vec2> cir) {
         this.gemini$move = moveVector;
     }
@@ -149,7 +154,7 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
             }
 
             if (this.isMovingSlowly()) {
-                float f = (float)this.getAttributeValue(Attributes.SNEAKING_SPEED);
+                float f = (float) this.getAttributeValue(Attributes.SNEAKING_SPEED);
                 vec2 = vec2.scale(f);
             }
 

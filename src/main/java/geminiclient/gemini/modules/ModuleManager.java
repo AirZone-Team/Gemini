@@ -18,6 +18,7 @@ import java.util.List;
 
 public class ModuleManager {
     private final List<Module> moduleList = new ArrayList<>();
+
     public ModuleManager() {
         addAll(
                 new KillAura(),
@@ -27,11 +28,10 @@ public class ModuleManager {
                 new Arraylists(),
                 new Velocity(),
                 new NoFall(),
+                new Stealer(),
                 new NoSlow(),
                 new Notification(),
-                new AutoTool(),
-                new Stealer()
-        );
+                new AutoTool());
     }
 
     @SuppressWarnings("unchecked")
@@ -43,7 +43,6 @@ public class ModuleManager {
         }
         return null;
     }
-
 
     private void addAll(Module... modules) {
         Collections.addAll(moduleList, modules);
