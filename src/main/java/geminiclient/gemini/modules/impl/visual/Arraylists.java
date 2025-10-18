@@ -5,123 +5,166 @@ import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.values.impl.BoolValue;
+import net.minecraft.client.gui.GuiGraphics;
 
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 
 public class Arraylists extends Module {
-    // 使用更平滑的动画速度
-    private static final float ANIMATION_SPEED = 0.2f;
-    // 动画完成阈值，避免不必要的计算
-    private static final float ANIMATION_THRESHOLD = 0.1f;
-    // 完全隐藏的阈值
-    private static final float HIDDEN_THRESHOLD = 99.0f;
+    // 配置选项
+    public final BoolValue mainBackground = new BoolValue("Main Bkgrd", true);
+    public final BoolValue moduleBackground = new BoolValue("Module Bkgrd", true);
 
-    // 缓存上一次的模块列表，减少排序次数
-    private List<Module> lastSortedModules;
-    private static boolean needsResort = true;
+    // 动画和样式常量
+    private static final float ANIMATION_SPEED = 0.25f;
+    private static final int BACKGROUND_COLOR = 0x80101010;
+    private static final int MODULE_BG_COLOR = 0x30FFFFFF;
+    private static final int ACCENT_COLOR = 0xFF64B5F6;
+    private static final int ENABLED_DOT_COLOR = 0xFFFFA500;
+    private static final int TEXT_COLOR = 0xFFFFFFFF;
+
+    // 模块动画状态
+    private static class ModuleAnimation {
+        float xOffset = 100.0f;
+        float targetY = 0;
+        float currentY = 0;
+    }
+
+    private final Map<Module, ModuleAnimation> animations = new HashMap<>();
+    private float animatedHeight = 0;
 
     public Arraylists() {
         super("Arraylists", ModuleEnum.Visual);
+        addValue(mainBackground);
+        addValue(moduleBackground);
     }
 
-    @SuppressWarnings("unused")
     @EventTarget
     public void render2d(Render2DEvent event) {
         List<Module> modules = Gemini.moduleManager.getModules();
+        if (modules.isEmpty())
+            return;
 
-        // 只在模块状态变化或首次渲染时重新排序
-        if (needsResort || lastSortedModules == null) {
-            modules.sort(Comparator.comparing(Module::getName));
-            lastSortedModules = List.copyOf(modules); // 创建不可变副本
-            needsResort = false;
-        }
+        List<Module> renderableModules = updateAnimations(modules);
+        if (renderableModules.isEmpty())
+            return;
 
-        // 动画更新逻辑
-        updateAnimations(modules);
-
-        // 绘制逻辑
-        renderModuleList(event, modules);
+        renderUI(event.guiGraphics(), renderableModules);
     }
 
-    /**
-     * 更新所有模块的动画状态
-     */
-    private void updateAnimations(List<Module> modules) {
+    private List<Module> updateAnimations(List<Module> modules) {
+        // 筛选需要渲染的模块
+        List<Module> renderableModules = new ArrayList<>();
         for (Module module : modules) {
-            float targetOffset = module.enabled ? 0.0f : 100.0f;
-            float currentOffset = module.animationXOffset;
-
-            // 检查是否需要更新动画
-            if (Math.abs(targetOffset - currentOffset) < ANIMATION_THRESHOLD) {
-                module.animationXOffset = targetOffset;
-                continue;
+            if (!animations.containsKey(module)) {
+                animations.put(module, new ModuleAnimation());
             }
 
-            // 使用缓动函数让动画更平滑
-            float diff = targetOffset - currentOffset;
-            module.animationXOffset += diff * ANIMATION_SPEED;
+            ModuleAnimation anim = animations.get(module);
 
-            // 标记需要重新排序，因为动画状态改变了渲染顺序
-            if (Math.abs(diff) > ANIMATION_THRESHOLD) {
-                needsResort = true;
-            }
+            // 更新X轴动画
+            float targetX = module.enabled ? 0.0f : 100.0f;
+            float diffX = targetX - anim.xOffset;
+            anim.xOffset += diffX * ANIMATION_SPEED;
 
-            // 完全隐藏时停止精确计算
-            if (!module.enabled && currentOffset > HIDDEN_THRESHOLD) {
-                module.animationXOffset = 100.0f;
+            // 精确对齐完成动画
+            if (Math.abs(diffX) < 0.1f)
+                anim.xOffset = targetX;
+
+            // 筛选可见模块
+            if (module.enabled || anim.xOffset < 99.0f) {
+                renderableModules.add(module);
             }
         }
-    }
 
-    /**
-     * 渲染模块列表
-     */
-    private void renderModuleList(Render2DEvent event, List<Module> modules) {
-        int startX = 2;
-        int startY = 2;
+        // 清理不存在的模块
+        animations.keySet().retainAll(modules);
+
+        if (renderableModules.isEmpty())
+            return renderableModules;
+
+        // 按名称长度排序
+        renderableModules.sort(Comparator.comparingInt((Module m) -> m.getName().length()).reversed());
+
+        // 更新高度和Y位置动画
         int lineHeight = mc.font.lineHeight + 1;
-        int currentColor = 0xFFFFFFFF;
+        float targetHeight = renderableModules.size() * lineHeight + 3; // 增加1像素高度
 
-        int lineIndex = 0;
+        // 高度动画
+        float diffH = targetHeight - animatedHeight;
+        animatedHeight += diffH * ANIMATION_SPEED;
+        if (Math.abs(diffH) < 0.1f)
+            animatedHeight = targetHeight;
 
+        // 更新每个模块的Y位置
+        float currentY = 3; // 从3开始而不是2，下移1像素
+        for (Module module : renderableModules) {
+            ModuleAnimation anim = animations.get(module);
+            anim.targetY = currentY;
+
+            float diffY = anim.targetY - anim.currentY;
+            anim.currentY += diffY * ANIMATION_SPEED;
+            if (Math.abs(diffY) < 0.1f)
+                anim.currentY = anim.targetY;
+
+            currentY += lineHeight;
+        }
+
+        return renderableModules;
+    }
+
+    private void renderUI(GuiGraphics gui, List<Module> modules) {
+        int startX = 2;
+
+        // 计算最大宽度
+        int maxWidth = modules.stream()
+                .mapToInt(m -> mc.font.width(m.getName()))
+                .max().orElse(0) + 8;
+
+        // 渲染主背景
+        if (mainBackground.enabled) {
+            // 背景从2开始，高度增加1像素
+            gui.fill(startX, 2, startX + maxWidth + 4, 2 + (int) animatedHeight, BACKGROUND_COLOR);
+            // 顶部横线保持在2-3位置
+            gui.fill(startX, 2, startX + maxWidth + 4, 3, ACCENT_COLOR);
+        }
+
+        // 渲染每个模块
         for (Module module : modules) {
-            // 跳过完全隐藏的模块
-            if (!module.enabled && module.animationXOffset >= HIDDEN_THRESHOLD) {
-                continue;
-            }
-
-            String text = module.getName();
-            int currentY = startY + lineIndex * lineHeight;
-
-            // 应用缓动动画到X轴位置
-            int renderX = calculateRenderX(startX, module.animationXOffset);
-
-            event.guiGraphics().drawString(mc.font, text, renderX, currentY, currentColor, true);
-            lineIndex++;
+            renderModule(gui, module, startX);
         }
     }
 
-    /**
-     * 计算渲染X坐标，添加缓动效果
-     */
-    private int calculateRenderX(int startX, float animationOffset) {
-        // 使用缓动函数让进出动画更自然
-        float easedOffset = easeOutCubic(animationOffset / 100.0f) * 100.0f;
-        return (int) (startX - easedOffset);
-    }
+    private void renderModule(GuiGraphics gui, Module module, int startX) {
+        ModuleAnimation anim = animations.get(module);
+        if (anim == null)
+            return;
 
-    /**
-     * 缓动函数：easeOutCubic，提供更自然的动画效果
-     */
-    private float easeOutCubic(float x) {
-        return (float) (1 - Math.pow(1 - x, 3));
-    }
+        String text = module.getName();
+        int renderX = (int) (startX + 4 - anim.xOffset);
+        int y = (int) anim.currentY; // 已经下移1像素
+        int textWidth = mc.font.width(text);
 
-    /**
-     * 当模块状态改变时调用此方法，触发重新排序
-     */
-    public static void onModuleStateChange() {
-        needsResort = true;
+        // 渲染模块背景
+        if (moduleBackground.enabled) {
+            int bgX = (int) (startX + 2 - anim.xOffset);
+            int bgWidth = textWidth + 6;
+            int bgHeight = mc.font.lineHeight - 1;
+            int bgAlpha = module.enabled ? 0x40 : 0x20;
+            int moduleBgColor = (MODULE_BG_COLOR & 0x00FFFFFF) | (bgAlpha << 24);
+
+            gui.fill(bgX, y, bgX + bgWidth, y + bgHeight, moduleBgColor);
+        }
+
+        // 渲染启用指示点
+        if (module.enabled) {
+            int dotSize = 2;
+            int dotX = renderX - 6;
+            int dotY = y + mc.font.lineHeight / 2 - dotSize / 2;
+            gui.fill(dotX, dotY, dotX + dotSize, dotY + dotSize, ENABLED_DOT_COLOR);
+        }
+
+        // 渲染文本
+        gui.drawString(mc.font, text, renderX, y, TEXT_COLOR, true);
     }
 }
