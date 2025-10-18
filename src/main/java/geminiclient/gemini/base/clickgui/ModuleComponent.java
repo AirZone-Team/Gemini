@@ -20,12 +20,14 @@ public class ModuleComponent {
     private final List<ValueComponent> allValueComponents = new ArrayList<>();
 
     // 统一的颜色主题 (与其它组件保持一致)
-    private static final int ACCENT_COLOR = new Color(200, 51, 153,200).getRGB(); // 亮洋红色 (主色调)
+    private static final int ACCENT_COLOR = new Color(230, 70, 180, 200).getRGB(); // 略暗洋红色 (主色调)
     // 【修改】模块启用时的基础背景色 (更深、更饱和的洋红色, 对比度更高)
-    private static final int ENABLED_BG = new Color(138, 20, 84, 180).getRGB();
-    private static final int BASE_BG = new Color(10, 10, 10, 180).getRGB(); // 【修改】统一的深色背景 (略微更黑)
-    private static final int HOVER_BG = new Color(40, 40, 40, 180).getRGB(); // 【修改】悬停背景 (略微更亮, 区别更明显)
-    private static final int TEXT_COLOR = Color.WHITE.getRGB(); // 统一白色文本
+    private static final int ENABLED_BG = new Color(150, 40, 110, 200).getRGB(); // 新值
+    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB(); // 新值
+    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB(); // 新值
+    private static final int TEXT_COLOR = Color.WHITE.getRGB();
+
+    private static final int BORDER_COLOR = new Color(50, 50, 50, 255).getRGB();
 
     // 【新增】判断鼠标是否在模块头部的方法
     protected boolean isModuleHeaderHovered(double mouseX, double mouseY) {
@@ -96,19 +98,29 @@ public class ModuleComponent {
         boolean isHovered = isModuleHeaderHovered(mouseX, mouseY);
 
         // 1. 渲染模块背景
-        int bgColor;
-        if (module.enabled) {
-            // 【修改】启用：使用 ENABLED_BG (更深的洋红色)
-            bgColor = ENABLED_BG;
+        int bgColor = module.enabled ? ENABLED_BG : (isHovered ? HOVER_BG : BASE_BG);
+        guiGraphics.fill(x, y, x + width, y + height, bgColor);
 
-            // 悬停时使用 ACCENT_COLOR (亮洋红色)
-            if (isHovered) {
-                bgColor = ACCENT_COLOR;
-            }
-        } else {
-            // 未启用：深黑背景
-            bgColor = isHovered ? HOVER_BG : BASE_BG;
+        // 【美化】添加底部边框或分隔线，使模块之间区分更清晰
+        // 在模块底部渲染一条细线 (如果不是最后一个模块)
+        if (!isExpanded) {
+            guiGraphics.fill(x, y + height - 1, x + width, y + height, BORDER_COLOR);
         }
+
+        // 1. 渲染模块背景
+//        int bgColor;
+//        if (module.enabled) {
+//            // 【修改】启用：使用 ENABLED_BG (更深的洋红色)
+//            bgColor = ENABLED_BG;
+//
+//            // 悬停时使用 ACCENT_COLOR (亮洋红色)
+//            if (isHovered) {
+//                bgColor = ACCENT_COLOR;
+//            }
+//        } else {
+//            // 未启用：深黑背景
+//            bgColor = isHovered ? HOVER_BG : BASE_BG;
+//        }
 
         guiGraphics.fill(x, y, x + width, y + height, bgColor);
 
@@ -139,6 +151,7 @@ public class ModuleComponent {
                 component.y = currentY;
                 component.width = width;
                 component.render(guiGraphics, mouseX, mouseY, partialTicks);
+                guiGraphics.fill(component.x, currentY + component.height - 1, component.x + component.width, currentY + component.height, BORDER_COLOR);
 
                 int componentRenderHeight = component.height;
                 if (component instanceof ListValueComponent listComp) {

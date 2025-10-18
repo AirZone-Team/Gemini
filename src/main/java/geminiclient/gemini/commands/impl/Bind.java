@@ -33,6 +33,7 @@ public class Bind extends Command {
                 } else {
                     ClientUtils.addChatMessage("The input value can only be one");
                 }
+                return;
             }
         }
     }

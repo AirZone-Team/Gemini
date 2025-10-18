@@ -16,12 +16,13 @@ public class Arraylists extends Module {
     public final BoolValue moduleBackground = new BoolValue("Module Bkgrd", true);
 
     // 动画和样式常量
-    private static final float ANIMATION_SPEED = 0.25f;
-    private static final int BACKGROUND_COLOR = 0x80101010;
-    private static final int MODULE_BG_COLOR = 0x30FFFFFF;
-    private static final int ACCENT_COLOR = 0xFF64B5F6;
-    private static final int ENABLED_DOT_COLOR = 0xFFFFA500;
+    private static final float ANIMATION_SPEED = 0.2f; // 略微减慢动画速度，更平滑
+    private static final int BACKGROUND_COLOR = 0xAA000000; // 更黑，更透明 (66% 透明度)
+    private static final int MODULE_BG_COLOR = 0x1AFFFFFF; // 更低透明度的模块背景，更柔和
+    private static final int ACCENT_COLOR = 0xFF00FFFF; // 强调色：霓虹青色
+    private static final int ENABLED_DOT_COLOR = 0xFF33FF00; // 启用指示线：霓虹绿色
     private static final int TEXT_COLOR = 0xFFFFFFFF;
+    private static final int LINE_HEIGHT_PADDING = 3; // 新增：垂直间距增加 3 像素
 
     // 模块动画状态
     private static class ModuleAnimation {
@@ -83,11 +84,12 @@ public class Arraylists extends Module {
         if (renderableModules.isEmpty())
             return renderableModules;
 
-        // 按名称长度排序
+        // 按名称长度排序（保持原样，尽管左对齐通常不需要）
         renderableModules.sort(Comparator.comparingInt((Module m) -> m.getName().length()).reversed());
 
         // 更新高度和Y位置动画
-        int lineHeight = mc.font.lineHeight + 1;
+        // 【优化点 1】增加行高
+        int lineHeight = mc.font.lineHeight + LINE_HEIGHT_PADDING;
         float targetHeight = renderableModules.size() * lineHeight + 3; // 增加1像素高度
 
         // 高度动画
@@ -125,7 +127,8 @@ public class Arraylists extends Module {
         if (mainBackground.enabled) {
             // 背景从2开始，高度增加1像素
             gui.fill(startX, 2, startX + maxWidth + 4, 2 + (int) animatedHeight, BACKGROUND_COLOR);
-            // 顶部横线保持在2-3位置
+
+            // 【优化点 2】顶部横线保持不变，使用新的强调色
             gui.fill(startX, 2, startX + maxWidth + 4, 3, ACCENT_COLOR);
         }
 
@@ -140,31 +143,48 @@ public class Arraylists extends Module {
         if (anim == null)
             return;
 
+        // 重新计算新的高度和垂直居中偏移
+        int lineHeight = mc.font.lineHeight + LINE_HEIGHT_PADDING;
+        int bgHeight = lineHeight - 1;
+        int textYOffset = (lineHeight - mc.font.lineHeight) / 2;
+
         String text = module.getName();
-        int renderX = (int) (startX + 4 - anim.xOffset);
-        int y = (int) anim.currentY; // 已经下移1像素
         int textWidth = mc.font.width(text);
+
+        // 默认文本 X 坐标：起始 X (2) + 4 像素内边距
+        int baseRenderX = startX + 4;
+        int renderX = (int) (baseRenderX - anim.xOffset);
+        int y = (int) anim.currentY;
 
         // 渲染模块背景
         if (moduleBackground.enabled) {
             int bgX = (int) (startX + 2 - anim.xOffset);
             int bgWidth = textWidth + 6;
-            int bgHeight = mc.font.lineHeight - 1;
+
             int bgAlpha = module.enabled ? 0x40 : 0x20;
             int moduleBgColor = (MODULE_BG_COLOR & 0x00FFFFFF) | (bgAlpha << 24);
 
             gui.fill(bgX, y, bgX + bgWidth, y + bgHeight, moduleBgColor);
         }
 
-        // 渲染启用指示点
+        // 渲染启用指示线（替换指示点）
         if (module.enabled) {
-            int dotSize = 2;
-            int dotX = renderX - 6;
-            int dotY = y + mc.font.lineHeight / 2 - dotSize / 2;
-            gui.fill(dotX, dotY, dotX + dotSize, dotY + dotSize, ENABLED_DOT_COLOR);
+            int lineThickness = 1;
+            // 【优化点 3】细线位于列表的最左侧 startX=2
+            int lineX = startX;
+            int lineY = y;
+            // 细线的高度与模块背景高度一致
+            gui.fill(lineX, lineY, lineX + lineThickness, lineY + bgHeight, ENABLED_DOT_COLOR);
+
+            // 启用后，将文本和背景整体向右移动 2 像素，与指示线错开
+            renderX = (int) (baseRenderX + 2 - anim.xOffset);
+        } else {
+            // 未启用，保持默认的左对齐位置
+            renderX = (int) (baseRenderX - anim.xOffset);
         }
 
         // 渲染文本
-        gui.drawString(mc.font, text, renderX, y, TEXT_COLOR, true);
+        // 【优化点 4】增加垂直居中偏移，使文本居中
+        gui.drawString(mc.font, text, renderX, y + textYOffset, TEXT_COLOR, true);
     }
 }

@@ -14,12 +14,12 @@ public class ListValueComponent extends ValueComponent {
     public static final int MODE_HEIGHT = 12;
 
     // 统一的颜色主题
-    private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色
-    private static final int BASE_BG = new Color(0, 0, 0, 220).getRGB(); // 优化: 更深的半透明黑
-    private static final int HOVER_BG = new Color(20, 20, 20, 220).getRGB(); // 优化: 略浅的半透明黑
+    private static final int ACCENT_COLOR = new Color(230, 70, 180).getRGB(); // 调整: 略暗洋红色
+    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB(); // 优化: 略不那么黑，透明度高
+    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB(); // 优化: 略浅的半透明黑
+    private static final int TEXT_COLOR = Color.WHITE.getRGB();
     private static final int LIST_BG = new Color(0, 0, 0, 240).getRGB();
     private static final int LIST_HOVER_BG = new Color(30, 30, 30, 200).getRGB();
-    private static final int TEXT_COLOR = Color.WHITE.getRGB();
 
     public ListValueComponent(ListValue value, int x, int y, int width, int height) {
         super(value, x, y, width, 16);

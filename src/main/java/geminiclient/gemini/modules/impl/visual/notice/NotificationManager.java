@@ -23,6 +23,7 @@ public class NotificationManager {
      * @param duration 持续时间 (毫秒)
      */
     public void addNotification(ModuleNotification.NotificationLevel level, String message, long duration,boolean isEnabled, boolean showStatus) {
+        // 确保通知不是重复的 (可选的去重逻辑可以添加在这里)
         this.notifications.add(new ModuleNotification(level,message,duration,isEnabled,showStatus));
     }
 
@@ -44,18 +45,19 @@ public class NotificationManager {
         float currentYOffset = (float)screenHeight - MARGIN;
 
         // 1. 移除已过期的通知
-        // 必须先过滤，否则过期的通知仍然会占用空间
         notifications.removeIf(ModuleNotification::isExpired);
 
         // 2. 从列表末尾 (最新的通知) 开始渲染，实现从底部向上堆叠
         for (int i = notifications.size() - 1; i >= 0; i--) {
             ModuleNotification notification = notifications.get(i);
 
-            float notificationWidth = notification.calculateTargetWidth(); // 注意：这里使用 calculateTargetWidth
+            // 使用 calculateTargetWidth 来获取未经过动画的完整宽度
+            float notificationWidth = notification.calculateTargetWidth();
             float notificationHeight = notification.getHeight();
 
-            // **目标 X 坐标 (Target X)**：屏幕宽度 - 边距 - 通知总宽度 - 4.0F 偏移
-            float targetX = (float)screenWidth - MARGIN - notificationWidth - 4.0F;
+            // **目标 X 坐标 (Target X)**：通知最终停留的 X 坐标
+            // 屏幕宽度 - 边距 - 通知总宽度 (这里不包含左右 2px 的绘制偏移)
+            float targetX = (float)screenWidth - MARGIN - notificationWidth;
 
             // 计算 Y 坐标 (保持不变)
             float targetY = currentYOffset - notificationHeight;

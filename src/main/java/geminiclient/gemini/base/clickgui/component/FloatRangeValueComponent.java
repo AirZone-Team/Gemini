@@ -12,9 +12,9 @@ public class FloatRangeValueComponent extends ValueComponent {
     private boolean isDraggingMax = false;
 
     // 统一的颜色主题
-    private static final int ACCENT_COLOR = new Color(255, 51, 153).getRGB(); // 亮洋红色
-    private static final int BASE_BG = new Color(0, 0, 0, 220).getRGB(); // 优化: 更深的半透明黑
-    private static final int HOVER_BG = new Color(20, 20, 20, 220).getRGB(); // 优化: 略浅的半透明黑
+    private static final int ACCENT_COLOR = new Color(230, 70, 180).getRGB(); // 调整: 略暗洋红色
+    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB(); // 优化: 略不那么黑，透明度高
+    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB(); // 优化: 略浅的半透明黑
     private static final int TEXT_COLOR = Color.WHITE.getRGB();
 
     // 【风格常量修改】：更厚实的轨道和更大的手柄
@@ -124,18 +124,31 @@ public class FloatRangeValueComponent extends ValueComponent {
             int clickTolerance = 5;
 
             boolean isVerticalHit = mouseY >= sliderY - clickTolerance && mouseY <= sliderY + clickTolerance;
+            boolean isOverlap = Math.abs(maxHandleX - minHandleX) < 2;
 
             if (isVerticalHit) {
-                // 首先检查最大值手柄（当手柄重叠时，优先选择最大值手柄）
-                if (mouseX >= maxHandleX - HANDLE_SIZE && mouseX <= maxHandleX + HANDLE_SIZE) {
-                    isDraggingMax = true;
-                    return true;
-                }
-
-                // 然后检查最小值手柄
-                if (mouseX >= minHandleX - HANDLE_SIZE && mouseX <= minHandleX + HANDLE_SIZE) {
-                    isDraggingMin = true;
-                    return true;
+                if (isOverlap && rangeValue.getMaxValue() == absMax) {
+                    // 先检测最小值手柄
+                    if (mouseX >= minHandleX - HANDLE_SIZE && mouseX <= minHandleX + HANDLE_SIZE) {
+                        isDraggingMin = true;
+                        return true;
+                    }
+                    // 然后检测最大值手柄
+                    if (mouseX >= maxHandleX - HANDLE_SIZE && mouseX <= maxHandleX + HANDLE_SIZE) {
+                        isDraggingMax = true;
+                        return true;
+                    }
+                } else {
+                    // 默认顺序：先检测最大值手柄
+                    if (mouseX >= maxHandleX - HANDLE_SIZE && mouseX <= maxHandleX + HANDLE_SIZE) {
+                        isDraggingMax = true;
+                        return true;
+                    }
+                    // 然后检测最小值手柄
+                    if (mouseX >= minHandleX - HANDLE_SIZE && mouseX <= minHandleX + HANDLE_SIZE) {
+                        isDraggingMin = true;
+                        return true;
+                    }
                 }
 
                 // 如果点击在轨道上但没有点击到手柄，可以添加直接跳转功能（可选）
