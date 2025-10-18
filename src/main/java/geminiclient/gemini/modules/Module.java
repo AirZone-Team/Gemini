@@ -57,7 +57,6 @@ public class Module implements MinecraftInstance {
             return;
 
         this.enabled = b;
-        Arraylists.onModuleStateChange();
         if (b) {
             animationXOffset = 100f;
             Gemini.eventManager.register(this);
