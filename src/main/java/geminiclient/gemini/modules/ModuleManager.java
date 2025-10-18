@@ -6,6 +6,7 @@ import geminiclient.gemini.modules.impl.movement.NoSlow;
 import geminiclient.gemini.modules.impl.movement.Sprint;
 import geminiclient.gemini.modules.impl.player.AutoTool;
 import geminiclient.gemini.modules.impl.player.NoFall;
+import geminiclient.gemini.modules.impl.player.Stealer;
 import geminiclient.gemini.modules.impl.visual.Arraylists;
 import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.modules.impl.visual.FullLight;
@@ -17,6 +18,7 @@ import java.util.List;
 
 public class ModuleManager {
     private final List<Module> moduleList = new ArrayList<>();
+
     public ModuleManager() {
         addAll(
                 new KillAura(),
@@ -26,10 +28,10 @@ public class ModuleManager {
                 new Arraylists(),
                 new Velocity(),
                 new NoFall(),
+                new Stealer(),
                 new NoSlow(),
                 new Notification(),
-                new AutoTool()
-        );
+                new AutoTool());
     }
 
     @SuppressWarnings("unchecked")
@@ -41,7 +43,6 @@ public class ModuleManager {
         }
         return null;
     }
-
 
     private void addAll(Module... modules) {
         Collections.addAll(moduleList, modules);
