@@ -42,10 +42,12 @@ public class Sprint extends Module {
     }
 
     private boolean isPlayerValid() {
-        return mc != null && mc.player != null && mc.level != null;
+        return mc.player != null && mc.level != null;
     }
 
     private boolean canSprint(LocalPlayer player) {
+        if (mc.gameMode == null)
+            return false;
         // 使用物品检查（开关关闭时阻止疾跑）
         if (!sprintUsingItem.enabled && player.isUsingItem()) {
             return false;
@@ -73,7 +75,8 @@ public class Sprint extends Module {
         return true;
     }
 
-    public void onDisable() {
+    @Override
+    public void onDisabled() {
         if (isPlayerValid() && mc.player.isSprinting()) {
             mc.player.setSprinting(false);
         }

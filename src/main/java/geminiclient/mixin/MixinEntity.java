@@ -2,7 +2,7 @@ package geminiclient.mixin;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.events.impl.moveFixEvent.RayTraceEvent;
-import geminiclient.gemini.event.events.impl.moveFixEvent.StrafeEvent;
+import geminiclient.gemini.event.events.impl.StrafeEvent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
