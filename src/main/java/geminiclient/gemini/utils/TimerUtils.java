@@ -1,8 +1,7 @@
 package geminiclient.gemini.utils;
 
 public class TimerUtils {
-    public long time = System.currentTimeMillis();
-
+    private long startTime;
     private long lastTime;
 
     public TimerUtils() {
@@ -14,23 +13,35 @@ public class TimerUtils {
     }
 
     public boolean hasTimeElapsed(long time, boolean reset) {
-        if (System.currentTimeMillis() - this.time > time) {
-            if (reset) reset();
+        long elapsed = System.currentTimeMillis() - startTime;
+        if (elapsed >= time) {
+            if (reset) {
+                this.startTime = System.currentTimeMillis();
+            }
             return true;
         }
-
         return false;
     }
 
     public void setTimeElapsed(long time) {
         this.lastTime = System.currentTimeMillis() - time;
+        this.startTime = System.currentTimeMillis() - time;
     }
 
     public void reset() {
-        lastTime = System.currentTimeMillis();
+        this.startTime = System.currentTimeMillis();
+        this.lastTime = System.currentTimeMillis();
     }
 
-    public boolean reached(long currentTime) {
-        return Math.max(0L, System.currentTimeMillis() - this.time) >= currentTime;
+    public boolean reached(long targetTime) {
+        return System.currentTimeMillis() - startTime >= targetTime;
+    }
+
+    public long getTotalTimeElapsed() {
+        return System.currentTimeMillis() - startTime;
+    }
+
+    public boolean hasReached(long time) {
+        return reached(time);
     }
 }
