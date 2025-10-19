@@ -27,10 +27,6 @@ public class NotificationManager {
         this.notifications.add(new ModuleNotification(level,message,duration,isEnabled,showStatus));
     }
 
-    public void addNotification(ModuleNotification.NotificationLevel level, String message, long duration) {
-        this.notifications.add(new ModuleNotification(level, message, duration));
-    }
-
     /**
      * 渲染所有活动通知。
      * @param guiGraphics NeoForge 的绘制上下文

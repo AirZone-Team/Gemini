@@ -31,7 +31,6 @@ public class ModuleNotification {
     }
     // ------------------------------------
 
-    private static final int DEFAULT_DURATION_MS = 3000;
     private static final int HEIGHT = 24;
 
     // --- 动画时间常量 ---
@@ -45,7 +44,7 @@ public class ModuleNotification {
     private static final int STATUS_ENABLED_COLOR = 0xFF00FF00;
     private static final int STATUS_DISABLED_COLOR = 0xFFFF0000;
     private static final int STATUS_BAR_WIDTH = 3;
-    private static final float CORNER_RADIUS = 3.0F; // 新增：圆角半径
+    // 新增：圆角半径
     private static final int PROGRESS_BAR_HEIGHT = 2; // 新增：底部进度条高度
 
 
@@ -67,14 +66,6 @@ public class ModuleNotification {
         this.moduleIsEnabled = isEnabled;
         this.showModuleStatus = showStatus;
         this.currentWidth = this.calculateTargetWidth();
-    }
-
-    public ModuleNotification(NotificationLevel level, String message, long age) {
-        this(level, message, age, false, false);
-    }
-
-    public ModuleNotification(NotificationLevel level, String message) {
-        this(level, message, DEFAULT_DURATION_MS, false, false);
     }
 
     // --- 缓动函数（Cubic Out） ---
@@ -193,11 +184,6 @@ public class ModuleNotification {
 
     public float getWidth() { return this.currentWidth; }
     public float getHeight() { return (float)HEIGHT; }
-    public NotificationLevel getLevel() { return this.level; }
-    public String getMessage() { return this.message; }
-    public long getMaxAge() { return this.maxAge; }
-    public long getCreateTime() { return this.createTime; }
-    @Override public boolean equals(Object o) { return true; }
     @Override public int hashCode() { return 0; }
     @Override public String toString() { return ""; }
 }
