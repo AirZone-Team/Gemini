@@ -13,7 +13,6 @@ import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ClickType;
-import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -293,6 +292,7 @@ public class Stealer extends Module {
 
     /**
      * 尝试偷取高价值物品
+     * 
      * @return 是否成功偷取了物品
      */
     private boolean attemptSteal(ChestMenu menu) {
@@ -394,6 +394,7 @@ public class Stealer extends Module {
 
     /**
      * 根据新的"只取同类中价值最高且比背包中同类物品价值更高"的策略，查找最佳物品槽位进行偷取。
+     * 
      * @param menu 当前的箱子菜单
      * @return 最有价值的槽位ID，如果没有值得偷取的物品则返回 empty
      */
@@ -474,7 +475,8 @@ public class Stealer extends Module {
     /**
      * 辅助记录类：存储槽位ID和物品价值
      */
-    private record SlotValue(int slotId, int value) {}
+    private record SlotValue(int slotId, int value) {
+    }
 
     /**
      * 定义物品类别，用于比较同类物品。
@@ -488,21 +490,30 @@ public class Stealer extends Module {
      */
     private ItemCategory getItemCategory(Item item) {
         // 如果是特殊高价值物品（如信标、金苹果），且不是工具/武器/盔甲，归为 MATERIAL
-        if (ItemValues.VALUABLE_ITEMS.contains(item) && !ItemValues.TOOLS_AND_WEAPONS.contains(item) && !ItemValues.ARMOR.contains(item)) {
+        if (ItemValues.VALUABLE_ITEMS.contains(item) && !ItemValues.TOOLS_AND_WEAPONS.contains(item)
+                && !ItemValues.ARMOR.contains(item)) {
             return ItemCategory.MATERIAL;
         }
 
         // 精细分类武器和工具
         if (ItemValues.TOOLS_AND_WEAPONS.contains(item)) {
             String name = item.toString().toLowerCase();
-            if (name.contains("sword") || item.equals(Items.MACE)) return ItemCategory.WEAPON;
-            if (name.contains("pickaxe")) return ItemCategory.TOOL;
-            if (name.contains("axe")) return ItemCategory.TOOL;
-            if (name.contains("shovel")) return ItemCategory.TOOL;
-            if (item.equals(Items.BOW)) return ItemCategory.BOW;
-            if (item.equals(Items.CROSSBOW)) return ItemCategory.CROSSBOW;
-            if (item.equals(Items.TRIDENT)) return ItemCategory.TRIDENT;
-            if (item.equals(Items.FISHING_ROD)) return ItemCategory.FISHING_ROD;
+            if (name.contains("sword") || item.equals(Items.MACE))
+                return ItemCategory.WEAPON;
+            if (name.contains("pickaxe"))
+                return ItemCategory.TOOL;
+            if (name.contains("axe"))
+                return ItemCategory.TOOL;
+            if (name.contains("shovel"))
+                return ItemCategory.TOOL;
+            if (item.equals(Items.BOW))
+                return ItemCategory.BOW;
+            if (item.equals(Items.CROSSBOW))
+                return ItemCategory.CROSSBOW;
+            if (item.equals(Items.TRIDENT))
+                return ItemCategory.TRIDENT;
+            if (item.equals(Items.FISHING_ROD))
+                return ItemCategory.FISHING_ROD;
             // 未明确分类的工具/武器
             return ItemCategory.OTHER_VALUABLE;
         }
@@ -510,10 +521,14 @@ public class Stealer extends Module {
         // 精细分类盔甲
         if (ItemValues.ARMOR.contains(item)) {
             String name = item.toString().toLowerCase();
-            if (name.contains("helmet")) return ItemCategory.HELMET;
-            if (name.contains("chestplate")) return ItemCategory.CHESTPLATE;
-            if (name.contains("leggings")) return ItemCategory.LEGGINGS;
-            if (name.contains("boots")) return ItemCategory.BOOTS;
+            if (name.contains("helmet"))
+                return ItemCategory.HELMET;
+            if (name.contains("chestplate"))
+                return ItemCategory.CHESTPLATE;
+            if (name.contains("leggings"))
+                return ItemCategory.LEGGINGS;
+            if (name.contains("boots"))
+                return ItemCategory.BOOTS;
         }
 
         // 默认返回基础材料或"其他有价值"类别

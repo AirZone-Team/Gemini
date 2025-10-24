@@ -2,7 +2,6 @@ package geminiclient.gemini.modules;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.MinecraftInstance;
-import geminiclient.gemini.modules.impl.visual.Arraylists;
 import geminiclient.gemini.modules.impl.visual.notice.ModuleNotification;
 import geminiclient.gemini.values.ValueParent;
 
@@ -61,11 +60,13 @@ public class Module implements MinecraftInstance {
             animationXOffset = 100f;
             Gemini.eventManager.register(this);
             onEnabled();
-            Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.INFO,"Enabled: " + this.name,2000,true,true);
+            Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.INFO,
+                    "Enabled: " + this.name, 2000, true, true);
         } else {
             Gemini.eventManager.unregister(this);
             onDisabled();
-            Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.INFO,"Disabled: " + this.name,2000,false,true);
+            Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.INFO,
+                    "Disabled: " + this.name, 2000, false, true);
         }
     }
 
