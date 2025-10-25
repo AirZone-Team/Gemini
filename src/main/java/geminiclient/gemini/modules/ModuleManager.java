@@ -2,6 +2,7 @@ package geminiclient.gemini.modules;
 
 import geminiclient.gemini.modules.impl.combat.KillAura;
 import geminiclient.gemini.modules.impl.combat.Velocity;
+import geminiclient.gemini.modules.impl.movement.InvMove;
 import geminiclient.gemini.modules.impl.movement.NoSlow;
 import geminiclient.gemini.modules.impl.movement.NoWeb;
 import geminiclient.gemini.modules.impl.movement.Sprint;
@@ -32,7 +33,8 @@ public class ModuleManager {
                 new AutoTool(),
                 new NoWeb(),
                 new Glow(),
-                new EffectDisplay());
+                new EffectDisplay(),
+                new InvMove());
     }
 
     @SuppressWarnings("unchecked")

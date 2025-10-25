@@ -2,7 +2,7 @@ package geminiclient.gemini.base;
 
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
-import geminiclient.gemini.event.events.impl.KeyEvent;
+import geminiclient.gemini.event.events.impl.KeyInputEvent;
 import geminiclient.gemini.modules.Module;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -16,7 +16,7 @@ public class KeyBindHandler {
 
     @SuppressWarnings("unused")
     @EventTarget
-    public void keyEvent(KeyEvent event) {
+    public void keyEvent(KeyInputEvent event) {
         long currentTime = System.currentTimeMillis();
         final long MIN_INTERVAL_MS = 180;
         for (Module module : Gemini.moduleManager.getModules()) {

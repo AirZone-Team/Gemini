@@ -15,9 +15,9 @@ public class NoSlow extends Module {
     // 使用物品时的最大速度倍率
     public final FloatValue factor = new FloatValue("Factor", 0.98f, 0.2f, 0.98f);
 
-    public final ListValue foodMode = new ListValue("Food Mode", "Vanilla", new String[] { "Vanilla", "None" });
-    public final ListValue bowMode = new ListValue("Bow Mode", "Vanilla", new String[] { "Vanilla", "None" });
-    public final ListValue otherMode = new ListValue("Other Mode", "Vanilla", new String[] { "Vanilla", "None" });
+    public final ListValue foodMode = new ListValue("FoodMode", "Vanilla", new String[] { "Vanilla", "None" });
+    public final ListValue bowMode = new ListValue("BowMode", "Vanilla", new String[] { "Vanilla", "None" });
+    public final ListValue otherMode = new ListValue("OtherMode", "Vanilla", new String[] { "Vanilla", "None" });
 
     public NoSlow() {
         super("NoSlow", ModuleEnum.Movement);

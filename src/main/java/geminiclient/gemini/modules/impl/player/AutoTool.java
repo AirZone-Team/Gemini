@@ -34,15 +34,15 @@ public final class AutoTool extends Module {
     private static final String[] MODES = new String[]{SMART_MODE, FAST_MODE, SIMPLE_MODE};
 
     // 值定义
-    private final IntValue switchDelay = new IntValue("Switch Delay", 5, 0, 500);
-    private final ListValue switchMode = new ListValue("Switch Mode", SMART_MODE, MODES);
+    private final IntValue switchDelay = new IntValue("SwitchDelay", 5, 0, 500);
+    private final ListValue switchMode = new ListValue("SwitchMode", SMART_MODE, MODES);
 
-    private final BoolValue switchForCombat = new BoolValue("Combat Switch", true);
-    private final BoolValue requireSneak = new BoolValue("Require Sneak", false);
+    private final BoolValue switchForCombat = new BoolValue("CombatSwitch", true);
+    private final BoolValue requireSneak = new BoolValue("RequireSneak", false);
 
-    private final BoolValue protectTool = new BoolValue("Protect Tool", true);
+    private final BoolValue protectTool = new BoolValue("ProtectTool", true);
 
-    private final IntValue minThreshold = new IntValue("Min Threshold", 10, 1, 100, () -> protectTool.enabled);
+    private final IntValue minThreshold = new IntValue("MinThreshold", 10, 1, 100, () -> protectTool.enabled);
 
     private final TimerUtils switchTimer = new TimerUtils();
     private ActionState currentState = ActionState.IDLE;
