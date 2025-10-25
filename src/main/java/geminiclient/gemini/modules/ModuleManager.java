@@ -1,13 +1,8 @@
 package geminiclient.gemini.modules;
 
-import geminiclient.gemini.modules.impl.combat.KillAura;
-import geminiclient.gemini.modules.impl.combat.Velocity;
-import geminiclient.gemini.modules.impl.movement.NoSlow;
-import geminiclient.gemini.modules.impl.movement.NoWeb;
-import geminiclient.gemini.modules.impl.movement.Sprint;
-import geminiclient.gemini.modules.impl.player.AutoTool;
-import geminiclient.gemini.modules.impl.player.NoFall;
-import geminiclient.gemini.modules.impl.player.Stealer;
+import geminiclient.gemini.modules.impl.combat.*;
+import geminiclient.gemini.modules.impl.movement.*;
+import geminiclient.gemini.modules.impl.player.*;
 import geminiclient.gemini.modules.impl.visual.*;
 
 import java.util.ArrayList;
@@ -32,6 +27,7 @@ public class ModuleManager {
                 new AutoTool(),
                 new NoWeb(),
                 new Glow(),
+                new InvManager(),
                 new EffectDisplay());
     }
 
