@@ -6,6 +6,7 @@
   "mixins": [
     "MixinConnection",
     "MixinEntity",
+    "MixinKeyMapping",
     "MixinLivingEntity",
     "MixinPlayer"
   ],

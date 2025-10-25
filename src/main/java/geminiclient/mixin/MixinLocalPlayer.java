@@ -67,6 +67,8 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
         return null;
     }
 
+    @Shadow public abstract boolean isLocalPlayer();
+
     @Unique
     Vec2 gemini$move;
 

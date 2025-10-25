@@ -42,6 +42,7 @@ public class KillAura extends Module {
             new BoolValue("AttackPlayers", true), new BoolValue("AttackMobs", true),
             new BoolValue("AttackAnimals", false), new BoolValue("AttackDead")
     });
+    private final BoolValue autoBlock = new BoolValue("AutoBlock");
     private final CheckboxValue stop = new CheckboxValue("StopWorking", new BoolValue[] {
             new BoolValue("UsingItem"),
             new BoolValue("OpeningScreen")
@@ -59,7 +60,7 @@ public class KillAura extends Module {
     public KillAura() {
         super("KillAura", ModuleEnum.Combat);
         addValue(noCoolDown, cps, range, fov, hurtTime, pro,
-                targets, stop,
+                targets, stop,autoBlock,
                 silentRotate, moveFix);
     }
 
@@ -120,7 +121,7 @@ public class KillAura extends Module {
     public void onMotion(MotionEvent event) {
         if (curr == null || mc.player == null || !stopWorkingMethod())
             return;
-        if (event.getTimeEnum() == TimeEnum.Pre) {
+        if (event.getTimeEnum() == TimeEnum.Post) {
             if (!silentRotate.enabled) {
                 // 如果 SilentRotate 未启用，则实际旋转玩家视角
                 mc.player.setYRot(rotation.getYaw());

@@ -28,7 +28,8 @@ public class ModuleManager {
                 new NoWeb(),
                 new Glow(),
                 new InvManager(),
-                new EffectDisplay());
+                new EffectDisplay(),
+                new InvMove());
     }
 
     @SuppressWarnings("unchecked")
