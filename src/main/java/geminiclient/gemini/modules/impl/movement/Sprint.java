@@ -10,74 +10,74 @@ import net.minecraft.world.level.GameType;
 
 public class Sprint extends Module {
     private final BoolValue checkHunger = new BoolValue("CheckHunger", true);
-    private final BoolValue sprintUsingItem = new BoolValue("UsingItem", false); // 使用物品也能疾跑
+    private final BoolValue usingItem = new BoolValue("UsingItem", false);
+    private final BoolValue inventory = new BoolValue("Inventory", false);
 
     public Sprint() {
         super("Sprint", ModuleEnum.Movement);
-
         addValue(checkHunger);
-        addValue(sprintUsingItem);
+        addValue(usingItem);
+        addValue(inventory);
     }
 
-    @SuppressWarnings("unused")
     @EventTarget
     public void onUpdate(UpdateEvent event) {
-        if (!isPlayerValid()) {
+        if (mc.player == null || mc.level == null)
             return;
-        }
 
         LocalPlayer player = mc.player;
 
-        // 玩家没有移动输入，不需要疾跑
-        if (player.xxa == 0 && player.zza == 0) {
+        // 检查背包开关状态
+        if (shouldCancelSprint(player)) {
             if (player.isSprinting()) {
                 player.setSprinting(false);
             }
             return;
         }
 
+        // 没有移动输入时停止疾跑
+        if (player.xxa == 0 && player.zza == 0 && player.isSprinting()) {
+            player.setSprinting(false);
+            return;
+        }
+
+        // 满足条件时自动疾跑
         if (!mc.options.keySprint.isDown() && canSprint(player)) {
             player.setSprinting(true);
         }
     }
 
-    private boolean isPlayerValid() {
-        return mc.player != null && mc.level != null;
+    private boolean shouldCancelSprint(LocalPlayer player) {
+        // 背包开关关闭且当前有GUI打开时取消疾跑
+        return !inventory.enabled && mc.screen != null;
     }
 
     private boolean canSprint(LocalPlayer player) {
         if (mc.gameMode == null)
             return false;
-        // 使用物品检查（开关关闭时阻止疾跑）
-        if (!sprintUsingItem.enabled && player.isUsingItem()) {
-            return false;
-        }
 
-        if (player.horizontalCollision || player.isPassenger()) {
+        // 使用物品检查
+        if (!usingItem.enabled && player.isUsingItem())
             return false;
-        }
 
-        if (player.isInWater() || player.isInLava()) {
+        // 环境条件检查
+        if (player.horizontalCollision || player.isPassenger() ||
+                player.isInWater() || player.isInLava())
             return false;
-        }
 
-        if (checkHunger.enabled && player.getFoodData().getFoodLevel() <= 6) {
+        // 饥饿值检查
+        if (checkHunger.enabled && player.getFoodData().getFoodLevel() <= 6)
             return false;
-        }
 
+        // 飞行模式检查
         GameType gameType = mc.gameMode.getPlayerMode();
-        boolean isCreativeOrSpectator = gameType == GameType.CREATIVE || gameType == GameType.SPECTATOR;
-
-        if (player.getAbilities().flying) {
-            return isCreativeOrSpectator;
-        }
-
-        return true;
+        boolean creativeOrSpectator = gameType == GameType.CREATIVE || gameType == GameType.SPECTATOR;
+        return !player.getAbilities().flying || creativeOrSpectator;
     }
 
     @Override
     public void onDisabled() {
-        if (isPlayerValid() && mc.player.isSprinting()) {
+        if (mc.player != null && mc.player.isSprinting()) {
             mc.player.setSprinting(false);
         }
     }
