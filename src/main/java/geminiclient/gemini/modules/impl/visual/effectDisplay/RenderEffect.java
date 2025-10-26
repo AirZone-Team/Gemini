@@ -9,7 +9,6 @@ import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.locale.Language;
 
-import java.awt.Color;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -18,13 +17,13 @@ public class RenderEffect {
 
     // --- 颜色和尺寸常量 ---
     private static final int HEADER_COLOR_RGB = 0xFF962D2D; // 标题文本颜色 (R:150, G:45, B:45)
-    private static final int BODY_COLOR_ARGB = 0x78000000;  // 背景颜色 (A:120, R:0, G:0, B:0)
+    private static final int BODY_COLOR_ARGB = 0x78000000; // 背景颜色 (A:120, R:0, G:0, B:0)
     private static final int DURATION_BAR_COLOR_ARGB = 0x96323232; // 持续时间条颜色
     private static final int DURATION_TEXT_COLOR_RGB = 0xFFFFFFFF; // 持续时间文本颜色
 
-    private static final float PADDING_X = 10.0F;    // 距离屏幕左侧的间距
+    private static final float PADDING_X = 10.0F; // 距离屏幕左侧的间距
     private static final float ELEMENT_HEIGHT = 30.0F; // 效果卡片的高度
-    private static final float SPACING_Y = 34.0F;    // 效果之间的垂直间隔
+    private static final float SPACING_Y = 34.0F; // 效果之间的垂直间隔
 
     private final Map<Holder<MobEffect>, MobEffectInfo> infos = new ConcurrentHashMap<>();
 
@@ -36,7 +35,8 @@ public class RenderEffect {
 
     public void render(GuiGraphics graphics) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) return;
+        if (mc.player == null)
+            return;
 
         // 1. 数据更新和动画目标计算
         // 遍历所有当前活跃的效果，更新或创建 MobEffectInfo
@@ -60,7 +60,7 @@ public class RenderEffect {
 
         // 用于在 removeIf 循环中追踪当前绘制的 Y 坐标（需要数组/AtomicXXX 来在 Lambda 中修改外部变量）
         final float initialY = mc.getWindow().getGuiScaledHeight() / 2.0F - this.infos.size() * (SPACING_Y / 2.0F);
-        final float[] currentY = {initialY};
+        final float[] currentY = { initialY };
 
         // 2. 动画更新、渲染和移除判断
         this.infos.entrySet().removeIf(entry -> {
@@ -121,9 +121,10 @@ public class RenderEffect {
                 // 渲染文本：持续时间
                 graphics.pose().pushMatrix();
                 graphics.pose().scale(0.6F, 0.6F);
-                String duration = StringUtil.formatTickDuration(info.duration,20);
+                String duration = StringUtil.formatTickDuration(info.duration, 20);
                 // 绘制位置：X=14，Y=17
-                graphics.drawString(mc.font, duration, (int) (14 / 0.6F), (int) (17.0F / 0.6F), DURATION_TEXT_COLOR_RGB, false);
+                graphics.drawString(mc.font, duration, (int) (14 / 0.6F), (int) (17.0F / 0.6F), DURATION_TEXT_COLOR_RGB,
+                        false);
                 graphics.pose().popMatrix();
 
                 graphics.pose().popMatrix();
@@ -131,7 +132,6 @@ public class RenderEffect {
                 // 只有成功渲染（未移除）的效果才占用 Y 空间
                 currentY[0] += SPACING_Y;
             }
-
 
             // --- 阶段 C: 移除判断 ---
             if (info.shouldDisappear) {
@@ -177,6 +177,7 @@ class SimpleTimer {
 
     /**
      * 更新计时器的值。
+     * 
      * @param smooth 是否使用平滑过渡（线性插值）
      */
     public void update(boolean smooth) {

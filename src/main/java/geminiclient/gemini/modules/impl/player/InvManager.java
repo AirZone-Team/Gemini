@@ -48,7 +48,6 @@ public class InvManager extends Module {
     private static final int CHESTPLATE_SLOT = 6;
     private static final int LEGGINGS_SLOT = 7;
     private static final int BOOTS_SLOT = 8;
-    private static final int OFFHAND_SLOT = 45;
 
     public InvManager() {
         super("InvManager", ModuleEnum.Player);
@@ -515,13 +514,9 @@ public class InvManager extends Module {
     // 丢弃结果类
     private static class DropResult {
         public final int slotToDrop;
-        public final int dropValue;
-        public final int bestValue;
 
         public DropResult(int slotToDrop, int dropValue, int bestValue) {
             this.slotToDrop = slotToDrop;
-            this.dropValue = dropValue;
-            this.bestValue = bestValue;
         }
     }
 }
