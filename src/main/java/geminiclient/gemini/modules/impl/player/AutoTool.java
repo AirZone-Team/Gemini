@@ -8,8 +8,6 @@ import geminiclient.gemini.utils.TimerUtils;
 import geminiclient.gemini.values.impl.BoolValue;
 import geminiclient.gemini.values.impl.ListValue;
 import geminiclient.gemini.values.impl.IntValue;
-
-// Minecraft 导入路径
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -31,7 +29,7 @@ public final class AutoTool extends Module {
     private static final String SMART_MODE = "SMART";
     private static final String FAST_MODE = "FAST"; // 新增，与SIMPLE区分
     private static final String SIMPLE_MODE = "SIMPLE";
-    private static final String[] MODES = new String[]{SMART_MODE, FAST_MODE, SIMPLE_MODE};
+    private static final String[] MODES = new String[] { SMART_MODE, FAST_MODE, SIMPLE_MODE };
 
     // 值定义
     private final IntValue switchDelay = new IntValue("SwitchDelay", 5, 0, 500);
@@ -53,9 +51,6 @@ public final class AutoTool extends Module {
         this.addValue(switchDelay, switchMode, switchForCombat, requireSneak, protectTool, minThreshold);
     }
 
-    /**
-     * 【Access Transformer访问】设置热键栏槽位。
-     */
     private void setQuickbarSlot(int slot) {
         if (mc.player == null || slot < 0 || slot > 8)
             return;
@@ -65,9 +60,6 @@ public final class AutoTool extends Module {
         // mc.player.connection.send(new ServerboundSetCarriedItemPacket(slot));
     }
 
-    /**
-     * 【Access Transformer访问】读取当前热键栏槽位。
-     */
     private int getCurrentSlot() {
         return mc.player != null ? mc.player.getInventory().selected : -1;
     }
@@ -113,7 +105,8 @@ public final class AutoTool extends Module {
     @SuppressWarnings("unused")
     @EventTarget
     private void onMotionEvent(MotionEvent event) {
-        if (mc.player == null || mc.level == null) return;
+        if (mc.player == null || mc.level == null)
+            return;
 
         if (requireSneak.enabled && !mc.player.isCrouching()) {
             tryRollback();
@@ -126,7 +119,8 @@ public final class AutoTool extends Module {
         }
 
         HitResult hitResult = mc.hitResult;
-        if (hitResult == null) return;
+        if (hitResult == null)
+            return;
 
         if (hitResult.getType() == HitResult.Type.BLOCK) {
             handleMining((BlockHitResult) hitResult);
@@ -207,10 +201,12 @@ public final class AutoTool extends Module {
 
         for (int i = 0; i < 9; i++) {
             ItemStack stack = mc.player.getInventory().getItem(i);
-            if (stack.isEmpty()) continue;
+            if (stack.isEmpty())
+                continue;
 
             // 保护工具检查
-            if (protectTool.enabled && hasLowDurability(stack)) continue;
+            if (protectTool.enabled && hasLowDurability(stack))
+                continue;
 
             // 简化：仅检查剑或斧
             Item item = stack.getItem();
@@ -246,9 +242,11 @@ public final class AutoTool extends Module {
 
         for (int i = 0; i < 9; i++) {
             ItemStack stack = mc.player.getInventory().getItem(i);
-            if (stack.isEmpty()) continue;
+            if (stack.isEmpty())
+                continue;
 
-            if (protectTool.enabled && hasLowDurability(stack)) continue;
+            if (protectTool.enabled && hasLowDurability(stack))
+                continue;
 
             if (isToolEffective(stack, blockState)) {
                 float score = calculateToolScore(stack, blockState);
@@ -294,20 +292,27 @@ public final class AutoTool extends Module {
         String itemName = tool.getItem().toString().toLowerCase();
 
         // 使用更平滑的权重，使高材质工具的优势更明显
-        if (itemName.contains("netherite")) return 1.5f;
-        if (itemName.contains("diamond")) return 1.3f;
-        if (itemName.contains("iron")) return 1.1f;
+        if (itemName.contains("netherite"))
+            return 1.5f;
+        if (itemName.contains("diamond"))
+            return 1.3f;
+        if (itemName.contains("iron"))
+            return 1.1f;
 
         // 黄金、石制、木制工具的权重可以设置为接近 1.0f 或更低，因为它们通常不如铁制工具。
-        if (itemName.contains("golden")) return 0.9f;
-        if (itemName.contains("stone")) return 0.8f;
-        if (itemName.contains("wooden")) return 0.7f;
+        if (itemName.contains("golden"))
+            return 0.9f;
+        if (itemName.contains("stone"))
+            return 0.8f;
+        if (itemName.contains("wooden"))
+            return 0.7f;
 
         return 1.0f; // 非特定材质的工具（如剪刀、水桶等）
     }
 
     private boolean hasLowDurability(ItemStack stack) {
-        if (!stack.isDamageableItem()) return false;
+        if (!stack.isDamageableItem())
+            return false;
 
         int remaining = stack.getMaxDamage() - stack.getDamageValue();
         int threshold = minThreshold.getValue();
