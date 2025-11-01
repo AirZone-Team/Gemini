@@ -4,6 +4,7 @@ import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.UpdateEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.utils.MovementUtils;
 import geminiclient.gemini.values.impl.BoolValue;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.level.GameType;
@@ -22,13 +23,13 @@ public class Sprint extends Module {
 
     @EventTarget
     public void onUpdate(UpdateEvent event) {
-        if (mc.player == null || mc.level == null)
+        if (mc.player == null || mc.level == null || !MovementUtils.moving())
             return;
 
         LocalPlayer player = mc.player;
 
         // 检查背包开关状态
-        if (shouldCancelSprint(player)) {
+        if (shouldCancelSprint()) {
             if (player.isSprinting()) {
                 player.setSprinting(false);
             }
@@ -47,7 +48,7 @@ public class Sprint extends Module {
         }
     }
 
-    private boolean shouldCancelSprint(LocalPlayer player) {
+    private boolean shouldCancelSprint() {
         // 背包开关关闭且当前有GUI打开时取消疾跑
         return !inventory.enabled && mc.screen != null;
     }

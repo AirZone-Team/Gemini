@@ -10,7 +10,7 @@ public class SpoofLandingNoFall extends Mode {
     public SpoofLandingNoFall() {
         super("SpoofLanding");
     }
-    private Vec3 vec3 = new Vec3(1337.0,0.0,1337.0);
+    private final Vec3 vec3 = new Vec3(1337.0,0.0,1337.0);
 
     private double prevFallDistance = 0.0;
 

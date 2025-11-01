@@ -121,7 +121,7 @@ public class KillAura extends Module {
     public void onMotion(MotionEvent event) {
         if (curr == null || mc.player == null || !stopWorkingMethod())
             return;
-        if (event.getTimeEnum() == TimeEnum.Post) {
+        if (event.getTimeEnum() == TimeEnum.Pre) {
             if (!silentRotate.enabled) {
                 // 如果 SilentRotate 未启用，则实际旋转玩家视角
                 mc.player.setYRot(rotation.getYaw());
@@ -129,6 +129,8 @@ public class KillAura extends Module {
             } else {
                 event.setyRot(rotation.getYaw());
                 event.setxRot(rotation.getPitch());
+                mc.player.yHeadRot = rotation.getYaw();
+                mc.player.yBodyRot = rotation.getYaw();
             }
         }
     }

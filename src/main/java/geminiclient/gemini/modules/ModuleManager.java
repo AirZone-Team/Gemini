@@ -29,7 +29,8 @@ public class ModuleManager {
                 new Glow(),
                 new InvManager(),
                 new EffectDisplay(),
-                new InvMove());
+                new InvMove(),
+                new NoJumpDelay());
     }
 
     @SuppressWarnings("unchecked")
