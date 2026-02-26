@@ -42,7 +42,7 @@ public class Crit extends Module {
             case "Packet2":
                 if (mc.player.onGround()) {
                     Vec3 vec3 = mc.player.getDeltaMovement();
-                    mc.player.setDeltaMovement(new Vec3(vec3.x, vec3.y + 0.02, vec3.z));
+                    mc.player.setDeltaMovement(new Vec3(vec3.x, vec3.y + 0.1, vec3.z));
                 }
         }
     }

@@ -35,7 +35,8 @@ public class ModuleManager {
                 new EffectDisplay(),
                 new InvMove(),
                 new NoJumpDelay(),
-                new Crit()
+                new Crit(),
+                new Speed()
         );
     }
 
