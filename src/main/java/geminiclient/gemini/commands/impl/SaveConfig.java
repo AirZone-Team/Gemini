@@ -5,6 +5,9 @@ import geminiclient.gemini.commands.Command;
 import geminiclient.gemini.utils.ClientUtils;
 
 public class SaveConfig extends Command {
+    public SaveConfig() {
+        super(".save");
+    }
     @Override
     public void onCommand(String message) {
         String[] args = message.split(" ");

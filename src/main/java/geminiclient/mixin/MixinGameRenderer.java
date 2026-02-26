@@ -21,12 +21,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public class MixinGameRenderer {
     @Shadow @Final private Minecraft minecraft;
 
-    @Shadow @Final private GuiRenderState guiRenderState;
+    @Shadow @Final
+    GuiRenderState guiRenderState;
 
     @Inject(method = "render",at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/Gui;render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/DeltaTracker;)V"))
     public void inject2D(DeltaTracker deltaTracker, boolean renderLevel, CallbackInfo ci) {
-        GuiGraphics g = new GuiGraphics(this.minecraft,this.guiRenderState);
-        Gemini.eventManager.call(new Render2DEvent(g,g.pose()));
+        int i = (int) this.minecraft.mouseHandler.getScaledXPos(this.minecraft.getWindow());
+        int j = (int) this.minecraft.mouseHandler.getScaledYPos(this.minecraft.getWindow());
+        GuiGraphics g = new GuiGraphics(this.minecraft, this.guiRenderState, i, j);
+        Gemini.eventManager.call(new Render2DEvent(g, g.pose()));
     }
 
     @Inject(method = "getNightVisionScale", at = @At("HEAD"), cancellable = true)

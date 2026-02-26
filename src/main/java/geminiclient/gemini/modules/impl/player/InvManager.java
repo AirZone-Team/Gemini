@@ -11,10 +11,15 @@ import geminiclient.gemini.values.impl.IntRangeValue;
 import geminiclient.gemini.values.impl.FloatValue;
 import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.*;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
+import net.minecraft.world.item.component.Tool;
+import net.minecraft.core.Holder;
 
 import java.util.*;
 
@@ -42,7 +47,7 @@ public class InvManager extends Module {
     private final TimerUtils timer = new TimerUtils();
     private boolean inventoryOpen = false;
     private boolean inventoryWasOpen = false;
-    private final Set<Integer> usedSlots = new HashSet<>();
+    private final Set<Integer> usedSlots = new HashSet<>(); // 快捷栏槽位 (0-8)
 
     public InvManager() {
         super("InvManager", ModuleEnum.Player);
@@ -103,10 +108,10 @@ public class InvManager extends Module {
             handleWeaponSwitch();
         }
         if (switchPickaxe.enabled) {
-            handleToolSwitch(Items.DIAMOND_PICKAXE, (int)pickaxeSlot.getValue() - 1, ToolType.PICKAXE);
+            handleToolSwitch(ToolType.PICKAXE, (int)pickaxeSlot.getValue() - 1);
         }
         if (switchAxe.enabled) {
-            handleToolSwitch(Items.DIAMOND_AXE, (int)axeSlot.getValue() - 1, ToolType.AXE);
+            handleToolSwitch(ToolType.AXE, (int)axeSlot.getValue() - 1);
         }
         if (switchBow.enabled) {
             handleBowSwitch();
@@ -154,19 +159,18 @@ public class InvManager extends Module {
     private void handleAutoArmor() {
         Inventory inventory = mc.player.getInventory();
 
-        // 检查每个盔甲槽位
         for (ArmorType type : ArmorType.values()) {
-            int equippedSlot = type.getInventorySlot();
-            ItemStack equippedItem = inventory.getItem(equippedSlot);
+            int playerArmorIndex = type.getPlayerArmorIndex(); // 36-39
+            ItemStack equippedItem = inventory.getItem(playerArmorIndex);
             float equippedScore = calculateArmorScore(equippedItem);
 
-            // 寻找更好的盔甲
             int bestSlot = -1;
             float bestScore = equippedScore;
 
-            for (int slot = 9; slot < 36; slot++) { // 背包槽位
+            // 搜索背包 (9-35)
+            for (int slot = 9; slot < 36; slot++) {
                 ItemStack stack = inventory.getItem(slot);
-                if (type.matchesItem(stack.getItem())) {
+                if (type.matchesItem(stack)) {
                     float score = calculateArmorScore(stack);
                     if (score > bestScore) {
                         bestScore = score;
@@ -175,12 +179,11 @@ public class InvManager extends Module {
                 }
             }
 
-            // 检查快捷栏（跳过已使用的槽位）
+            // 搜索快捷栏 (0-8)，跳过被占用的槽位
             for (int slot = 0; slot < 9; slot++) {
                 if (usedSlots.contains(slot)) continue;
-
                 ItemStack stack = inventory.getItem(slot);
-                if (type.matchesItem(stack.getItem())) {
+                if (type.matchesItem(stack)) {
                     float score = calculateArmorScore(stack);
                     if (score > bestScore) {
                         bestScore = score;
@@ -190,14 +193,15 @@ public class InvManager extends Module {
             }
 
             if (bestSlot != -1) {
-                swapItems(bestSlot, equippedSlot);
+                int sourceContainerSlot = bestSlot < 9 ? bestSlot + 36 : bestSlot;
+                swapItems(sourceContainerSlot, type.getInventorySlot()); // 目标为容器菜单盔甲槽 5-8
                 return; // 一次只处理一件装备
             }
         }
     }
 
     private void handleOffhand() {
-        ItemStack offhandItem = mc.player.getInventory().getItem(40); // 副手槽位
+        ItemStack offhandItem = mc.player.getInventory().getItem(40); // 副手槽位在玩家背包中是40
 
         switch (offhandMode.get()) {
             case "Golden Apple":
@@ -225,7 +229,6 @@ public class InvManager extends Module {
     }
 
     private void handleOffhandProjectile(ItemStack currentOffhand) {
-        // 优先选择数量多的投掷物
         int bestSlot = -1;
         int bestCount = currentOffhand.getCount();
 
@@ -268,14 +271,13 @@ public class InvManager extends Module {
     }
 
     private void handleWeaponSwitch() {
-        int targetSlot = (int)swordSlot.getValue() - 1;
+        int targetSlot = (int)swordSlot.getValue() - 1; // 玩家背包索引 0-8
         ItemStack currentWeapon = mc.player.getInventory().getItem(targetSlot);
         float currentDamage = calculateWeaponDamage(currentWeapon);
 
         int bestSlot = -1;
         float bestDamage = currentDamage;
 
-        // 寻找更好的武器
         for (int slot = 0; slot < 36; slot++) {
             if (slot % 9 == targetSlot) continue; // 跳过目标槽位本身
 
@@ -288,11 +290,13 @@ public class InvManager extends Module {
         }
 
         if (bestSlot != -1) {
-            swapItems(bestSlot, targetSlot);
+            int sourceContainerSlot = bestSlot < 9 ? bestSlot + 36 : bestSlot;
+            int targetContainerSlot = 36 + targetSlot; // 快捷栏在容器菜单中是36-44
+            swapItems(sourceContainerSlot, targetContainerSlot);
         }
     }
 
-    private void handleToolSwitch(Item baseItem, int targetSlot, ToolType toolType) {
+    private void handleToolSwitch(ToolType toolType, int targetSlot) { // targetSlot 玩家背包索引 0-8
         ItemStack currentTool = mc.player.getInventory().getItem(targetSlot);
         float currentScore = calculateToolScore(currentTool, toolType);
 
@@ -303,7 +307,7 @@ public class InvManager extends Module {
             if (slot % 9 == targetSlot) continue;
 
             ItemStack stack = mc.player.getInventory().getItem(slot);
-            if (toolType.matchesItem(stack.getItem())) {
+            if (toolType.matchesItem(stack)) {
                 float score = calculateToolScore(stack, toolType);
                 if (score > bestScore) {
                     bestScore = score;
@@ -313,7 +317,9 @@ public class InvManager extends Module {
         }
 
         if (bestSlot != -1) {
-            swapItems(bestSlot, targetSlot);
+            int sourceContainerSlot = bestSlot < 9 ? bestSlot + 36 : bestSlot;
+            int targetContainerSlot = 36 + targetSlot;
+            swapItems(sourceContainerSlot, targetContainerSlot);
         }
     }
 
@@ -339,7 +345,9 @@ public class InvManager extends Module {
         }
 
         if (bestSlot != -1) {
-            swapItems(bestSlot, targetSlot);
+            int sourceContainerSlot = bestSlot < 9 ? bestSlot + 36 : bestSlot;
+            int targetContainerSlot = 36 + targetSlot;
+            swapItems(sourceContainerSlot, targetContainerSlot);
         }
     }
 
@@ -362,7 +370,9 @@ public class InvManager extends Module {
         }
 
         if (bestSlot != -1) {
-            swapItems(bestSlot, targetSlot);
+            int sourceContainerSlot = bestSlot < 9 ? bestSlot + 36 : bestSlot;
+            int targetContainerSlot = 36 + targetSlot;
+            swapItems(sourceContainerSlot, targetContainerSlot);
         }
     }
 
@@ -374,7 +384,7 @@ public class InvManager extends Module {
             ItemStack stack = inventory.getItem(slot);
             if (!stack.isEmpty() && isUselessItem(stack)) {
                 throwItem(slot);
-                return; // 一次只丢弃一个物品
+                return;
             }
         }
 
@@ -390,45 +400,40 @@ public class InvManager extends Module {
         }
     }
 
-    // 新的判断方法
+    // 物品类型判断
     private boolean isArmor(ItemStack stack) {
         if (stack.isEmpty()) return false;
-        return stack.has(DataComponents.EQUIPPABLE) ||
-                stack.getItem().toString().toLowerCase().contains("helmet") ||
-                stack.getItem().toString().toLowerCase().contains("chestplate") ||
-                stack.getItem().toString().toLowerCase().contains("leggings") ||
-                stack.getItem().toString().toLowerCase().contains("boots");
+        return stack.has(DataComponents.EQUIPPABLE);
     }
 
     private boolean isWeapon(ItemStack stack) {
         if (stack.isEmpty()) return false;
-        if (stack.has(DataComponents.TOOL) || stack.has(DataComponents.ATTRIBUTE_MODIFIERS)) {
-            ItemAttributeModifiers modifiers = stack.get(DataComponents.ATTRIBUTE_MODIFIERS);
-            if (modifiers != null) {
-                // 检查是否有攻击伤害属性
-                return modifiers.modifiers().stream()
-                        .anyMatch(modifier -> modifier.attribute().value().getDescriptionId().contains("attack_damage"));
+        // 检查是否有攻击伤害属性修饰符
+        var modifiers = stack.get(DataComponents.ATTRIBUTE_MODIFIERS);
+        if (modifiers != null) {
+            for (var entry : modifiers.modifiers()) {
+                if (entry.attribute().is(Attributes.ATTACK_DAMAGE)) {
+                    return true;
+                }
             }
         }
-        return stack.getItem().toString().toLowerCase().contains("sword") ||
-                stack.getItem().toString().toLowerCase().contains("axe");
+        // 后备：根据名称
+        String name = stack.getItem().toString().toLowerCase();
+        return name.contains("sword") || name.contains("axe");
     }
 
     private boolean isTool(ItemStack stack) {
         if (stack.isEmpty()) return false;
-        if (stack.has(DataComponents.TOOL)) {
-            return true;
-        }
-        return stack.getItem().toString().toLowerCase().contains("pickaxe") ||
-                stack.getItem().toString().toLowerCase().contains("axe") ||
-                stack.getItem().toString().toLowerCase().contains("shovel") ||
-                stack.getItem().toString().toLowerCase().contains("hoe");
+        if (stack.has(DataComponents.TOOL)) return true;
+        String name = stack.getItem().toString().toLowerCase();
+        return name.contains("pickaxe") || name.contains("axe") ||
+                name.contains("shovel") || name.contains("hoe");
     }
 
     private boolean isRangedWeapon(ItemStack stack) {
         if (stack.isEmpty()) return false;
-        String itemName = stack.getItem().toString().toLowerCase();
-        return itemName.contains("bow") || itemName.contains("crossbow");
+        String name = stack.getItem().toString().toLowerCase();
+        return name.contains("bow") || name.contains("crossbow");
     }
 
     private boolean isUselessItem(ItemStack stack) {
@@ -436,49 +441,63 @@ public class InvManager extends Module {
 
         Item item = stack.getItem();
 
-        // 使用新的组件系统判断物品类型
-        if (isArmor(stack) || isWeapon(stack) || isTool(stack) ||
+        // 保留有用的物品
+        if (isArmor(stack) || isWeapon(stack) || isTool(stack) || isRangedWeapon(stack) ||
                 item == Items.GOLDEN_APPLE || item == Items.ENDER_PEARL ||
                 item == Items.WATER_BUCKET || item == Items.LAVA_BUCKET ||
                 item instanceof BlockItem) {
             return false;
         }
 
-        // 材料类物品不丢弃
-        return item != Items.DIAMOND && item != Items.EMERALD &&
-                item != Items.GOLD_INGOT && item != Items.IRON_INGOT &&
-                item != Items.NETHERITE_INGOT;
+        // 保留矿物/锭
+        if (item == Items.DIAMOND || item == Items.EMERALD ||
+                item == Items.GOLD_INGOT || item == Items.IRON_INGOT ||
+                item == Items.NETHERITE_INGOT || item == Items.COAL ||
+                item == Items.REDSTONE || item == Items.LAPIS_LAZULI ||
+                item == Items.QUARTZ || item == Items.AMETHYST_SHARD ||
+                item == Items.COPPER_INGOT) {
+            return false;
+        }
+
+        // 保留食物（通过食物组件判断）
+        if (stack.has(DataComponents.FOOD)) {
+            return false;
+        }
+
+        return true;
     }
 
     // 工具方法
-    private void swapItems(int sourceSlot, int targetSlot) {
-        if (sourceSlot < 0 || targetSlot < 0) return;
+    private void swapItems(int sourceContainerSlot, int targetContainerSlot) {
+        if (sourceContainerSlot < 0 || targetContainerSlot < 0) return;
 
         mc.gameMode.handleInventoryMouseClick(
                 mc.player.containerMenu.containerId,
-                sourceSlot < 9 ? sourceSlot + 36 : sourceSlot,
-                targetSlot,
+                sourceContainerSlot,
+                targetContainerSlot,
                 net.minecraft.world.inventory.ClickType.SWAP,
                 mc.player
         );
         timer.reset();
     }
 
-    private void swapWithOffhand(int sourceSlot) {
+    private void swapWithOffhand(int sourcePlayerSlot) { // sourcePlayerSlot 玩家背包索引 0-35
+        int sourceContainerSlot = sourcePlayerSlot < 9 ? sourcePlayerSlot + 36 : sourcePlayerSlot;
         mc.gameMode.handleInventoryMouseClick(
                 mc.player.containerMenu.containerId,
-                sourceSlot < 9 ? sourceSlot + 36 : sourceSlot,
-                40,
+                sourceContainerSlot,
+                40, // 副手在容器菜单中的索引
                 net.minecraft.world.inventory.ClickType.SWAP,
                 mc.player
         );
         timer.reset();
     }
 
-    private void throwItem(int slot) {
+    private void throwItem(int playerSlot) {
+        int containerSlot = playerSlot < 9 ? playerSlot + 36 : playerSlot;
         mc.gameMode.handleInventoryMouseClick(
                 mc.player.containerMenu.containerId,
-                slot < 9 ? slot + 36 : slot,
+                containerSlot,
                 1,
                 net.minecraft.world.inventory.ClickType.THROW,
                 mc.player
@@ -501,16 +520,23 @@ public class InvManager extends Module {
         return delay.getMinValue() + (int)(Math.random() * (delay.getMaxValue() - delay.getMinValue()));
     }
 
-    // 价值计算方法 - 适配 NeoForge 1.21.9
+    // 价值计算方法
     private float calculateArmorScore(ItemStack stack) {
         if (stack.isEmpty() || !isArmor(stack)) return 0;
 
         float score = 0;
 
-        // 使用组件获取防御值
-        if (stack.has(DataComponents.EQUIPPABLE)) {
-            var armor = stack.get(DataComponents.EQUIPPABLE);
-//            score += armor.defense();
+        // 从属性修饰符获取护甲值和韧性
+        var modifiers = stack.get(DataComponents.ATTRIBUTE_MODIFIERS);
+        if (modifiers != null) {
+            for (var entry : modifiers.modifiers()) {
+                Holder<Attribute> attribute = entry.attribute();
+                if (attribute.is(Attributes.ARMOR)) {
+                    score += entry.modifier().amount();
+                } else if (attribute.is(Attributes.ARMOR_TOUGHNESS)) {
+                    score += entry.modifier().amount() * 1.5f;
+                }
+            }
         }
 
         // 材质加成
@@ -519,6 +545,7 @@ public class InvManager extends Module {
         else if (material.contains("diamond")) score += 8;
         else if (material.contains("iron")) score += 5;
         else if (material.contains("gold")) score += 3;
+        else if (material.contains("leather")) score += 1;
 
         // 附魔加成
         var enchantments = stack.get(DataComponents.ENCHANTMENTS);
@@ -542,21 +569,19 @@ public class InvManager extends Module {
 
         float damage = 0;
 
-        // 使用属性修饰器获取伤害值
         var modifiers = stack.get(DataComponents.ATTRIBUTE_MODIFIERS);
         if (modifiers != null) {
-            for (var modifier : modifiers.modifiers()) {
-//                if (modifier.attribute().value().getDescriptionId().contains("attack_damage")) {
-//                    damage += modifier.attribute().value().;
-//                }
+            for (var entry : modifiers.modifiers()) {
+                if (entry.attribute().is(Attributes.ATTACK_DAMAGE)) {
+                    damage += entry.modifier().amount();
+                }
             }
         }
 
-        // 附魔加成
         var enchantments = stack.get(DataComponents.ENCHANTMENTS);
         if (enchantments != null) {
             for (var entry : enchantments.entrySet()) {
-                damage += entry.getIntValue();
+                damage += entry.getIntValue(); // 简单叠加
             }
         }
 
@@ -564,18 +589,23 @@ public class InvManager extends Module {
     }
 
     private float calculateToolScore(ItemStack stack, ToolType toolType) {
-        if (stack.isEmpty() || !toolType.matchesItem(stack.getItem())) return 0;
+        if (stack.isEmpty() || !toolType.matchesItem(stack)) return 0;
 
         float score = 0;
 
-        // 材质加成
+        var tool = stack.get(DataComponents.TOOL);
+        if (tool != null) {
+            score += tool.defaultMiningSpeed();
+        }
+
         String material = stack.getItem().toString().toLowerCase();
         if (material.contains("netherite")) score += 30;
         else if (material.contains("diamond")) score += 20;
         else if (material.contains("iron")) score += 15;
         else if (material.contains("gold")) score += 10;
+        else if (material.contains("stone")) score += 5;
+        else if (material.contains("wood")) score += 2;
 
-        // 效率附魔
         var enchantments = stack.get(DataComponents.ENCHANTMENTS);
         if (enchantments != null) {
             for (var entry : enchantments.entrySet()) {
@@ -591,11 +621,9 @@ public class InvManager extends Module {
 
         float score = 0;
 
-        // 基础分数
         if (stack.getItem().toString().toLowerCase().contains("crossbow")) score += 10;
         else score += 5;
 
-        // 附魔加成
         var enchantments = stack.get(DataComponents.ENCHANTMENTS);
         if (enchantments != null) {
             for (var entry : enchantments.entrySet()) {
@@ -608,32 +636,44 @@ public class InvManager extends Module {
 
     // 枚举和内部类
     private enum ArmorType {
-        HELMET(5, "helmet"),
-        CHESTPLATE(6, "chestplate"),
-        LEGGINGS(7, "leggings"),
-        BOOTS(8, "boots");
+        HELMET(5, 36, EquipmentSlot.HEAD),
+        CHESTPLATE(6, 37, EquipmentSlot.CHEST),
+        LEGGINGS(7, 38, EquipmentSlot.LEGS),
+        BOOTS(8, 39, EquipmentSlot.FEET);
 
-        private final int inventorySlot;
-        private final String typeName;
+        private final int containerSlot;   // 容器菜单索引
+        private final int playerSlot;      // 玩家背包索引
+        private final EquipmentSlot equipmentSlot;
 
-        ArmorType(int slot, String name) {
-            this.inventorySlot = slot;
-            this.typeName = name;
+        ArmorType(int containerSlot, int playerSlot, EquipmentSlot equipmentSlot) {
+            this.containerSlot = containerSlot;
+            this.playerSlot = playerSlot;
+            this.equipmentSlot = equipmentSlot;
         }
 
         public int getInventorySlot() {
-            return inventorySlot;
+            return containerSlot; // 用于容器菜单操作
         }
 
-        public boolean matchesItem(Item item) {
-            return item.toString().toLowerCase().contains(typeName);
+        public int getPlayerArmorIndex() {
+            return playerSlot;    // 用于从玩家背包获取物品
+        }
+
+        public boolean matchesItem(ItemStack stack) {
+            var equippable = stack.get(DataComponents.EQUIPPABLE);
+            if (equippable != null) {
+                return equippable.slot() == this.equipmentSlot;
+            }
+            // 后备：通过名称判断
+            return stack.getItem().toString().toLowerCase().contains(this.name().toLowerCase());
         }
     }
 
     private enum ToolType {
         PICKAXE("pickaxe"),
         AXE("axe"),
-        SHOVEL("shovel");
+        SHOVEL("shovel"),
+        HOE("hoe");
 
         private final String typeName;
 
@@ -641,15 +681,12 @@ public class InvManager extends Module {
             this.typeName = name;
         }
 
-        public boolean matchesItem(Item item) {
-            boolean contains = item.toString().toLowerCase().contains(typeName);
-            return contains ||
-                    (item.getDefaultInstance().has(DataComponents.TOOL) &&
-                            contains);
+        public boolean matchesItem(ItemStack stack) {
+            stack.has(DataComponents.TOOL);
+            return stack.getItem().toString().toLowerCase().contains(typeName);
         }
     }
 
-    // 简单的Pair实现
     private record Pair<L, R>(L left, R right) {
         public static <L, R> Pair<L, R> of(L left, R right) {
             return new Pair<>(left, right);

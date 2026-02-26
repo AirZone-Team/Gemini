@@ -7,8 +7,7 @@
     "MixinConnection",
     "MixinEntity",
     "MixinKeyMapping",
-    "MixinLivingEntity",
-    "MixinPlayer"
+    "MixinLivingEntity"
   ],
   "client": [
     "MixinEntityRenderer",

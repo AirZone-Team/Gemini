@@ -1,4 +1,4 @@
-package geminiclient.gemini.base.clickgui;
+package geminiclient.gemini.modules.impl.visual.clickgui;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.MinecraftInstance;
@@ -62,16 +62,15 @@ public class CategoryPanel implements MinecraftInstance {
     }
 
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks, float scrollOffset) {
-        handleDragging(mouseX, mouseY);
+        handleDragging(mouseX, mouseY, scrollOffset);          // 传入 scrollOffset
         this.renderY = this.y + (int) scrollOffset;
-
         renderPanel(guiGraphics, mouseX, mouseY, partialTicks);
     }
 
-    private void handleDragging(double mouseX, double mouseY) {
+    private void handleDragging(double mouseX, double mouseY, float scrollOffset) {
         if (isDragging) {
             this.x = (int) (mouseX - dragOffsetX);
-            this.y = (int) (mouseY - dragOffsetY);
+            this.y = (int) (mouseY - dragOffsetY - scrollOffset);
         }
     }
 

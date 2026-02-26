@@ -1,6 +1,6 @@
-package geminiclient.gemini.base.clickgui;
+package geminiclient.gemini.modules.impl.visual.clickgui;
 
-import geminiclient.gemini.base.clickgui.component.*;
+import geminiclient.gemini.modules.impl.visual.clickgui.component.*;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.values.ValueParent;
 import geminiclient.gemini.values.impl.*;

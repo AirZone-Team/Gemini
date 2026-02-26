@@ -1,7 +1,7 @@
 package geminiclient.gemini.modules.impl.visual;
 
 import geminiclient.gemini.Gemini;
-import geminiclient.gemini.base.clickgui.CategoryPanel;
+import geminiclient.gemini.modules.impl.visual.clickgui.CategoryPanel;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
 import net.minecraft.client.gui.screens.Screen;

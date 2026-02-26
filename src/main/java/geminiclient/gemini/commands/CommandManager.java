@@ -1,30 +1,37 @@
 package geminiclient.gemini.commands;
 
+import geminiclient.gemini.commands.impl.Help;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.commands.impl.Bind;
 import geminiclient.gemini.commands.impl.LoadConfig;
 import geminiclient.gemini.commands.impl.SaveConfig;
 import geminiclient.gemini.event.events.impl.ChatEvent;
+import geminiclient.gemini.utils.ClientUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 public class CommandManager {
-    private final List<Command> commands = new ArrayList<>();
+    public static List<Command> getCommands() {
+        return commands;
+    }
+
+    private static final List<Command> commands = new ArrayList<>();
 
     public CommandManager() {
         Gemini.eventManager.register(this);
         addCommands(
                 new Bind(),
                 new SaveConfig(),
-                new LoadConfig()
+                new LoadConfig(),
+                new Help()
         );
     }
 
     private void addCommands(Command... commands) {
-        this.commands.addAll(Arrays.asList(commands));
+        CommandManager.commands.addAll(Arrays.asList(commands));
     }
 
     @SuppressWarnings("unused")

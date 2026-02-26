@@ -5,6 +5,9 @@ import geminiclient.gemini.commands.Command;
 import geminiclient.gemini.utils.ClientUtils;
 
 public class LoadConfig extends Command {
+    public LoadConfig() {
+        super(".load");
+    }
     @Override
     public void onCommand(String message) {
         String[] args = message.split(" ");

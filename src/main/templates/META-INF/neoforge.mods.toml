@@ -6,7 +6,7 @@
 
 # The license for you mod. This is mandatory metadata and allows for easier comprehension of your redistributive properties.
 # Review your options at https://choosealicense.com/. All rights reserved is the default copyright stance, and is thus the default here.
-license="All Rights Reserved"
+license="${mod_license}"
 
 # A URL to refer people to when problems occur with this mod
 #issueTrackerURL="https://change.me.to.your.issue.tracker.example.invalid/" #optional
@@ -15,13 +15,13 @@ license="All Rights Reserved"
 [[mods]] #mandatory
 
 # The modid of the mod
-modId="gemini" #mandatory
+modId="${mod_id}" #mandatory
 
 # The version number of the mod
-version="1.0-SNAPSHOT" #mandatory
+version="${mod_version}" #mandatory
 
 # A display name for the mod
-displayName="Gemini" #mandatory
+displayName="${mod_name}" #mandatory
 
 # A URL to query for updates for this mod. See the JSON update specification https://docs.neoforged.net/docs/misc/updatechecker/
 #updateJSONURL="https://change.me.example.invalid/updates.json" #optional
@@ -35,11 +35,14 @@ displayName="Gemini" #mandatory
 # A text field displayed in the mod UI
 #credits="" #optional
 
-# A text field displayed in the mod UI
-authors="XeContrast" #optional
+# The authors of the mod, displayed in the mod UI (optional)
+authors="XeContrast"
 
 # The description text for the mod (multi line!) (#mandatory)
-description='''Best Hacked Client'''
+description='''
+XeBook1's Best Shit
+i can't wait
+'''
 
 # The [[mixins]] block allows you to declare your mixin config to FML so that it gets loaded.
 [[mixins]]
@@ -53,7 +56,7 @@ file="META-INF/accesstransformer.cfg"
 # The coremods config file path is not configurable and is always loaded from META-INF/coremods.json
 
 # A dependency - use the . to indicate dependency for a specific modid. Dependencies are optional.
-[[dependencies.gemini]] #optional
+[[dependencies.${mod_id}]] #optional
 # the modid of the dependency
 modId="neoforge" #mandatory
 # The type of the dependency. Can be one of "required", "optional", "incompatible" or "discouraged" (case insensitive).
@@ -63,7 +66,7 @@ type="required" #mandatory
 # Optional field describing why the dependency is required or why it is incompatible
 # reason="..."
 # The version range of the dependency
-versionRange="[21.10.16-beta,)" #mandatory
+versionRange="[${neo_version},)" #mandatory
 # An ordering relationship for the dependency.
 # BEFORE - This mod is loaded BEFORE the dependency
 # AFTER - This mod is loaded AFTER the dependency
@@ -72,16 +75,16 @@ ordering="NONE"
 side="BOTH"
 
 # Here's another dependency
-[[dependencies.gemini]]
+[[dependencies.${mod_id}]]
 modId="minecraft"
 type="required"
 # This version range declares a minimum of the current minecraft version up to but not including the next major version
-versionRange="[1.21.10]"
+versionRange="${minecraft_version_range}"
 ordering="NONE"
 side="BOTH"
 
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares
 # that your mod requires GL version 3.2 or higher. Other features will be added. They are side aware so declaring this won't
 # stop your mod loading on the server for example.
-#[features.gemini]
+#[features.${mod_id}]
 #openGLVersion="[3.2,)"

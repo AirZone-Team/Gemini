@@ -1,4 +1,4 @@
-package geminiclient.gemini.base.clickgui.component;
+package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
 import geminiclient.gemini.values.impl.FloatValue;
 import net.minecraft.client.gui.GuiGraphics;
