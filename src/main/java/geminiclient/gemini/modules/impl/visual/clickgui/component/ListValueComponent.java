@@ -13,10 +13,10 @@ public class ListValueComponent extends ValueComponent {
     private boolean isExpanded = false;
     public static final int MODE_HEIGHT = 12;
 
-    // 统一的颜色主题
-    private static final int ACCENT_COLOR = new Color(230, 70, 180).getRGB(); // 调整: 略暗洋红色
-    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB(); // 优化: 略不那么黑，透明度高
-    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB(); // 优化: 略浅的半透明黑
+    // 统一的颜色主题 - 使用黑灰色调
+    private static final int ACCENT_COLOR = new Color(220, 220, 220).getRGB();
+    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB();
+    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB();
     private static final int TEXT_COLOR = Color.WHITE.getRGB();
     private static final int LIST_BG = new Color(0, 0, 0, 240).getRGB();
     private static final int LIST_HOVER_BG = new Color(30, 30, 30, 200).getRGB();
@@ -41,20 +41,16 @@ public class ListValueComponent extends ValueComponent {
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
         ListValue listValue = (ListValue) this.value;
 
-        // 1. 渲染主组件背景 (悬停时有轻微变化)
         int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
         guiGraphics.fill(x, y, x + width, y + height, bgColor);
 
-        // 如果展开，在主组件底部渲染主题色高亮线
         if (isExpanded) {
             guiGraphics.fill(x, y + height - 1, x + width, y + height, ACCENT_COLOR);
         }
 
-        // 2. 渲染名称和当前模式
         String displayString = String.format("%s: %s", this.value.getName(), listValue.get());
         guiGraphics.drawString(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
 
-        // 3. 如果展开，则渲染模式列表
         if (isExpanded) {
             drawModeList(guiGraphics, mouseX, mouseY);
         }
@@ -68,7 +64,6 @@ public class ListValueComponent extends ValueComponent {
         int listY = y + height;
         int listWidth = width;
 
-        // 渲染整个列表背景 (更深的颜色)
         guiGraphics.fill(listX, listY, listX + listWidth, listY + modes.size() * MODE_HEIGHT, LIST_BG);
 
         int currentY = listY;
@@ -78,12 +73,10 @@ public class ListValueComponent extends ValueComponent {
             boolean isSelected = listValue.is(mode);
 
             if (isModeHovered || isSelected) {
-                // 悬停使用浅灰色，选中时使用主题色
                 int highlightColor = isSelected ? ACCENT_COLOR : LIST_HOVER_BG;
                 guiGraphics.fill(listX, currentY, listX + listWidth, currentY + MODE_HEIGHT, highlightColor);
             }
 
-            // 文本颜色：选中白色，未选中略灰
             int modeTextColor = isSelected ? TEXT_COLOR : new Color(170, 170, 170).getRGB();
             guiGraphics.drawString(mc.font, mode, listX + 5, currentY + 2, modeTextColor, true);
 
@@ -96,7 +89,6 @@ public class ListValueComponent extends ValueComponent {
         ListValue listValue = (ListValue) this.value;
 
         if (isVisible()) {
-            // 1. 如果列表已展开，处理点击选项
             if (isExpanded) {
                 int listX = x;
                 int listY = y + height;
@@ -114,7 +106,6 @@ public class ListValueComponent extends ValueComponent {
                 }
             }
 
-            // 2. 处理主组件点击 (切换展开状态)
             if (isHovered(mouseX, mouseY) && (button == 0 || button == 1)) {
                 isExpanded = !isExpanded;
                 return true;

@@ -6,76 +6,101 @@ import net.minecraft.util.Mth;
 import java.awt.Color;
 
 /**
- * 优化版本：
- * 1. 从右侧滑入/滑出动画，使用 Cubic Out 缓动函数。
- * 2. 引入圆角背景（需要一个 drawRoundedRect 辅助方法，或使用现代 GuiGraphics API）。
- * 3. 进度条改为位于底部的细长条。
- * 4. 可选的左侧模块状态指示条 (绿色/红色)。
+ * 兼容1.21.11 NeoForge的美化通知组件：
+ * - 深灰色半透明背景 + 细边框（纯矩形）
+ * - 阴影效果（通过偏移矩形实现）
+ * - 状态指示条（绿/红）
+ * - 底部彩色进度条（信息/警告/错误）
+ * - 平滑滑入滑出动画 + 透明度淡入淡出
+ * - 级别图标（i / ! / ✕）
+ * - 全部使用 GuiGraphics.fill 绘制，无任何 RenderSystem 依赖
  */
 public class ModuleNotification {
 
-    // --- 模拟/简化 NotificationLevel (保持原样，结构清晰) ---
     public enum NotificationLevel {
-        INFO(0x00A8FF), WARN(0xFFB800), ERROR(0xFF0000);
+        INFO(0x4A90E2, "i"),    // 柔和蓝色
+        WARN(0xFF9800, "!"),    // 橙色
+        ERROR(0xE54B4B, "✕");   // 柔红
 
         private final int color;
+        private final String icon;
 
-        NotificationLevel(int color) {
+        NotificationLevel(int color, String icon) {
             this.color = color;
+            this.icon = icon;
         }
 
-        // 返回 ARGB 格式颜色
         public int getColorInt() {
             return 0xFF000000 | this.color;
         }
+
+        public String getIcon() {
+            return icon;
+        }
     }
-    // ------------------------------------
 
-    // --- 尺寸/间隔常量 ---
-    private static final int HEIGHT = 24;
+    // 尺寸常量
+    private static final int HEIGHT = 28;                      // 整体高度（含内边距）
+    private static final int PROGRESS_BAR_HEIGHT = 2;          // 底部进度条高度
+    private static final int STATUS_BAR_WIDTH = 3;             // 状态条宽度
+    private static final int ICON_SIZE = 10;                    // 图标区域大小（暂未使用）
+    private static final int PADDING_X = 8;                     // 文本左右内边距
+    private static final int PADDING_Y = 4;                     // 上下内边距
 
-    private static final int PROGRESS_BAR_HEIGHT = 2; // 底部进度条高度
-    private static final int STATUS_BAR_WIDTH = 3;    // 状态条宽度
-    private static final int PADDING_X = 6;           // 文本左右内边距
-    private static final int PADDING_Y = 4;           // 上下边距 (通知相对于目标Y的偏移)
-
-    // --- 动画时间常量 ---
+    // 动画时长
     private static final int INTRO_DURATION_MS = 500;
     private static final int OUTRO_DURATION_MS = 500;
-    private static final int MIN_LIFE_MS = INTRO_DURATION_MS + OUTRO_DURATION_MS; // 最小生命周期
+    private static final int MIN_LIFE_MS = INTRO_DURATION_MS + OUTRO_DURATION_MS;
 
-    // --- 颜色常量 ---
-    // 背景颜色：D0 (81.25%) 透明度
-    private static final int BG_COLOR = 0xD0000000;
-    private static final int TEXT_COLOR = Color.WHITE.getRGB();
-    private static final int STATUS_ENABLED_COLOR = 0xFF00FF00;
-    private static final int STATUS_DISABLED_COLOR = 0xFFFF0000;
+    // 颜色常量（基础颜色，无透明度）
+    private static final int BG_COLOR_BASE = 0x1E1E1E;           // 深灰色
+    private static final int SHADOW_COLOR_BASE = 0x000000;       // 阴影黑色
+    private static final int BORDER_COLOR_BASE = 0xFFFFFF;       // 边框白色
+    private static final int TEXT_COLOR_BASE = 0xFFFFFF;         // 文字白色
+    private static final int STATUS_ENABLED_COLOR = 0x4CAF50;    // 绿色
+    private static final int STATUS_DISABLED_COLOR = 0xF44336;   // 红色
 
     private final NotificationLevel level;
     private final String message;
     private final long maxAge;
     private final long createTime = System.currentTimeMillis();
-
     private final boolean showModuleStatus;
     private final boolean moduleIsEnabled;
 
-    // 当前绘制的宽度 (用于布局)
-    private float currentWidth;
+    private float currentWidth; // 用于外部获取宽度（未使用）
 
     public ModuleNotification(NotificationLevel level, String message, long age, boolean isEnabled, boolean showStatus) {
         this.level = level;
         this.message = message;
-        // 确保最小持续时间足够完成滑入和滑出动画
         this.maxAge = Math.max(age, MIN_LIFE_MS);
         this.moduleIsEnabled = isEnabled;
         this.showModuleStatus = showStatus;
-        this.currentWidth = this.calculateTargetWidth();
+        this.currentWidth = calculateTargetWidth();
     }
 
-    // --- 缓动函数（Cubic Out） ---
-    // f(x) = 1 - (1 - x)^3
     private float easeOutCubic(float x) {
-        return 1.0F - (float)Math.pow(1.0F - x, 3);
+        return 1.0F - (float) Math.pow(1.0F - x, 3);
+    }
+
+    /**
+     * 根据动画进度计算当前的透明度因子 (0~1)
+     */
+    private float getAlphaFactor(long timeElapsed, long remainingTime) {
+        if (timeElapsed < INTRO_DURATION_MS) {
+            return (float) timeElapsed / INTRO_DURATION_MS;
+        } else if (remainingTime <= OUTRO_DURATION_MS) {
+            return (float) remainingTime / OUTRO_DURATION_MS;
+        } else {
+            return 1.0F;
+        }
+    }
+
+    /**
+     * 将基础颜色与透明度因子合成最终 ARGB 颜色
+     */
+    private int applyAlpha(int baseRgb, float alphaFactor) {
+        int alpha = Math.min(255, Math.max(0, (int) (alphaFactor * 255)));
+        return (alpha << 24) | (baseRgb & 0xFFFFFF);
     }
 
     public void render(GuiGraphics guiGraphics, float targetX, float targetY) {
@@ -84,126 +109,115 @@ public class ModuleNotification {
 
         if (remainingTime < -OUTRO_DURATION_MS) return;
 
-        float notificationWidth = this.calculateTargetWidth();
-        // 目标 X 坐标
-        // 初始 X 偏移：通知宽度 + 额外间隙
-        final float initialOffset = notificationWidth + 10.0f;
+        float notificationWidth = calculateTargetWidth();
+        float initialOffset = notificationWidth + 10.0f;
 
         float currentX;
-        float progress;
-
-        // --- 1. X 轴动画计算 ---
         if (timeElapsed < INTRO_DURATION_MS) {
-            // 滑入：从 finalX + initialOffset 到 finalX
-            progress = (float)timeElapsed / INTRO_DURATION_MS;
-            float easedProgress = easeOutCubic(progress);
-            currentX = Mth.lerp(easedProgress, targetX + initialOffset, targetX);
+            float progress = (float) timeElapsed / INTRO_DURATION_MS;
+            currentX = Mth.lerp(easeOutCubic(progress), targetX + initialOffset, targetX);
         } else if (remainingTime <= OUTRO_DURATION_MS) {
-            // 滑出：从 finalX 到 finalX + initialOffset
-            progress = 1.0F - (float)remainingTime / OUTRO_DURATION_MS; // 进度从 0 -> 1
-            float easedProgress = easeOutCubic(progress);
-            currentX = Mth.lerp(easedProgress, targetX, targetX + initialOffset);
+            float progress = 1.0F - (float) remainingTime / OUTRO_DURATION_MS;
+            currentX = Mth.lerp(easeOutCubic(progress), targetX, targetX + initialOffset);
         } else {
-            // 保持
             currentX = targetX;
         }
 
         this.currentWidth = notificationWidth;
 
-        // --- 2. 绘制区域坐标 ---
-        int rectX1 = (int)currentX;
-        int rectY1 = (int)targetY + PADDING_Y;
-        int rectX2 = (int)(currentX + currentWidth);
-        int rectY2 = (int)(targetY + PADDING_Y + (HEIGHT - PADDING_Y * 2)); // 整体高度减去上下边距
+        float alphaFactor = getAlphaFactor(timeElapsed, remainingTime);
 
-        // --- 3. 绘制圆角背景 ---
-        // 注意：原生的 GuiGraphics 没有 drawRoundedRect 方法。
-        // 在实际项目中，需要引入一个辅助方法或使用更底层的渲染 API (如 RenderSystem.setShader + 绘制四边形)。
-        // 为了优化代码结构，我们假设存在一个静态辅助方法。
-        // 如果没有，则退化为普通的 fill。
+        int rectX1 = (int) currentX;
+        int rectY1 = (int) targetY + PADDING_Y;
+        int rectX2 = (int) (currentX + notificationWidth);
+        int rectY2 = (int) (targetY + PADDING_Y + (HEIGHT - PADDING_Y * 2));
 
-        // 假设存在 drawRoundedRect 方法:
-        // HelperRenderer.drawRoundedRect(guiGraphics, rectX1, rectY1, rectX2, rectY2, CORNER_RADIUS, BG_COLOR);
+        // 绘制阴影（比背景略大，偏移2像素，半透明）
+        int shadowColor = applyAlpha(SHADOW_COLOR_BASE, alphaFactor * 0.5f);
+        guiGraphics.fill(rectX1 + 2, rectY1 + 2, rectX2 + 2, rectY2 + 2, shadowColor);
 
-        // 否则，使用 fill (无圆角):
-        guiGraphics.fill(rectX1, rectY1, rectX2, rectY2, BG_COLOR);
+        // 绘制背景（80%透明度）
+        int bgColor = applyAlpha(BG_COLOR_BASE, alphaFactor * 0.8f);
+        guiGraphics.fill(rectX1, rectY1, rectX2, rectY2, bgColor);
 
+        // 绘制边框（半透明，四条边）
+        int borderColor = applyAlpha(BORDER_COLOR_BASE, alphaFactor * 0.2f);
+        guiGraphics.fill(rectX1, rectY1, rectX2, rectY1 + 1, borderColor); // 上
+        guiGraphics.fill(rectX1, rectY2 - 1, rectX2, rectY2, borderColor); // 下
+        guiGraphics.fill(rectX1, rectY1, rectX1 + 1, rectY2, borderColor); // 左
+        guiGraphics.fill(rectX2 - 1, rectY1, rectX2, rectY2, borderColor); // 右
 
-        // --- 4. 绘制状态指示条 ---
-        int textXOffset = PADDING_X; // 文本 X 坐标相对于 rectX1 的偏移
+        int textXOffset = PADDING_X;
+        int iconXOffset = 0;
 
-        if (this.showModuleStatus) {
-            int statusColor = this.moduleIsEnabled ? STATUS_ENABLED_COLOR : STATUS_DISABLED_COLOR;
-
-            // 状态条绘制区域 (左侧，高度到进度条上方)
+        // 绘制状态指示条（左侧）
+        if (showModuleStatus) {
+            int statusColor = applyAlpha(moduleIsEnabled ? STATUS_ENABLED_COLOR : STATUS_DISABLED_COLOR, alphaFactor);
             guiGraphics.fill(
                     rectX1,
                     rectY1,
                     rectX1 + STATUS_BAR_WIDTH,
-                    rectY2 - PROGRESS_BAR_HEIGHT, // 结束于进度条上方
+                    rectY2 - PROGRESS_BAR_HEIGHT,
                     statusColor
             );
-            textXOffset = STATUS_BAR_WIDTH + PADDING_X; // 文本向右移动 状态条宽度 + 文本内边距
+            textXOffset = STATUS_BAR_WIDTH + PADDING_X;
         }
 
-
-        // --- 5. 绘制底部进度条 ---
-
-        // lifeProgress: 从 1.0f (开始) 递减到 0.0f (结束)
-        // 使用剩余时间计算进度，更直观
-        float progressRatio = Mth.clamp((float)remainingTime / (float)(maxAge - MIN_LIFE_MS), 0.0F, 1.0F);
-
-        // 进度条的绘制宽度
-        // 进度条的背景（全宽减去状态条宽度）
-        float progressBarFullWidth = currentWidth - (this.showModuleStatus ? STATUS_BAR_WIDTH : 0);
-        float progressWidth = progressBarFullWidth * progressRatio;
-
-        int barColor = level.getColorInt();
-
-        // 进度条的起始 X 坐标 (在状态条右侧，如果存在)
-        int barX1 = rectX1 + (this.showModuleStatus ? STATUS_BAR_WIDTH : 0);
-
-        // 绘制彩色进度条，位于底部 PROGRESS_BAR_HEIGHT 高度
-        guiGraphics.fill(
-                barX1, // X1: 从状态条右侧或通知左侧开始
-                rectY2 - PROGRESS_BAR_HEIGHT, // Y1: 底部 PROGRESS_BAR_HEIGHT
-                (int)(barX1 + progressWidth), // X2: X1 + 进度条实际宽度
-                rectY2, // Y2: 通知底部
-                barColor
-        );
-
-        // --- 6. 绘制文本 ---
+        // 绘制级别图标（在文本左侧）
+        String icon = level.getIcon();
+        int iconWidth = Minecraft.getInstance().font.width(icon);
+        int iconColor = applyAlpha(level.getColorInt(), alphaFactor);
         guiGraphics.drawString(
                 Minecraft.getInstance().font,
-                this.message,
-                rectX1 + textXOffset, // 文本起始 X: 背景 X1 + 文本偏移
-                rectY1 + (HEIGHT - PADDING_Y * 2 - Minecraft.getInstance().font.lineHeight) / 2, // 垂直居中
-                TEXT_COLOR,
+                icon,
+                rectX1 + textXOffset,
+                rectY1 + (HEIGHT - PADDING_Y * 2 - Minecraft.getInstance().font.lineHeight) / 2,
+                iconColor,
+                false // 图标不启用阴影，避免重叠
+        );
+        iconXOffset = iconWidth + 4; // 图标与文本间距
+
+        // 绘制文本（带阴影）
+        int textColor = applyAlpha(TEXT_COLOR_BASE, alphaFactor);
+        guiGraphics.drawString(
+                Minecraft.getInstance().font,
+                message,
+                rectX1 + textXOffset + iconXOffset,
+                rectY1 + (HEIGHT - PADDING_Y * 2 - Minecraft.getInstance().font.lineHeight) / 2,
+                textColor,
                 true
+        );
+
+        // 底部进度条 - 修正版本
+        float progressRatio = Mth.clamp((float) remainingTime / (float) (maxAge - MIN_LIFE_MS), 0.0F, 1.0F);
+        float progressBarFullWidth = notificationWidth - (showModuleStatus ? STATUS_BAR_WIDTH : 0); // 只减去状态条宽度
+        float progressWidth = progressBarFullWidth * progressRatio;
+
+        int barX1 = rectX1 + (showModuleStatus ? STATUS_BAR_WIDTH : 0); // 从状态条右侧开始
+        int progressColor = applyAlpha(level.getColorInt(), alphaFactor);
+        guiGraphics.fill(
+                barX1,
+                rectY2 - PROGRESS_BAR_HEIGHT,
+                (int) (barX1 + progressWidth),
+                rectY2,
+                progressColor
         );
     }
 
-    // --- Getters 和辅助方法 ---
-
-    // 修复文本宽度计算，确保其与状态条逻辑兼容
     public float calculateTargetWidth() {
-        int stringWidth = Minecraft.getInstance().font.width(this.message);
-        // 文本总宽度 = 文本宽度 + 左右内边距 (2 * PADDING_X)
-        float textTotalWidth = (float)stringWidth + 2.0F * PADDING_X;
-        // 状态条偏移：状态条宽度
-        float statusBarOffset = this.showModuleStatus ? STATUS_BAR_WIDTH : 0.0F;
+        String icon = level.getIcon();
+        int iconWidth = Minecraft.getInstance().font.width(icon);
+        int stringWidth = Minecraft.getInstance().font.width(message);
+        float textTotalWidth = stringWidth + iconWidth + 2.0F * PADDING_X + 4; // 4为图标与文本间距
+        float statusBarOffset = showModuleStatus ? STATUS_BAR_WIDTH : 0.0F;
         return textTotalWidth + statusBarOffset;
     }
 
     public boolean isExpired() {
-        // 只有当滑出动画结束才算真正过期
         long remainingTime = maxAge - (System.currentTimeMillis() - createTime);
         return remainingTime < -OUTRO_DURATION_MS;
     }
 
-    // ... (其他辅助方法保持原样或删除)
-    public float getWidth() { return this.currentWidth; }
-    public float getHeight() { return (float)HEIGHT; }
-    @Override public int hashCode() { return 0; }
-    @Override public String toString() { return ""; }
+    public float getWidth() { return currentWidth; }
+    public float getHeight() { return (float) HEIGHT; }
 }

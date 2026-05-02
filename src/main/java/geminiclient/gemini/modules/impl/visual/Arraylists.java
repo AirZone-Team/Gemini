@@ -15,14 +15,28 @@ public class Arraylists extends Module {
     public final BoolValue mainBackground = new BoolValue("Main Bkgrd", true);
     public final BoolValue moduleBackground = new BoolValue("Module Bkgrd", true);
 
-    // 动画和样式常量
-    private static final float ANIMATION_SPEED = 0.2f; // 略微减慢动画速度，更平滑
-    private static final int BACKGROUND_COLOR = 0xAA000000; // 更黑，更透明 (66% 透明度)
-    private static final int MODULE_BG_COLOR = 0x1AFFFFFF; // 更低透明度的模块背景，更柔和
-    private static final int ACCENT_COLOR = 0xFF00FFFF; // 强调色：霓虹青色
-    private static final int ENABLED_DOT_COLOR = 0xFF33FF00; // 启用指示线：霓虹绿色
-    private static final int TEXT_COLOR = 0xFFFFFFFF;
-    private static final int LINE_HEIGHT_PADDING = 3; // 新增：垂直间距增加 3 像素
+    // 样式常量（与通知组件统一）
+    private static final int BG_COLOR_BASE = 0x1E1E1E;          // 深灰色
+    private static final int SHADOW_COLOR_BASE = 0x000000;      // 阴影黑色
+    private static final int BORDER_COLOR_BASE = 0xFFFFFF;      // 边框白色
+    private static final int TEXT_COLOR_BASE = 0xFFFFFF;        // 文字白色
+    private static final int STATUS_ENABLED_COLOR = 0x4CAF50;   // 绿色（启用）
+    private static final int STATUS_DISABLED_COLOR = 0xF44336;  // 红色（禁用，用于动画退出中的模块）
+    private static final int MODULE_BG_COLOR = 0x33000000;      // 模块背景色（半透明黑）
+
+    // 尺寸常量
+    private static final int STATUS_BAR_WIDTH = 3;              // 状态条宽度
+    private static final int PADDING_TEXT_LEFT = 4;             // 状态条右侧到文本的距离
+    private static final int PADDING_TEXT_RIGHT = 4;            // 文本右侧到模块背景边缘的距离
+    private static final int PADDING_MAIN_LEFT = 2;             // 主背景左边缘到模块左边缘的距离
+    private static final int PADDING_MAIN_RIGHT = 2;            // 主背景右边缘留白
+    private static final int TOP_PADDING = 3;                    // 主背景顶部内边距
+    private static final int BOTTOM_PADDING = 3;                 // 主背景底部内边距
+    private static final int LINE_HEIGHT_PADDING = 3;            // 行高额外间距
+    private static final int SHADOW_OFFSET = 2;                  // 阴影偏移量
+
+    // 动画常量
+    private static final float ANIMATION_SPEED = 0.2f;
 
     // 模块动画状态
     private static class ModuleAnimation {
@@ -32,7 +46,7 @@ public class Arraylists extends Module {
     }
 
     private final Map<Module, ModuleAnimation> animations = new HashMap<>();
-    private float animatedHeight = 0;
+    private float animatedHeight = 0; // 主背景动画高度
 
     public Arraylists() {
         super("Arraylists", ModuleEnum.Visual);
@@ -43,71 +57,61 @@ public class Arraylists extends Module {
     @EventTarget
     public void render2d(Render2DEvent event) {
         List<Module> modules = Gemini.moduleManager.getModules();
-        if (modules.isEmpty())
-            return;
+        if (modules.isEmpty()) return;
 
         List<Module> renderableModules = updateAnimations(modules);
-        if (renderableModules.isEmpty())
-            return;
+        if (renderableModules.isEmpty()) return;
 
         renderUI(event.guiGraphics(), renderableModules);
     }
 
+    /**
+     * 更新所有模块的动画状态，并返回需要渲染的模块列表
+     */
     private List<Module> updateAnimations(List<Module> modules) {
-        // 筛选需要渲染的模块
         List<Module> renderableModules = new ArrayList<>();
-        for (Module module : modules) {
-            if (!animations.containsKey(module)) {
-                animations.put(module, new ModuleAnimation());
-            }
 
+        for (Module module : modules) {
+            animations.computeIfAbsent(module, k -> new ModuleAnimation());
             ModuleAnimation anim = animations.get(module);
 
-            // 更新X轴动画
+            // X轴动画：启用时滑入（xOffset -> 0），禁用时滑出（xOffset -> 100）
             float targetX = module.enabled ? 0.0f : 100.0f;
             float diffX = targetX - anim.xOffset;
             anim.xOffset += diffX * ANIMATION_SPEED;
+            if (Math.abs(diffX) < 0.1f) anim.xOffset = targetX;
 
-            // 精确对齐完成动画
-            if (Math.abs(diffX) < 0.1f)
-                anim.xOffset = targetX;
-
-            // 筛选可见模块
+            // 只有启用或动画未完全滑出的模块才需要渲染
             if (module.enabled || anim.xOffset < 99.0f) {
                 renderableModules.add(module);
             }
         }
 
-        // 清理不存在的模块
+        // 清理已经不存在的模块
         animations.keySet().retainAll(modules);
 
-        if (renderableModules.isEmpty())
-            return renderableModules;
+        if (renderableModules.isEmpty()) return renderableModules;
 
-        // 按名称长度排序（保持原样，尽管左对齐通常不需要）
+        // 按名称长度降序排序（原逻辑，可保持）
         renderableModules.sort(Comparator.comparingInt((Module m) -> m.getName().length()).reversed());
 
-        // 更新高度和Y位置动画
-        // 【优化点 1】增加行高
+        // 计算总高度并更新Y轴动画
         int lineHeight = mc.font.lineHeight + LINE_HEIGHT_PADDING;
-        float targetHeight = renderableModules.size() * lineHeight + 3; // 增加1像素高度
+        float targetHeight = TOP_PADDING + renderableModules.size() * lineHeight + BOTTOM_PADDING;
 
-        // 高度动画
         float diffH = targetHeight - animatedHeight;
         animatedHeight += diffH * ANIMATION_SPEED;
-        if (Math.abs(diffH) < 0.1f)
-            animatedHeight = targetHeight;
+        if (Math.abs(diffH) < 0.1f) animatedHeight = targetHeight;
 
-        // 更新每个模块的Y位置
-        float currentY = 3; // 从3开始而不是2，下移1像素
+        // 更新每个模块的目标Y位置并执行Y轴动画
+        float currentY = TOP_PADDING;
         for (Module module : renderableModules) {
             ModuleAnimation anim = animations.get(module);
             anim.targetY = currentY;
 
             float diffY = anim.targetY - anim.currentY;
             anim.currentY += diffY * ANIMATION_SPEED;
-            if (Math.abs(diffY) < 0.1f)
-                anim.currentY = anim.targetY;
+            if (Math.abs(diffY) < 0.1f) anim.currentY = anim.targetY;
 
             currentY += lineHeight;
         }
@@ -115,76 +119,102 @@ public class Arraylists extends Module {
         return renderableModules;
     }
 
+    /**
+     * 渲染整个列表
+     */
     private void renderUI(GuiGraphics gui, List<Module> modules) {
-        int startX = 2;
+        int startX = 2; // 距离屏幕左边缘的距离
 
-        // 计算最大宽度
-        int maxWidth = modules.stream()
-                .mapToInt(m -> mc.font.width(m.getName()))
-                .max().orElse(0) + 8;
+        // 计算每个模块的宽度（含状态条和内边距），并取最大值
+        int maxModuleWidth = 0;
+        for (Module module : modules) {
+            int textWidth = mc.font.width(module.getName());
+            int moduleWidth = STATUS_BAR_WIDTH + PADDING_TEXT_LEFT + textWidth + PADDING_TEXT_RIGHT;
+            if (moduleWidth > maxModuleWidth) maxModuleWidth = moduleWidth;
+        }
 
-        // 渲染主背景
+        // 主背景宽度 = 最大模块宽度 + 左右外边距
+        int mainBgWidth = maxModuleWidth + PADDING_MAIN_LEFT + PADDING_MAIN_RIGHT;
+
+        // 计算主背景矩形坐标
+        int bgX1 = startX;
+        int bgY1 = 0; // 实际渲染时从屏幕顶部开始？需要根据动画高度计算 Y 起始位置
+        // 注意：Y 坐标需要动态确定，因为列表是从屏幕顶部开始往下渲染，通常 Arraylists 固定在屏幕左上角。
+        // 这里我们假定列表始终从屏幕顶部开始，即 bgY1 = 0。
+        // 但为了美观，可以稍微下移，比如 bgY1 = 2，原代码中背景是从 y=2 开始的。
+        // 我们保持原风格：主背景 Y 从 2 开始。
+        int baseY = 2;
+        int bgX2 = bgX1 + mainBgWidth;
+        int bgY2 = (int) (baseY + animatedHeight);
+
+        // 绘制主背景（如果启用）
         if (mainBackground.enabled) {
-            // 背景从2开始，高度增加1像素
-            gui.fill(startX, 2, startX + maxWidth + 4, 2 + (int) animatedHeight, BACKGROUND_COLOR);
+            // 阴影（偏移2像素）
+            int shadowColor = (SHADOW_COLOR_BASE & 0xFFFFFF) | (0x80000000); // 50% 透明度黑色
+            gui.fill(bgX1 + SHADOW_OFFSET, baseY + SHADOW_OFFSET, bgX2 + SHADOW_OFFSET, bgY2 + SHADOW_OFFSET, shadowColor);
 
-            // 【优化点 2】顶部横线保持不变，使用新的强调色
-            gui.fill(startX, 2, startX + maxWidth + 4, 3, ACCENT_COLOR);
+            // 主背景（80%透明度深灰色）
+            int bgColor = (BG_COLOR_BASE & 0xFFFFFF) | (0xCC000000);
+            gui.fill(bgX1, baseY, bgX2, bgY2, bgColor);
+
+            // 细边框（半透明白色，20%透明度）
+            int borderColor = (BORDER_COLOR_BASE & 0xFFFFFF) | (0x33000000);
+            // 上
+            gui.fill(bgX1, baseY, bgX2, baseY + 1, borderColor);
+            // 下
+            gui.fill(bgX1, bgY2 - 1, bgX2, bgY2, borderColor);
+            // 左
+            gui.fill(bgX1, baseY, bgX1 + 1, bgY2, borderColor);
+            // 右
+            gui.fill(bgX2 - 1, baseY, bgX2, bgY2, borderColor);
         }
 
         // 渲染每个模块
         for (Module module : modules) {
-            renderModule(gui, module, startX);
+            renderModule(gui, module, startX, baseY);
         }
     }
 
-    private void renderModule(GuiGraphics gui, Module module, int startX) {
+    /**
+     * 渲染单个模块
+     */
+    private void renderModule(GuiGraphics gui, Module module, int startX, int baseY) {
         ModuleAnimation anim = animations.get(module);
-        if (anim == null)
-            return;
+        if (anim == null) return;
 
-        // 重新计算新的高度和垂直居中偏移
         int lineHeight = mc.font.lineHeight + LINE_HEIGHT_PADDING;
-        int bgHeight = lineHeight - 1;
-        int textYOffset = (lineHeight - mc.font.lineHeight) / 2;
+        int textWidth = mc.font.width(module.getName());
 
-        String text = module.getName();
-        int textWidth = mc.font.width(text);
+        // 模块的总宽度（与计算 maxModuleWidth 时一致）
+        int moduleWidth = STATUS_BAR_WIDTH + PADDING_TEXT_LEFT + textWidth + PADDING_TEXT_RIGHT;
 
-        // 默认文本 X 坐标：起始 X (2) + 4 像素内边距
-        int baseRenderX = startX + 4;
-        int renderX = (int) (baseRenderX - anim.xOffset);
-        int y = (int) anim.currentY;
+        // 模块的 X 位置：主背景左边缘 + 左外边距，再根据动画偏移
+        int moduleX = (int) (startX + PADDING_MAIN_LEFT - anim.xOffset);
+        int moduleY = (int) (baseY + anim.currentY);
+        int moduleBgX2 = moduleX + moduleWidth;
+        int moduleBgY2 = moduleY + lineHeight;
 
-        // 渲染模块背景
+        // 模块背景（如果启用）
         if (moduleBackground.enabled) {
-            int bgX = (int) (startX + 2 - anim.xOffset);
-            int bgWidth = textWidth + 6;
-
-            int bgAlpha = module.enabled ? 0x40 : 0x20;
-            int moduleBgColor = (MODULE_BG_COLOR & 0x00FFFFFF) | (bgAlpha << 24);
-
-            gui.fill(bgX, y, bgX + bgWidth, y + bgHeight, moduleBgColor);
+            // 半透明黑色背景
+            gui.fill(moduleX, moduleY, moduleBgX2, moduleBgY2, MODULE_BG_COLOR);
         }
 
-        // 渲染启用指示线（替换指示点）
+        // 状态条（绿色 = 启用，红色 = 禁用但仍在动画）
+        int statusColor;
         if (module.enabled) {
-            int lineThickness = 1;
-            // 【优化点 3】细线位于列表的最左侧 startX=2
-            int lineX = startX;
-            int lineY = y;
-            // 细线的高度与模块背景高度一致
-            gui.fill(lineX, lineY, lineX + lineThickness, lineY + bgHeight, ENABLED_DOT_COLOR);
-
-            // 启用后，将文本和背景整体向右移动 2 像素，与指示线错开
-            renderX = (int) (baseRenderX + 2 - anim.xOffset);
+            statusColor = STATUS_ENABLED_COLOR | 0xFF000000; // 完全不透明
         } else {
-            // 未启用，保持默认的左对齐位置
-            renderX = (int) (baseRenderX - anim.xOffset);
+            statusColor = STATUS_DISABLED_COLOR | 0xFF000000;
         }
+        // 状态条位于模块背景左侧内部，宽度 STATUS_BAR_WIDTH，高度与模块背景相同
+        gui.fill(moduleX, moduleY, moduleX + STATUS_BAR_WIDTH, moduleBgY2, statusColor);
 
-        // 渲染文本
-        // 【优化点 4】增加垂直居中偏移，使文本居中
-        gui.drawString(mc.font, text, renderX, y + textYOffset, TEXT_COLOR, true);
+        // 文本位置：状态条右侧 + 左内边距
+        int textX = moduleX + STATUS_BAR_WIDTH + PADDING_TEXT_LEFT;
+        int textY = moduleY + (lineHeight - mc.font.lineHeight) / 2; // 垂直居中
+
+        // 绘制文本（带阴影）
+        gui.drawString(mc.font, module.getName(), textX, textY, TEXT_COLOR_BASE | 0xFF000000, true);
     }
 }

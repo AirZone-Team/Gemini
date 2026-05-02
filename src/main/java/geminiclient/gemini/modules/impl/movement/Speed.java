@@ -20,7 +20,8 @@ public class Speed extends Module {
             if (mc.player.onGround()) {
                 mc.player.jumpFromGround();
             }
-            MovementUtils.strafe();
+            if (MovementUtils.getSpeed() < 0.2f)
+                MovementUtils.strafe();
         }
     }
 }

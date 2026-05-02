@@ -36,7 +36,8 @@ public class ModuleManager {
                 new InvMove(),
                 new NoJumpDelay(),
                 new Crit(),
-                new Speed()
+                new Speed(),
+                new ExpandClickGui()
         );
     }
 

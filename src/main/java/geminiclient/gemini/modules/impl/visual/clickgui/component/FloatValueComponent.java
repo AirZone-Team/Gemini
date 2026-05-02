@@ -13,10 +13,10 @@ public class FloatValueComponent extends ValueComponent {
     private boolean isDragging = false;
     private final DecimalFormat decimalFormat = new DecimalFormat("0.00");
 
-    // 统一的颜色主题
-    private static final int ACCENT_COLOR = new Color(230, 70, 180).getRGB(); // 调整: 略暗洋红色
-    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB(); // 优化: 略不那么黑，透明度高
-    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB(); // 优化: 略浅的半透明黑
+    // 统一的颜色主题 - 使用黑灰色调
+    private static final int ACCENT_COLOR = new Color(220, 220, 220).getRGB();
+    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB();
+    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB();
     private static final int TEXT_COLOR = Color.WHITE.getRGB();
 
     public FloatValueComponent(FloatValue value, int x, int y, int width, int height) {
@@ -31,16 +31,13 @@ public class FloatValueComponent extends ValueComponent {
             updateValueFromMouse(mouseX);
         }
 
-        // 1. 渲染背景 (悬停时有轻微变化)
         int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
         guiGraphics.fill(x, y, x + width, y + height, bgColor);
 
-        // 2. 渲染名称和当前值
         String displayString = String.format("%s: %s", floatValue.getName(),
                 decimalFormat.format(floatValue.getValue()));
         guiGraphics.drawString(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
 
-        // 3. 计算滑块位置和长度
         float range = floatValue.getMax() - floatValue.getMin();
         float valuePercent = (floatValue.getValue() - floatValue.getMin()) / range;
 
@@ -48,18 +45,15 @@ public class FloatValueComponent extends ValueComponent {
         int sliderWidth = width - 4;
         int filledWidth = (int) (sliderWidth * valuePercent);
 
-        int sliderY = y + height - 3; // 滑块位于底部
-        int sliderThickness = 2; // 增加厚度
+        int sliderY = y + height - 3;
+        int sliderThickness = 2;
         int handleSize = 4;
 
-        // 4. 渲染轨道 (深灰色作为背景)
         guiGraphics.fill(sliderStart, sliderY, sliderStart + sliderWidth, sliderY + sliderThickness,
                 new Color(50, 50, 50).getRGB());
 
-        // 5. 渲染填充条 (主题色)
         guiGraphics.fill(sliderStart, sliderY, sliderStart + filledWidth, sliderY + sliderThickness, ACCENT_COLOR);
 
-        // 6. 渲染手柄
         guiGraphics.fill(sliderStart + filledWidth - handleSize / 2, sliderY - (handleSize - sliderThickness) / 2,
                 sliderStart + filledWidth + handleSize / 2, sliderY + (handleSize + sliderThickness) / 2,
                 TEXT_COLOR);

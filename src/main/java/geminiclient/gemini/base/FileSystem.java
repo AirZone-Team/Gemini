@@ -93,6 +93,7 @@ public class FileSystem {
         saveConfig();
         saveConfigName();
         LOGGER.info("Shutdown completed, last config: " + Gemini.lastConfigName);
+        JavaToCSharpIPC.shutdown();
     }
 
     // =========================================================================

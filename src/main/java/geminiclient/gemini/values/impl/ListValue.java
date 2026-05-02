@@ -10,6 +10,11 @@ import java.util.function.Supplier;
 public class ListValue extends ValueParent {
 
     public int index;
+
+    public List<String> getList() {
+        return list;
+    }
+
     public List<String> list;
 
     public ListValue(String name, String t, String[] list) {
