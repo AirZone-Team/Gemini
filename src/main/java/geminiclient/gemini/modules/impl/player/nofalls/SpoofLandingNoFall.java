@@ -2,6 +2,7 @@ package geminiclient.gemini.modules.impl.player.nofalls;
 
 import geminiclient.gemini.event.events.impl.PacketEvent;
 import geminiclient.gemini.modules.impl.Mode;
+import geminiclient.mixin.AccessServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.world.phys.Vec3;
@@ -25,18 +26,18 @@ public class SpoofLandingNoFall extends Mode {
             return;
 
         if (packet instanceof ServerboundMovePlayerPacket) {
-            if (((ServerboundMovePlayerPacket) packet).onGround && !prevOnGround && prevFallDistance >= 3.0) {
+            if ((((ServerboundMovePlayerPacket) packet).isOnGround() && !prevOnGround && prevFallDistance >= 3.0)) {
                 flag = true;
                 double dx = vec3.x;
                 double dy = vec3.y;
                 double dz = vec3.z;
-                ((ServerboundMovePlayerPacket) packet).x = dx;
-                ((ServerboundMovePlayerPacket) packet).y = dy;
-                ((ServerboundMovePlayerPacket) packet).z = dz;
-                ((ServerboundMovePlayerPacket) packet).onGround = false;
+                ((AccessServerboundMovePlayerPacket) mc).setX(dx);
+                ((AccessServerboundMovePlayerPacket) mc).setY(dy);
+                ((AccessServerboundMovePlayerPacket) mc).setZ(dz);
+                ((AccessServerboundMovePlayerPacket) mc).setOnGround(false);
                 mc.player.fallDistance = 0.0;
             }
-            prevOnGround = ((ServerboundMovePlayerPacket) packet).onGround;
+            prevOnGround = ((ServerboundMovePlayerPacket) packet).isOnGround();
             prevFallDistance = mc.player.fallDistance;
         }
 

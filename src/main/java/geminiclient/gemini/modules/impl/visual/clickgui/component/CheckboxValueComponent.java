@@ -2,7 +2,8 @@ package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
 import geminiclient.gemini.values.impl.BoolValue;
 import geminiclient.gemini.values.impl.CheckboxValue;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,18 +41,18 @@ public class CheckboxValueComponent extends ValueComponent {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         CheckboxValue checkboxValue = (CheckboxValue) this.value;
 
         boolean isHovered = isHovered(mouseX, mouseY);
         int bgColor = isHovered ? HOVER_BG : BASE_BG;
         guiGraphics.fill(x, y, x + width, y + height, bgColor);
 
-        guiGraphics.drawString(mc.font, checkboxValue.getName(), x + 3, y + 3, TEXT_COLOR, true);
+        guiGraphics.text(mc.font, checkboxValue.getName(), x + 3, y + 3, TEXT_COLOR, true);
 
         String symbol = isExpanded ? "▼" : "▶";
         int arrowColor = (isExpanded || isHovered) ? ACCENT_COLOR : TEXT_COLOR;
-        guiGraphics.drawString(mc.font, symbol, x + width - 10, y + 3, arrowColor, true);
+        guiGraphics.text(mc.font, symbol, x + width - 10, y + 3, arrowColor, true);
 
         if (isExpanded) {
             guiGraphics.fill(x, y + height - 1, x + width, y + height, ACCENT_COLOR);

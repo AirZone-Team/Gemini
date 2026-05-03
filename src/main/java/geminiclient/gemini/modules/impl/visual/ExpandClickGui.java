@@ -12,7 +12,10 @@ public class ExpandClickGui extends Module {
 
     @Override
     public void onEnabled() {
+        JavaToCSharpIPC.startExe();
+        JavaToCSharpIPC.toCSAccount();
         JavaToCSharpIPC.toCS(Gemini.moduleManager);
+        JavaToCSharpIPC.startReceive();
     }
     @Override
     public void onDisabled() {

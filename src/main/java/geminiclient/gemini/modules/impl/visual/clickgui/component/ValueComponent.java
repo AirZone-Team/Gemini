@@ -1,7 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
 import geminiclient.gemini.values.ValueParent;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 public abstract class ValueComponent {
 
@@ -24,7 +24,7 @@ public abstract class ValueComponent {
         return this.value.visibility.get();
     }
 
-    public abstract void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks);
+    public abstract void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks);
 
     public abstract boolean mouseClicked(double mouseX, double mouseY, int button);
 

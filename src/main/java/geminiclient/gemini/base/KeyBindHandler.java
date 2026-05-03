@@ -23,6 +23,7 @@ public class KeyBindHandler {
             if (module.key == event.key() && mc.screen == null && (currentTime - lastTriggerTime > MIN_INTERVAL_MS)) {
                 lastTriggerTime = currentTime;
                 module.toggle();
+                JavaToCSharpIPC.toCS(Gemini.moduleManager);
             }
         }
     }

@@ -31,6 +31,7 @@ public class FileSystem {
     private final ModuleManager moduleManager;
     private final Path configDirectory;
     private final Path configNameFile;
+    private final Path altsFile;
 
     public FileSystem(ModuleManager moduleManager) {
         Gemini.eventManager.register(this);
@@ -41,6 +42,7 @@ public class FileSystem {
                 "gemini", "configs");
         this.configNameFile = Paths.get(Minecraft.getInstance().gameDirectory.getAbsolutePath(),
                 "gemini", "configName.txt");
+        this.altsFile = configDirectory.resolve("alts.json");
 
         ensureDirectoriesExist();
     }
@@ -455,6 +457,33 @@ public class FileSystem {
                     break;
                 }
             }
+        }
+    }
+
+    /**
+     * 读取本地保存的账号列表，如果不存在则返回一个空的 JSONArray
+     */
+    public JSONArray loadAlts() {
+        if (!Files.exists(altsFile)) {
+            return new JSONArray();
+        }
+        try (InputStream inputStream = Files.newInputStream(altsFile)) {
+            return new JSONArray(new JSONTokener(inputStream));
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Failed to load alts from: " + altsFile, e);
+            return new JSONArray();
+        }
+    }
+
+    /**
+     * 将当前的账号列表保存到 alts.json
+     */
+    public void saveAlts(JSONArray accounts) {
+        try {
+            Files.writeString(altsFile, accounts.toString(4));
+            LOGGER.info("Alts successfully saved: " + altsFile);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Failed to save alts: " + altsFile, e);
         }
     }
 }

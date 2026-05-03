@@ -4,7 +4,7 @@ import geminiclient.gemini.modules.impl.visual.clickgui.component.*;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.values.ValueParent;
 import geminiclient.gemini.values.impl.*;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import java.awt.Color;
 import java.util.ArrayList;
@@ -86,7 +86,7 @@ public class ModuleComponent {
                 .collect(Collectors.toList());
     }
 
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         boolean isHovered = isModuleHeaderHovered(mouseX, mouseY);
 
         int bgColor = isHovered ? HOVER_BG : BASE_BG;
@@ -98,12 +98,12 @@ public class ModuleComponent {
 
         guiGraphics.fill(x, y + height - 1, x + width, y + height, BORDER_COLOR);
 
-        guiGraphics.drawString(mc.font, module.getName(), x + 4, y + 4, TEXT_COLOR, true);
+        guiGraphics.text(mc.font, module.getName(), x + 4, y + 4, TEXT_COLOR, true);
 
         if (!allValueComponents.isEmpty()) {
             String symbol = isExpanded ? "▼" : "▶";
             int arrowColor = (isExpanded || isHovered) ? ACCENT_COLOR : TEXT_COLOR;
-            guiGraphics.drawString(mc.font, symbol, x + width - 12, y + 4, arrowColor, true);
+            guiGraphics.text(mc.font, symbol, x + width - 12, y + 4, arrowColor, true);
         }
 
         if (isExpanded) {

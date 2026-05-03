@@ -54,14 +54,14 @@ public final class AutoTool extends Module {
     private void setQuickbarSlot(int slot) {
         if (mc.player == null || slot < 0 || slot > 8)
             return;
-        mc.player.getInventory().selected = slot;
+        mc.player.getInventory().setSelectedSlot(slot);
 
         // 通常需要发送数据包同步到服务器，这里假设客户端API已处理或省略
         // mc.player.connection.send(new ServerboundSetCarriedItemPacket(slot));
     }
 
     private int getCurrentSlot() {
-        return mc.player != null ? mc.player.getInventory().selected : -1;
+        return mc.player != null ? mc.player.getInventory().getSelectedSlot() : -1;
     }
 
     /**

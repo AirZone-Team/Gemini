@@ -1,7 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
 import geminiclient.gemini.values.impl.FloatValue;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import java.awt.Color;
 import java.text.DecimalFormat;
@@ -24,7 +24,7 @@ public class FloatValueComponent extends ValueComponent {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         FloatValue floatValue = (FloatValue) this.value;
 
         if (isDragging) {
@@ -36,7 +36,7 @@ public class FloatValueComponent extends ValueComponent {
 
         String displayString = String.format("%s: %s", floatValue.getName(),
                 decimalFormat.format(floatValue.getValue()));
-        guiGraphics.drawString(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
+        guiGraphics.text(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
 
         float range = floatValue.getMax() - floatValue.getMin();
         float valuePercent = (floatValue.getValue() - floatValue.getMin()) / range;

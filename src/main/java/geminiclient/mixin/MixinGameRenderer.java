@@ -5,9 +5,10 @@ import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.impl.visual.FullLight;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.render.state.GuiRenderState;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.state.GameRenderState;
+import net.minecraft.client.renderer.state.gui.GuiRenderState;
 import net.minecraft.world.entity.LivingEntity;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -22,13 +23,13 @@ public class MixinGameRenderer {
     @Shadow @Final private Minecraft minecraft;
 
     @Shadow @Final
-    GuiRenderState guiRenderState;
+    private final GameRenderState gameRenderState = new GameRenderState();
 
-    @Inject(method = "render",at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/Gui;render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/DeltaTracker;)V"))
+    @Inject(method = "render",at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;render(Lcom/mojang/blaze3d/buffers/GpuBufferSlice;)V"))
     public void inject2D(DeltaTracker deltaTracker, boolean renderLevel, CallbackInfo ci) {
         int i = (int) this.minecraft.mouseHandler.getScaledXPos(this.minecraft.getWindow());
         int j = (int) this.minecraft.mouseHandler.getScaledYPos(this.minecraft.getWindow());
-        GuiGraphics g = new GuiGraphics(this.minecraft, this.guiRenderState, i, j);
+        GuiGraphicsExtractor g = new GuiGraphicsExtractor(this.minecraft, this.gameRenderState.guiRenderState, i, j);
         Gemini.eventManager.call(new Render2DEvent(g, g.pose()));
     }
 

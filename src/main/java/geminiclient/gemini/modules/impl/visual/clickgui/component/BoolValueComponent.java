@@ -1,7 +1,8 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
 import geminiclient.gemini.values.impl.BoolValue;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+
 import java.awt.Color;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -19,13 +20,13 @@ public class BoolValueComponent extends ValueComponent {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         BoolValue boolValue = (BoolValue) this.value;
 
         int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
         guiGraphics.fill(x, y, x + width, y + height, bgColor);
 
-        guiGraphics.drawString(mc.font, boolValue.getName(), x + 3, y + 3, TEXT_COLOR, true);
+        guiGraphics.text(mc.font, boolValue.getName(), x + 3, y + 3, TEXT_COLOR, true);
 
         int switchWidth = 18;
         int switchHeight = height - 6;

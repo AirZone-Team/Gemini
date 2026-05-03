@@ -1,7 +1,8 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
 import geminiclient.gemini.values.impl.FloatRangeValue;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+
 import java.awt.Color;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -25,7 +26,7 @@ public class FloatRangeValueComponent extends ValueComponent {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         FloatRangeValue rangeValue = (FloatRangeValue) this.value;
 
         if (isDraggingMin || isDraggingMax) {
@@ -67,7 +68,7 @@ public class FloatRangeValueComponent extends ValueComponent {
 
         String displayString = String.format("%s: %s/%s", this.value.getName(), minVal, maxVal);
 
-        guiGraphics.drawString(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
+        guiGraphics.text(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
     }
 
     private void updateValueFromMouse(double mouseX) {

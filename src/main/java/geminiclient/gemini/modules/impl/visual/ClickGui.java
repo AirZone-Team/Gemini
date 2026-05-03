@@ -4,11 +4,11 @@ import geminiclient.gemini.Gemini;
 import geminiclient.gemini.modules.impl.visual.clickgui.CategoryPanel;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
-import net.minecraft.client.gui.GuiGraphics;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -56,7 +56,7 @@ public class ClickGui extends Module {
 
         // 覆盖 Screen 的 render 方法进行渲染
         @Override
-        public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+        public void extractRenderState(@NotNull GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
             // 渲染背景
 //            this.renderBackground(guiGraphics,mouseX,mouseY,partialTicks);
 

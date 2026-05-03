@@ -1,7 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
 import geminiclient.gemini.values.impl.ListValue;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import java.awt.Color;
 import java.util.List;
@@ -38,7 +38,7 @@ public class ListValueComponent extends ValueComponent {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         ListValue listValue = (ListValue) this.value;
 
         int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
@@ -49,14 +49,14 @@ public class ListValueComponent extends ValueComponent {
         }
 
         String displayString = String.format("%s: %s", this.value.getName(), listValue.get());
-        guiGraphics.drawString(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
+        guiGraphics.text(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
 
         if (isExpanded) {
             drawModeList(guiGraphics, mouseX, mouseY);
         }
     }
 
-    private void drawModeList(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+    private void drawModeList(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY) {
         ListValue listValue = (ListValue) this.value;
         List<String> modes = listValue.list;
 
@@ -78,7 +78,7 @@ public class ListValueComponent extends ValueComponent {
             }
 
             int modeTextColor = isSelected ? TEXT_COLOR : new Color(170, 170, 170).getRGB();
-            guiGraphics.drawString(mc.font, mode, listX + 5, currentY + 2, modeTextColor, true);
+            guiGraphics.text(mc.font, mode, listX + 5, currentY + 2, modeTextColor, true);
 
             currentY += MODE_HEIGHT;
         }

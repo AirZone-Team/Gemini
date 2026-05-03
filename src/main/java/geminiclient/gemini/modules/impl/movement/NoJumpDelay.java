@@ -5,6 +5,7 @@ import geminiclient.gemini.event.events.impl.MotionEvent;
 import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.mixin.AccessLivingEntity;
 
 public class NoJumpDelay extends Module {
     public NoJumpDelay() {
@@ -16,7 +17,7 @@ public class NoJumpDelay extends Module {
         if (event.getTimeEnum() == TimeEnum.Pre) {
             if (mc.player == null)
                 return;
-            mc.player.noJumpDelay = 0;
+            ((AccessLivingEntity) mc.player).setNoJumpDelay(0);
         }
     }
 }

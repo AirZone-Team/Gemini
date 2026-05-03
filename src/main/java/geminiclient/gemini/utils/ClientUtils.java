@@ -9,7 +9,7 @@ public class ClientUtils {
 
     public static void component(Component component) {
         ChatComponent chat = Minecraft.getInstance().gui.getChat();
-        chat.addMessage(component);
+        chat.addClientSystemMessage(component);
     }
 
     public static void addChatMessage(String message) {

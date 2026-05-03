@@ -1,7 +1,8 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
 import geminiclient.gemini.values.impl.IntValue;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+
 import java.awt.Color;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -21,7 +22,7 @@ public class IntValueComponent extends ValueComponent {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+    public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         IntValue intValue = (IntValue) this.value;
 
         if (isDragging) {
@@ -52,7 +53,7 @@ public class IntValueComponent extends ValueComponent {
                 TEXT_COLOR);
 
         String displayString = String.format("%s: %d", intValue.getName(), intValue.getValue());
-        guiGraphics.drawString(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
+        guiGraphics.text(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
     }
 
     private void updateValueFromMouse(double mouseX) {
