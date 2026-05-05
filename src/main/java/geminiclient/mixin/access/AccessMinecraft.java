@@ -1,4 +1,4 @@
-package geminiclient.mixin;
+package geminiclient.mixin.access;
 
 import com.mojang.authlib.minecraft.UserApiService;
 import com.mojang.authlib.yggdrasil.ProfileResult;

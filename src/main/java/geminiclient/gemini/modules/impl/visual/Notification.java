@@ -5,7 +5,6 @@ import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
-import net.minecraft.resources.Identifier;
 
 public class Notification extends Module {
     public Notification() {
@@ -15,6 +14,6 @@ public class Notification extends Module {
     @SuppressWarnings("unused")
     @EventTarget
     public void onRender2D(Render2DEvent event) {
-        Gemini.notificationManager.renderAll(event.guiGraphics());
+            Gemini.notificationManager.renderAll(event.guiGraphics());
     }
 }

@@ -5,7 +5,7 @@ import geminiclient.gemini.event.events.impl.MotionEvent;
 import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
-import geminiclient.mixin.AccessLivingEntity;
+import geminiclient.mixin.access.AccessLivingEntity;
 
 public class NoJumpDelay extends Module {
     public NoJumpDelay() {

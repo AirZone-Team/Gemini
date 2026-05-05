@@ -78,16 +78,28 @@ public class KillAura extends Module {
         if (mc.player == null)
             return;
         if (curr != null && moveFix.enabled) {
-            MovementUtils.fixMovement(event, rotation.getYaw());
-            // mc.player.input.getMoveVector() = new Vec2(this.keyPresses.left() ==
-            // this.keyPresses.right() ? 0.0F : (this.keyPresses.left() ? 1.0F : -1.0F),
-            // this.keyPresses.forward() == this.keyPresses.backward() ? 0.0F :
-            // (this.keyPresses.forward() ? 1.0F : -1.0F));
-            event.setStrafe(mc.player.input.keyPresses.left() == mc.player.input.keyPresses.right() ? 0.0F
-                    : (mc.player.input.keyPresses.left() ? 1.0F : -1.0F));
-            event.setForward(mc.player.input.keyPresses.forward() == mc.player.input.keyPresses.backward() ? 0.0F
-                    : (mc.player.input.keyPresses.forward() ? 1.0F : -1.0F));
-            event.setYaw(rotation.getYaw());
+            float targetYaw = rotation.getYaw();
+
+            // 2. 获取玩家真实的第一人称视角 (Yaw)
+            // 注意：这里一定要用 YRot (或 rotationYaw)，绝对不能用 XRot！
+            float realYaw = mc.player.getYRot();
+
+            // 3. 读取玩家真实的按键输入
+            // 通常 StrafeEvent 本身就已经携带了原始的 forward 和 strafe。
+            // 但如果你怕其他代码污染了它，可以像你原本那样严格重新读取一遍：
+            float rawForward = mc.player.input.keyPresses.forward() == mc.player.input.keyPresses.backward() ? 0.0F : (mc.player.input.keyPresses.forward() ? 1.0F : -1.0F);
+            float rawStrafe = mc.player.input.keyPresses.left() == mc.player.input.keyPresses.right() ? 0.0F : (mc.player.input.keyPresses.left() ? 1.0F : -1.0F);
+
+            // 把最原始的按键状态塞给 event
+            event.setForward(rawForward);
+            event.setStrafe(rawStrafe);
+
+            // 4. 核心：调用 MoveFix 修正移动向量
+            // 将原按键向量根据 真实视角与假视角的差值 进行逆旋转
+            MovementUtils.fixMovement(event, targetYaw, realYaw);
+
+            // 5. 最后，让底层的移动引擎按照 AimBot 的假视角去计算物理位移
+            event.setYaw(targetYaw);
         }
     }
 
@@ -96,23 +108,6 @@ public class KillAura extends Module {
     public void onJump(JumpEvent event) {
         if (curr != null && moveFix.enabled) {
             event.setYaw(rotation.getYaw());
-        }
-    }
-
-    @SuppressWarnings("unused")
-    @EventTarget(0)
-    public void onAttackYaw(AttackYawEvent event) {
-        if (curr != null && moveFix.enabled) {
-            event.setYaw(rotation.getYaw());
-        }
-    }
-
-    @SuppressWarnings("unused")
-    @EventTarget(0)
-    public void onRay(RayTraceEvent event) {
-        if (curr != null && event.entity == mc.player) {
-            event.setYaw(rotation.getYaw());
-            event.setPitch(rotation.getPitch());
         }
     }
 
@@ -266,34 +261,27 @@ public class KillAura extends Module {
         final double zSize = entity.getZ() - mc.player.getZ();
         final double theta = MathHelper.sqrt_double(xSize * xSize + zSize * zSize);
 
+        // 计算基础目标角度
         final float targetYaw = (float) (Math.atan2(zSize, xSize) * 180 / Math.PI) - 90;
         final float targetPitch = (float) (-(Math.atan2(ySize, theta) * 180 / Math.PI));
 
-        // 包装角度
-        float wrappedTargetYaw = MathHelper.wrapAngleTo180_float(targetYaw);
-        float wrappedTargetPitch = net.minecraft.util.Mth.clamp(targetPitch, -90.0f, 90.0f);
-
-        // 获取当前角度
+        // 获取当前真实的玩家角度（保留了超出 360 度的累加值）
         float currentYaw = mc.player.getYRot();
         float currentPitch = mc.player.getXRot();
 
-        // 计算角度差（考虑角度环绕）
-        float deltaYaw = MathHelper.wrapAngleTo180_float(wrappedTargetYaw - currentYaw);
+        // 核心修复：计算当前角度与目标角度的“最短差值”（将差值 wrap 到 -180 ~ 180）
+        float yawDiff = MathHelper.wrapAngleTo180_float(targetYaw - currentYaw);
+        float pitchDiff = MathHelper.wrapAngleTo180_float(targetPitch - currentPitch);
 
-        // 限制单次旋转变化不超过安全阈值（远小于320度）
-        float maxRotationPerTick = 120.0f; // 安全阈值
+        // 将差值加到当前累加角度上，彻底消除跨越 180/-180 边界时的 360° 突变
+        float finalYaw = currentYaw + yawDiff;
 
-        if (Math.abs(deltaYaw) > maxRotationPerTick) {
-            // 逐步旋转：只旋转最大允许的角度
-            float stepYaw = Math.signum(deltaYaw) * maxRotationPerTick;
-            rotation.setYaw(currentYaw + stepYaw);
-        } else {
-            // 直接旋转到目标
-            rotation.setYaw(wrappedTargetYaw);
-        }
+        // Pitch 的范围在原版中严格限制在 -90 到 90 之间，不会出现 360 累加，直接 Clamp 即可
+        float finalPitch = net.minecraft.util.Mth.clamp(currentPitch + pitchDiff, -90.0f, 90.0f);
 
-        // Pitch 通常变化较小，可以直接设置
-        rotation.setPitch(wrappedTargetPitch);
+        // 设置修复后的最终角度
+        rotation.setYaw(finalYaw);
+        rotation.setPitch(finalPitch);
     }
 
     private float wrapDegrees(double degrees) {

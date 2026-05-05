@@ -13,6 +13,7 @@ import java.io.*;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.logging.Logger;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 
@@ -66,7 +67,6 @@ public class JavaToCSharpIPC {
                 return;
 
             JSONObject snapshot = buildSnapshot(moduleManager);
-            System.out.println("Sending snapshot: " + snapshot);
             sendMessage(snapshot);
         } catch (Exception e) {
             e.printStackTrace();

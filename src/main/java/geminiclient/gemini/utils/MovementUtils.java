@@ -46,31 +46,50 @@ public class MovementUtils implements MinecraftInstance {
         return Math.toRadians(yaw);
     }
 
-    public static void fixMovement(StrafeEvent event, float yaw) {
+//    public static void fixMovement(StrafeEvent event, float yaw) {
+//        float forward = event.getForward();
+//        float strafe = event.getStrafe();
+//        int angleUnit = 45;
+//        float angleTolerance = 22.5F;
+//        float directionFactor = Math.max(Math.abs(forward), Math.abs(strafe));
+//        double angleDifference = MathHelper.wrapDegrees((float) direction() - yaw);
+//        double angleDistance = Math.abs(angleDifference);
+//        forward = 0.0F;
+//        strafe = 0.0F;
+//        if (angleDistance <= (double) ((float) angleUnit + angleTolerance)) {
+//            forward++;
+//        } else if (angleDistance >= (double) (180.0F - (float) angleUnit - angleTolerance)) {
+//            forward--;
+//        }
+//
+//        if (angleDifference >= (double) ((float) angleUnit - angleTolerance) && angleDifference <= (double) (180.0F - (float) angleUnit + angleTolerance)) {
+//            strafe--;
+//        } else if (angleDifference <= (double) ((float) (-angleUnit) + angleTolerance) && angleDifference >= (double) (-180.0F + (float) angleUnit - angleTolerance)) {
+//            strafe++;
+//        }
+//
+//        forward *= directionFactor;
+//        strafe *= directionFactor;
+//        event.setForward(forward);
+//        event.setStrafe(strafe);
+//    }
+
+    public static void fixMovement(StrafeEvent event, float yaw, float originalYaw) {
         float forward = event.getForward();
         float strafe = event.getStrafe();
-        int angleUnit = 45;
-        float angleTolerance = 22.5F;
-        float directionFactor = Math.max(Math.abs(forward), Math.abs(strafe));
-        double angleDifference = MathHelper.wrapDegrees((float) direction() - yaw);
-        double angleDistance = Math.abs(angleDifference);
-        forward = 0.0F;
-        strafe = 0.0F;
-        if (angleDistance <= (double) ((float) angleUnit + angleTolerance)) {
-            forward++;
-        } else if (angleDistance >= (double) (180.0F - (float) angleUnit - angleTolerance)) {
-            forward--;
-        }
 
-        if (angleDifference >= (double) ((float) angleUnit - angleTolerance) && angleDifference <= (double) (180.0F - (float) angleUnit + angleTolerance)) {
-            strafe--;
-        } else if (angleDifference <= (double) ((float) (-angleUnit) + angleTolerance) && angleDifference >= (double) (-180.0F + (float) angleUnit - angleTolerance)) {
-            strafe++;
-        }
+        // 计算视角偏差（真实的第一人称视角 - AimBot锁定的视角）
+        float delta = MathHelper.wrapDegrees(originalYaw - yaw);
+        float rad = (float) Math.toRadians(delta);
+        float sin = (float) Math.sin(rad);
+        float cos = (float) Math.cos(rad);
 
-        forward *= directionFactor;
-        strafe *= directionFactor;
-        event.setForward(forward);
-        event.setStrafe(strafe);
+        // 【修正】反转了 sin 的正负号，适配 Minecraft 的 Strafe 轴方向
+        float newForward = forward * cos + strafe * sin;
+        float newStrafe = strafe * cos - forward * sin;
+
+        // 【进阶优化】将结果四舍五入回标准按键输入值 (-1, 0, 1)
+        event.setForward(Math.round(newForward));
+        event.setStrafe(Math.round(newStrafe));
     }
 }

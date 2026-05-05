@@ -2,7 +2,7 @@ package geminiclient.gemini.base;
 
 import com.mojang.authlib.minecraft.UserApiService;
 import com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService;
-import geminiclient.mixin.AccessMinecraft;
+import geminiclient.mixin.access.AccessMinecraft;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.User;
 import net.minecraft.client.gui.screens.social.PlayerSocialManager;

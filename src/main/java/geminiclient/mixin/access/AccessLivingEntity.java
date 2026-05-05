@@ -1,4 +1,4 @@
-package geminiclient.mixin;
+package geminiclient.mixin.access;
 
 import net.minecraft.world.entity.LivingEntity;
 import org.spongepowered.asm.mixin.Mixin;

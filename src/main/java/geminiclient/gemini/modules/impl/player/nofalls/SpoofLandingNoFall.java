@@ -2,7 +2,7 @@ package geminiclient.gemini.modules.impl.player.nofalls;
 
 import geminiclient.gemini.event.events.impl.PacketEvent;
 import geminiclient.gemini.modules.impl.Mode;
-import geminiclient.mixin.AccessServerboundMovePlayerPacket;
+import geminiclient.mixin.access.AccessServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.world.phys.Vec3;

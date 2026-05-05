@@ -4,9 +4,9 @@
   "package": "geminiclient.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "AccessLivingEntity",
-    "AccessMinecraft",
-    "AccessServerboundMovePlayerPacket",
+    "access.AccessLivingEntity",
+    "access.AccessMinecraft",
+    "access.AccessServerboundMovePlayerPacket",
     "MixinConnection",
     "MixinEntity",
     "MixinKeyMapping",
