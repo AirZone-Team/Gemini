@@ -1,10 +1,8 @@
 package geminiclient.gemini.modules.impl.combat;
 
 import geminiclient.gemini.event.annotations.EventTarget;
-import geminiclient.gemini.event.events.impl.moveFixEvent.AttackYawEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.JumpEvent;
 import geminiclient.gemini.event.events.impl.MotionEvent;
-import geminiclient.gemini.event.events.impl.moveFixEvent.RayTraceEvent;
 import geminiclient.gemini.event.events.impl.StrafeEvent;
 import geminiclient.gemini.event.events.impl.UpdateEvent;
 import geminiclient.gemini.event.events.impl.enums.TimeEnum;
@@ -12,7 +10,6 @@ import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.modules.impl.combat.killaura.Rotation;
 import geminiclient.gemini.utils.MathHelper;
-import geminiclient.gemini.utils.MovementUtils;
 import geminiclient.gemini.utils.TimerUtils;
 import geminiclient.gemini.values.impl.*;
 import net.minecraft.world.InteractionHand;
@@ -35,6 +32,7 @@ public class KillAura extends Module {
     private final IntValue hurtTime = new IntValue("HurtTime", 10, 1, 10);
     private final FloatValue range = new FloatValue("Range", 3.0f, 1.0f, 6.0f);
     private final FloatValue fov = new FloatValue("FOV", 180f, 30f, 360f);
+    private final FloatValue rotationSpeed = new FloatValue("RotationSpeed", 180f, 30f, 360f);
     private final ListValue pro = new ListValue("Priority", "Distance", new String[] {
             "Distance", "Health", "hurtTime"
     });
@@ -42,13 +40,11 @@ public class KillAura extends Module {
             new BoolValue("AttackPlayers", true), new BoolValue("AttackMobs", true),
             new BoolValue("AttackAnimals", false), new BoolValue("AttackDead")
     });
-    private final BoolValue autoBlock = new BoolValue("AutoBlock");
     private final CheckboxValue stop = new CheckboxValue("StopWorking", new BoolValue[] {
             new BoolValue("UsingItem"),
             new BoolValue("OpeningScreen")
     });
     private final BoolValue silentRotate = new BoolValue("SilentRotate", true);
-    private final BoolValue moveFix = new BoolValue("MoveFix");
 
     private final List<Entity> entities = new CopyOnWriteArrayList<>();
     private Entity curr;
@@ -60,55 +56,32 @@ public class KillAura extends Module {
     public KillAura() {
         super("KillAura", ModuleEnum.Combat);
         addValue(noCoolDown, cps, range, fov, hurtTime, pro,
-                targets, stop,autoBlock,
-                silentRotate, moveFix);
+                targets, stop, rotationSpeed,
+                silentRotate);
     }
 
     @Override
     public void onEnabled() {
-        if (mc.player != null) {
-            rotation.setYaw(mc.player.getYRot());
-            rotation.setPitch(mc.player.getXRot());
-        }
+        rotation.setActive(true);
+    }
+
+    @Override
+    public void onDisabled() {
+        rotation.setActive(false);
     }
 
     @SuppressWarnings("unused")
     @EventTarget(0)
     public void onStrafe(StrafeEvent event) {
-        if (mc.player == null)
-            return;
-        if (curr != null && moveFix.enabled) {
-            float targetYaw = rotation.getYaw();
-
-            // 2. 获取玩家真实的第一人称视角 (Yaw)
-            // 注意：这里一定要用 YRot (或 rotationYaw)，绝对不能用 XRot！
-            float realYaw = mc.player.getYRot();
-
-            // 3. 读取玩家真实的按键输入
-            // 通常 StrafeEvent 本身就已经携带了原始的 forward 和 strafe。
-            // 但如果你怕其他代码污染了它，可以像你原本那样严格重新读取一遍：
-            float rawForward = mc.player.input.keyPresses.forward() == mc.player.input.keyPresses.backward() ? 0.0F : (mc.player.input.keyPresses.forward() ? 1.0F : -1.0F);
-            float rawStrafe = mc.player.input.keyPresses.left() == mc.player.input.keyPresses.right() ? 0.0F : (mc.player.input.keyPresses.left() ? 1.0F : -1.0F);
-
-            // 把最原始的按键状态塞给 event
-            event.setForward(rawForward);
-            event.setStrafe(rawStrafe);
-
-            // 4. 核心：调用 MoveFix 修正移动向量
-            // 将原按键向量根据 真实视角与假视角的差值 进行逆旋转
-            MovementUtils.fixMovement(event, targetYaw, realYaw);
-
-            // 5. 最后，让底层的移动引擎按照 AimBot 的假视角去计算物理位移
-            event.setYaw(targetYaw);
-        }
+        if (curr != null)
+            rotation.handleStrafe(event);
     }
 
     @SuppressWarnings("unused")
     @EventTarget(0)
     public void onJump(JumpEvent event) {
-        if (curr != null && moveFix.enabled) {
-            event.setYaw(rotation.getYaw());
-        }
+        if (curr != null)
+            rotation.handleJump(event);
     }
 
     @SuppressWarnings("unused")
@@ -279,17 +252,11 @@ public class KillAura extends Module {
         // Pitch 的范围在原版中严格限制在 -90 到 90 之间，不会出现 360 累加，直接 Clamp 即可
         float finalPitch = net.minecraft.util.Mth.clamp(currentPitch + pitchDiff, -90.0f, 90.0f);
 
-        // 设置修复后的最终角度
-        rotation.setYaw(finalYaw);
-        rotation.setPitch(finalPitch);
-    }
-
-    private float wrapDegrees(double degrees) {
-        degrees %= 360.0;
-        if (degrees >= 180.0)
-            degrees -= 360.0;
-        if (degrees < -180.0)
-            degrees += 360.0;
-        return (float) degrees;
+        // 设置修复后的最终角度 — 每 tick 最多旋转 rotationSpeed 度
+        float step = rotationSpeed.getValue();
+        float rotYawDiff = MathHelper.wrapAngleTo180_float(finalYaw - rotation.getYaw());
+        rotation.setYaw(rotation.getYaw() + Math.copySign(Math.min(Math.abs(rotYawDiff), step), rotYawDiff));
+        float rotPitchDiff = MathHelper.wrapAngleTo180_float(finalPitch - rotation.getPitch());
+        rotation.setPitch(rotation.getPitch() + Math.copySign(Math.min(Math.abs(rotPitchDiff), step), rotPitchDiff));
     }
 }

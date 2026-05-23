@@ -266,6 +266,10 @@ public class FileSystem {
                     }
                     valueObject.put("value", boolsArray);
                 }
+                case ColorValue colorValue -> {
+                    valueObject.put("type", "Color");
+                    valueObject.put("value", colorValue.getColor());
+                }
                 default -> LOGGER.warning("Unhandled value type: " + value.getClass().getSimpleName());
             }
         } catch (Exception e) {
@@ -387,7 +391,12 @@ public class FileSystem {
      */
     private boolean applyValueConfig(Module module, JSONObject valueJson) {
         String valueName = valueJson.getString("name");
-        String valueType = valueJson.getString("type");
+        String valueType = valueJson.optString("type", "");
+
+        if (valueType.isEmpty()) {
+            LOGGER.warning("Missing type for value " + valueName + " in module " + module.getName());
+            return false;
+        }
 
         Optional<ValueParent> valueOpt = getValueByName(module, valueName);
         if (valueOpt.isEmpty()) {
@@ -395,9 +404,16 @@ public class FileSystem {
             return false;
         }
 
+        ValueParent vp = valueOpt.get();
+        if (!isTypeMatch(vp, valueType)) {
+            LOGGER.warning("Type mismatch for " + valueName + ": config has " + valueType
+                    + " but module has " + vp.getClass().getSimpleName() + ", skipping");
+            return false;
+        }
+
         if (valueJson.has("value")) {
             try {
-                applyValue(valueOpt.get(), valueType, valueJson.get("value"));
+                applyValue(vp, valueType, valueJson.get("value"));
                 return true;
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING,
@@ -406,6 +422,20 @@ public class FileSystem {
         }
 
         return false;
+    }
+
+    private static boolean isTypeMatch(ValueParent value, String type) {
+        return switch (type) {
+            case "Bool" -> value instanceof BoolValue;
+            case "Int" -> value instanceof IntValue;
+            case "Float" -> value instanceof FloatValue;
+            case "List" -> value instanceof ListValue;
+            case "IntRange" -> value instanceof IntRangeValue;
+            case "FloatRange" -> value instanceof FloatRangeValue;
+            case "Checkbox" -> value instanceof CheckboxValue;
+            case "Color" -> value instanceof ColorValue;
+            default -> false;
+        };
     }
 
     /**
@@ -420,6 +450,7 @@ public class FileSystem {
             case "IntRange" -> applyIntRangeValue((IntRangeValue) value, (JSONObject) jsonValue);
             case "FloatRange" -> applyFloatRangeValue((FloatRangeValue) value, (JSONObject) jsonValue);
             case "Checkbox" -> applyCheckboxValue((CheckboxValue) value, (JSONArray) jsonValue);
+            case "Color" -> ((ColorValue) value).setColor(((Number) jsonValue).intValue());
             default -> LOGGER.warning("Unknown value type: " + type);
         }
     }

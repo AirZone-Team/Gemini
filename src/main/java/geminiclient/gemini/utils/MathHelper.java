@@ -1,5 +1,7 @@
 package geminiclient.gemini.utils;
 
+import java.util.concurrent.ThreadLocalRandom;
+
 public class MathHelper {
     public static float wrapDegrees(float value) {
         value %= 360.0F;
@@ -34,5 +36,9 @@ public class MathHelper {
         }
 
         return value;
+    }
+
+    public static double getRandom(double min, double max) {
+        return ThreadLocalRandom.current().nextDouble(Math.min(min,max), Math.max(min,max));
     }
 }

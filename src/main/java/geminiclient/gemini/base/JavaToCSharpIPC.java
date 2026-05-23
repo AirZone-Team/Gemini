@@ -182,6 +182,10 @@ public class JavaToCSharpIPC {
                 }
                 obj.put("items", items);
             }
+            case ColorValue colorVal -> {
+                obj.put("type", "color");
+                obj.put("value", colorVal.getColor());
+            }
             default -> {
                 return null; // 未知类型跳过
             }
@@ -339,6 +343,7 @@ public class JavaToCSharpIPC {
                             .ifPresent(bv -> bv.enabled = items.getBoolean(key));
                 }
             }
+            case ColorValue cv -> cv.setColor(((Number) value).intValue());
             default -> {
             }
         }

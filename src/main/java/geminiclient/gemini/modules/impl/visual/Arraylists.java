@@ -5,7 +5,11 @@ import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.utils.RainbowUtil;
 import geminiclient.gemini.values.impl.BoolValue;
+import geminiclient.gemini.values.impl.ColorValue;
+import geminiclient.gemini.values.impl.FloatValue;
+import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import java.util.*;
@@ -14,6 +18,10 @@ public class Arraylists extends Module {
     // 配置选项
     public final BoolValue mainBackground = new BoolValue("Main Bkgrd", true);
     public final BoolValue moduleBackground = new BoolValue("Module Bkgrd", true);
+    public final ListValue rainbowMode = new ListValue("Rainbow", "Off", new String[]{"Off", "Sync", "Gradient"});
+    public final ColorValue fontColor = new ColorValue("Font Color", 0xFFF5F5F5);
+    public final ColorValue rectColor = new ColorValue("Rect Color", 0xFF43E096);
+    public final FloatValue rainbowSpeed = new FloatValue("Rainbow Speed", 3000f, 500f, 10000f);
 
     // ==================== 美化后的样式常量 ====================
     // 背景与阴影：更深邃的暗黑风格，增强对比度
@@ -55,6 +63,10 @@ public class Arraylists extends Module {
         super("Arraylists", ModuleEnum.Visual);
         addValue(mainBackground);
         addValue(moduleBackground);
+        addValue(rainbowMode);
+        addValue(fontColor);
+        addValue(rectColor);
+        addValue(rainbowSpeed);
     }
 
     @EventTarget
@@ -151,12 +163,14 @@ public class Arraylists extends Module {
             gui.fill(bgX1, baseY, bgX1 + 1, bgY2, borderColor);
         }
 
+        int index = 0;
         for (Module module : modules) {
-            renderModule(gui, module, startX, baseY);
+            renderModule(gui, module, startX, baseY, index, modules.size());
+            index++;
         }
     }
 
-    private void renderModule(GuiGraphicsExtractor gui, Module module, int startX, int baseY) {
+    private void renderModule(GuiGraphicsExtractor gui, Module module, int startX, int baseY, int index, int total) {
         ModuleAnimation anim = animations.get(module);
         if (anim == null) return;
 
@@ -173,16 +187,35 @@ public class Arraylists extends Module {
             gui.fill(moduleX, moduleY, moduleBgX2, moduleBgY2, MODULE_BG_COLOR);
         }
 
-        int statusColor = module.enabled
-                ? (STATUS_ENABLED_COLOR | 0xFF000000)
-                : (STATUS_DISABLED_COLOR | 0xFF000000);
+        String mode = rainbowMode.get();
+        boolean isRainbow = !mode.equals("Off");
+        long speed = (long) rainbowSpeed.getValue();
+
+        int statusColor;
+        if (module.enabled) {
+            if (isRainbow) {
+                float hueOffset = mode.equals("Gradient") ? (float) index / Math.max(1, total) : 0f;
+                statusColor = RainbowUtil.getRainbow(speed, hueOffset, 1.0f, 1.0f, 0xFF);
+            } else {
+                statusColor = rectColor.getColor();
+            }
+        } else {
+            statusColor = STATUS_DISABLED_COLOR | 0xFF000000;
+        }
 
         gui.fill(moduleX, moduleY, moduleX + STATUS_BAR_WIDTH, moduleBgY2, statusColor);
 
         int textX = moduleX + STATUS_BAR_WIDTH + PADDING_TEXT_LEFT;
-        // 修正文本垂直居中公式
         int textY = moduleY + (lineHeight / 2) - (mc.font.lineHeight / 2);
 
-        gui.text(mc.font, module.getName(), textX, textY, TEXT_COLOR_BASE | 0xFF000000, true);
+        int textColor;
+        if (isRainbow) {
+            float hueOffset = mode.equals("Gradient") ? (float) index / Math.max(1, total) : 0f;
+            textColor = RainbowUtil.getRainbow(speed, hueOffset, 1.0f, 1.0f, 0xFF);
+        } else {
+            textColor = fontColor.getColor();
+        }
+
+        gui.text(mc.font, module.getName(), textX, textY, textColor, true);
     }
 }

@@ -55,6 +55,8 @@ public class ModuleComponent {
                 component = new IntRangeValueComponent((IntRangeValue) value, 0, 0, width, componentHeight);
             } else if (value instanceof CheckboxValue) {
                 component = new CheckboxValueComponent((CheckboxValue) value,0,0,width,componentHeight);
+            } else if (value instanceof ColorValue) {
+                component = new ColorValueComponent((ColorValue) value, 0, 0, width, componentHeight);
             }
 
             if (component != null) {
