@@ -4,18 +4,22 @@
   "package": "geminiclient.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "access.AccessLivingEntity",
-    "access.AccessMinecraft",
-    "access.AccessServerboundMovePlayerPacket",
     "MixinConnection",
     "MixinEntity",
+    "MixinItem",
     "MixinKeyMapping",
-    "MixinLivingEntity"
+    "MixinLivingEntity",
+    "MixinPlayer",
+    "access.AccessEntity",
+    "access.AccessLivingEntity",
+    "access.AccessMinecraft",
+    "access.AccessServerboundMovePlayerPacket"
   ],
   "client": [
     "MixinEntityRenderer",
     "MixinGameRenderer",
     "MixinItemEntityRenderer",
+    "MixinItemEntityRenderState",
     "MixinKeyboardHandler",
     "MixinKeyboardInput",
     "MixinLivingEntityRenderer",

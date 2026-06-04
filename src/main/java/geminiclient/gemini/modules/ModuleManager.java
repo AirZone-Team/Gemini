@@ -38,7 +38,11 @@ public class ModuleManager {
                 new Crit(),
                 new Speed(),
                 new ExpandClickGui(),
-                new SuperKB()
+                new SuperKB(),
+                new ESP(),
+                new ItemPhysical(),
+                new Scaffold(),
+                new MovementFix()
         );
     }
 

@@ -1,15 +1,15 @@
 package geminiclient.gemini.modules.impl.combat;
 
 import geminiclient.gemini.event.annotations.EventTarget;
-import geminiclient.gemini.event.events.impl.moveFixEvent.JumpEvent;
 import geminiclient.gemini.event.events.impl.MotionEvent;
-import geminiclient.gemini.event.events.impl.StrafeEvent;
 import geminiclient.gemini.event.events.impl.UpdateEvent;
 import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
-import geminiclient.gemini.modules.impl.combat.killaura.Rotation;
+import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.RotationManager;
 import geminiclient.gemini.utils.MathHelper;
+import geminiclient.gemini.utils.ReachUtils;
 import geminiclient.gemini.utils.TimerUtils;
 import geminiclient.gemini.values.impl.*;
 import net.minecraft.world.InteractionHand;
@@ -21,6 +21,7 @@ import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.monster.Slime;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.AABB;
 
 import java.util.Comparator;
 import java.util.List;
@@ -33,55 +34,61 @@ public class KillAura extends Module {
     private final FloatValue range = new FloatValue("Range", 3.0f, 1.0f, 6.0f);
     private final FloatValue fov = new FloatValue("FOV", 180f, 30f, 360f);
     private final FloatValue rotationSpeed = new FloatValue("RotationSpeed", 180f, 30f, 360f);
-    private final ListValue pro = new ListValue("Priority", "Distance", new String[] {
+    private final ListValue pro = new ListValue("Priority", "Distance", new String[]{
             "Distance", "Health", "hurtTime"
     });
-    private final CheckboxValue targets = new CheckboxValue("Targets", new BoolValue[] {
+    private final CheckboxValue targets = new CheckboxValue("Targets", new BoolValue[]{
             new BoolValue("AttackPlayers", true), new BoolValue("AttackMobs", true),
             new BoolValue("AttackAnimals", false), new BoolValue("AttackDead")
     });
-    private final CheckboxValue stop = new CheckboxValue("StopWorking", new BoolValue[] {
+    private final CheckboxValue stop = new CheckboxValue("StopWorking", new BoolValue[]{
             new BoolValue("UsingItem"),
             new BoolValue("OpeningScreen")
     });
+    private final ListValue rotationMode = new ListValue("RotationMode", "Linear", new String[]{
+            "Linear", "Exponential", "Smooth", "Adaptive"
+    });
     private final BoolValue silentRotate = new BoolValue("SilentRotate", true);
+    private final BoolValue requireAim = new BoolValue("RequireAim", false);
+    private final ListValue aimMode = new ListValue("AimMode", "Head", new String[]{
+            "Head", "Chest", "Body", "Legs", "Random"
+    });
 
     private final List<Entity> entities = new CopyOnWriteArrayList<>();
     private Entity curr;
     private final TimerUtils attackTimer = new TimerUtils();
-    private boolean attackNextTick = false;
 
-    Rotation rotation = new Rotation(0, 0);
+    // [修复] 缓存下一次攻击的延迟时间，防止每次 Update 时随机数跳动
+    private long nextAttackDelay = 0;
+
+    float serverYaw, serverPitch;
+
+    // Smooth mode state
+    private float smoothStartYaw, smoothStartPitch, smoothProgress;
+    private Entity smoothTarget;
 
     public KillAura() {
         super("KillAura", ModuleEnum.Combat);
         addValue(noCoolDown, cps, range, fov, hurtTime, pro,
-                targets, stop, rotationSpeed,
-                silentRotate);
+                targets, stop, rotationSpeed, rotationMode,
+                silentRotate, requireAim, aimMode);
     }
 
     @Override
     public void onEnabled() {
-        rotation.setActive(true);
+        smoothTarget = null;
+        smoothProgress = 0f;
+        nextAttackDelay = getRandomDelay(); // 初始化第一次延迟
+        if (mc.player != null) {
+            serverYaw = mc.player.getYRot();
+            serverPitch = mc.player.getXRot();
+        }
     }
 
     @Override
     public void onDisabled() {
-        rotation.setActive(false);
-    }
-
-    @SuppressWarnings("unused")
-    @EventTarget(0)
-    public void onStrafe(StrafeEvent event) {
-        if (curr != null)
-            rotation.handleStrafe(event);
-    }
-
-    @SuppressWarnings("unused")
-    @EventTarget(0)
-    public void onJump(JumpEvent event) {
-        if (curr != null)
-            rotation.handleJump(event);
+        Gemini.rotationManager.releaseRotation(this);
+        smoothTarget = null;
     }
 
     @SuppressWarnings("unused")
@@ -91,14 +98,8 @@ public class KillAura extends Module {
             return;
         if (event.getTimeEnum() == TimeEnum.Pre) {
             if (!silentRotate.enabled) {
-                // 如果 SilentRotate 未启用，则实际旋转玩家视角
-                mc.player.setYRot(rotation.getYaw());
-                mc.player.setXRot(rotation.getPitch());
-            } else {
-                event.setyRot(rotation.getYaw());
-                event.setxRot(rotation.getPitch());
-                mc.player.yHeadRot = rotation.getYaw();
-                mc.player.yBodyRot = rotation.getYaw();
+                mc.player.setYRot(serverYaw);
+                mc.player.setXRot(serverPitch);
             }
         }
     }
@@ -111,29 +112,31 @@ public class KillAura extends Module {
 
         findTargets();
 
-        if (curr != null) {
+        if (curr != null && stopWorkingMethod()) {
             updateTargetAngles(curr);
-            if (stopWorkingMethod()) {
-                if (noCoolDown.enabled) {
-                    // 无冷却模式 (CPS 控制)
-                    if (attackTimer.getTimeElapsed() >= getRandomDelay()) {
-                        attackNextTick = true;
-                        attackTimer.reset();
-                    }
+            Gemini.rotationManager.requestRotation(this, serverYaw, serverPitch,
+                    RotationManager.PRIORITY_KILLAURA, true);
 
-                    if (attackNextTick) {
-                        mc.gameMode.attack(mc.player, curr);
-                        mc.player.swing(InteractionHand.MAIN_HAND);
-                        attackNextTick = false;
-                    }
-                } else {
-                    // 原版冷却模式
-                    if (mc.player.getAttackStrengthScale(0.5f) >= 1.0f) {
-                        mc.gameMode.attack(mc.player, curr);
-                        mc.player.swing(InteractionHand.MAIN_HAND);
-                    }
+            if (requireAim.enabled && !isLookingAtTarget(curr))
+                return;
+
+            if (noCoolDown.enabled) {
+                // [修复] 使用固定的 nextAttackDelay 进行比较，而不是一直生成新随机数
+                if (attackTimer.getTimeElapsed() >= nextAttackDelay) {
+                    mc.gameMode.attack(mc.player, curr);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    attackTimer.reset();
+                    nextAttackDelay = getRandomDelay(); // 攻击后重置下一次的随机延迟
+                }
+            } else {
+                // 原版冷却模式
+                if (mc.player.getAttackStrengthScale(0.5f) >= 1.0f) {
+                    mc.gameMode.attack(mc.player, curr);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
                 }
             }
+        } else {
+            Gemini.rotationManager.releaseRotation(this);
         }
     }
 
@@ -155,7 +158,9 @@ public class KillAura extends Module {
         entities.clear();
         curr = null;
         for (Entity entity : mc.level.entitiesForRendering()) {
-            if (isValidTarget(entity) && isInFov(entity) && mc.player.distanceTo(entity) < range.getValue()) {
+            // 注意：这里假设你的 ReachUtils 返回的是实际距离的平方，如果是返回单边距离，请将 range.getValue() * range.getValue() 改回 range.getValue()
+            if (isValidTarget(entity) && isInFov(entity) &&
+                    ReachUtils.getMinDistanceBetweenEntities(mc.player.getBoundingBox(), 0.1, mc.player.getX(), mc.player.getY(), mc.player.getZ(), entity.getBoundingBox(), 0.0, entity.getX(), entity.getY(), entity.getZ()) < range.getValue() * range.getValue()) {
                 entities.add(entity);
             }
         }
@@ -177,7 +182,7 @@ public class KillAura extends Module {
                 break;
         }
 
-        curr = entities.getFirst();
+        curr = entities.getFirst(); // 考虑到兼容性，通常使用 get(0) 替代 Java21 的 getFirst()
     }
 
     private boolean stopWorkingMethod() {
@@ -222,41 +227,159 @@ public class KillAura extends Module {
         return yawDiff <= fov.getValue() / 2;
     }
 
-    /**
-     * 瞬时瞄准，不进行平滑或预测。
-     */
     private void updateTargetAngles(Entity entity) {
         if (mc.player == null)
             return;
 
-        final double xSize = entity.getX() - mc.player.getX();
-        final double ySize = entity.getY() + entity.getEyeHeight() / 2 - (mc.player.getY() + mc.player.getEyeHeight());
-        final double zSize = entity.getZ() - mc.player.getZ();
+        double targetX = entity.getX();
+        double targetZ = entity.getZ();
+        double targetY;
+
+        switch (aimMode.get()) {
+            case "Chest":
+                targetY = entity.getY() + entity.getBbHeight() * 0.65;
+                break;
+            case "Body":
+                targetY = entity.getY() + entity.getBbHeight() * 0.5;
+                break;
+            case "Legs":
+                targetY = entity.getY() + entity.getBbHeight() * 0.2;
+                break;
+            case "Random":
+                targetY = entity.getY() + entity.getBbHeight() * (0.1 + Math.random() * 0.85);
+                double halfWidth = entity.getBbWidth() / 2.0;
+                targetX += (Math.random() - 0.5) * halfWidth;
+                targetZ += (Math.random() - 0.5) * halfWidth;
+                break;
+            case "Head":
+            default:
+                targetY = entity.getY() + entity.getEyeHeight();
+        }
+
+        final double xSize = targetX - mc.player.getX();
+        final double ySize = targetY - (mc.player.getY() + mc.player.getEyeHeight());
+        final double zSize = targetZ - mc.player.getZ();
         final double theta = MathHelper.sqrt_double(xSize * xSize + zSize * zSize);
 
-        // 计算基础目标角度
         final float targetYaw = (float) (Math.atan2(zSize, xSize) * 180 / Math.PI) - 90;
         final float targetPitch = (float) (-(Math.atan2(ySize, theta) * 180 / Math.PI));
 
-        // 获取当前真实的玩家角度（保留了超出 360 度的累加值）
         float currentYaw = mc.player.getYRot();
         float currentPitch = mc.player.getXRot();
 
-        // 核心修复：计算当前角度与目标角度的“最短差值”（将差值 wrap 到 -180 ~ 180）
         float yawDiff = MathHelper.wrapAngleTo180_float(targetYaw - currentYaw);
         float pitchDiff = MathHelper.wrapAngleTo180_float(targetPitch - currentPitch);
 
-        // 将差值加到当前累加角度上，彻底消除跨越 180/-180 边界时的 360° 突变
         float finalYaw = currentYaw + yawDiff;
-
-        // Pitch 的范围在原版中严格限制在 -90 到 90 之间，不会出现 360 累加，直接 Clamp 即可
         float finalPitch = net.minecraft.util.Mth.clamp(currentPitch + pitchDiff, -90.0f, 90.0f);
 
-        // 设置修复后的最终角度 — 每 tick 最多旋转 rotationSpeed 度
-        float step = rotationSpeed.getValue();
-        float rotYawDiff = MathHelper.wrapAngleTo180_float(finalYaw - rotation.getYaw());
-        rotation.setYaw(rotation.getYaw() + Math.copySign(Math.min(Math.abs(rotYawDiff), step), rotYawDiff));
-        float rotPitchDiff = MathHelper.wrapAngleTo180_float(finalPitch - rotation.getPitch());
-        rotation.setPitch(rotation.getPitch() + Math.copySign(Math.min(Math.abs(rotPitchDiff), step), rotPitchDiff));
+        applyRotation(finalYaw, finalPitch, entity);
+    }
+
+    private void applyRotation(float targetYaw, float targetPitch, Entity target) {
+        float rotYawDiff = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
+        float rotPitchDiff = targetPitch - serverPitch;
+        float speed = rotationSpeed.getValue();
+
+        switch (rotationMode.get()) {
+            case "Linear": {
+                serverYaw += Math.copySign(Math.min(Math.abs(rotYawDiff), speed), rotYawDiff);
+                serverPitch += Math.copySign(Math.min(Math.abs(rotPitchDiff), speed), rotPitchDiff);
+                break;
+            }
+            case "Exponential": {
+                float factor = Math.min(speed / 180f, 0.99f);
+                serverYaw += rotYawDiff * factor;
+                serverPitch += rotPitchDiff * factor;
+                break;
+            }
+            case "Smooth": {
+                if (target != smoothTarget) {
+                    smoothTarget = target;
+                    smoothStartYaw = serverYaw;
+                    smoothStartPitch = serverPitch;
+                    smoothProgress = 0f;
+                }
+                float totalYawDiff = MathHelper.wrapAngleTo180_float(targetYaw - smoothStartYaw);
+                float totalPitchDiff = targetPitch - smoothStartPitch;
+                float totalDist = Math.abs(totalYawDiff) + Math.abs(totalPitchDiff);
+                if (totalDist > 0.5f) {
+                    float duration = Math.max(totalDist / speed, 3f);
+                    smoothProgress += 1f / duration;
+                    if (smoothProgress >= 1f) smoothProgress = 1f;
+                    float t = smoothProgress;
+                    float eased = t * t * (3f - 2f * t);
+                    serverYaw = smoothStartYaw + totalYawDiff * eased;
+                    serverPitch = smoothStartPitch + totalPitchDiff * eased;
+                }
+                break;
+            }
+            case "Adaptive": {
+                float yawDist = Math.abs(rotYawDiff);
+                float pitchDist = Math.abs(rotPitchDiff);
+                float yawStep = speed * (0.5f + yawDist / 90f);
+                float pitchStep = speed * (0.5f + pitchDist / 90f);
+                serverYaw += Math.copySign(Math.min(yawDist, yawStep), rotYawDiff);
+                serverPitch += Math.copySign(Math.min(pitchDist, pitchStep), rotPitchDiff);
+                break;
+            }
+        }
+
+        // [修复] 强制限制最终的 serverPitch 避免平滑计算越界翻转引发的反作弊拦截
+        serverPitch = net.minecraft.util.Mth.clamp(serverPitch, -90f, 90f);
+    }
+
+    private boolean isLookingAtTarget(Entity entity) {
+        if (mc.player == null)
+            return false;
+
+        float yaw = serverYaw;
+        float pitch = serverPitch;
+
+        double yawRad = Math.toRadians(yaw);
+        double pitchRad = Math.toRadians(pitch);
+
+        double dx = -Math.sin(yawRad) * Math.cos(pitchRad);
+        double dy = -Math.sin(pitchRad);
+        double dz = Math.cos(yawRad) * Math.cos(pitchRad);
+
+        // [修复] 增加一个极小值避免除以0导致的 NaN 或不可预测的 Infinity
+        if (dx == 0) dx = 0.0001;
+        if (dy == 0) dy = 0.0001;
+        if (dz == 0) dz = 0.0001;
+
+        double eyeX = mc.player.getX();
+        double eyeY = mc.player.getY() + mc.player.getEyeHeight();
+        double eyeZ = mc.player.getZ();
+
+        AABB bb = entity.getBoundingBox().inflate(0.1);
+
+        double tMin = 0.0;
+        double tMax = range.getValue();
+
+        // X slab
+        double t1 = (bb.minX - eyeX) / dx;
+        double t2 = (bb.maxX - eyeX) / dx;
+        if (t1 > t2) { double tmp = t1; t1 = t2; t2 = tmp; }
+        tMin = Math.max(tMin, t1);
+        tMax = Math.min(tMax, t2);
+        if (tMin > tMax) return false;
+
+        // Y slab
+        t1 = (bb.minY - eyeY) / dy;
+        t2 = (bb.maxY - eyeY) / dy;
+        if (t1 > t2) { double tmp = t1; t1 = t2; t2 = tmp; }
+        tMin = Math.max(tMin, t1);
+        tMax = Math.min(tMax, t2);
+        if (tMin > tMax) return false;
+
+        // Z slab
+        t1 = (bb.minZ - eyeZ) / dz;
+        t2 = (bb.maxZ - eyeZ) / dz;
+        if (t1 > t2) { double tmp = t1; t1 = t2; t2 = tmp; }
+        tMin = Math.max(tMin, t1);
+        tMax = Math.min(tMax, t2);
+
+        return tMin <= tMax;
     }
 }

@@ -1,5 +1,6 @@
 package geminiclient.gemini;
 
+import geminiclient.gemini.base.RotationManager;
 import geminiclient.gemini.event.EventManager;
 import geminiclient.gemini.base.FileSystem;
 import geminiclient.gemini.commands.CommandManager;
@@ -18,9 +19,12 @@ public class Gemini {
     public static CommandManager commandManager;
     public static FileSystem fileSystem;
     public static NotificationManager notificationManager;
+    public static RotationManager rotationManager;
     public static void init() {
         notificationManager = new NotificationManager();
         eventManager = new EventManager();
+        rotationManager = new RotationManager();
+        eventManager.register(rotationManager);
         Logger.getLogger("Add");
         moduleManager = new ModuleManager();
         System.out.println("Add All modules");

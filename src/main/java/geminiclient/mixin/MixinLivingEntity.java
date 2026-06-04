@@ -1,6 +1,11 @@
 package geminiclient.mixin;
 
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.events.impl.RotationAnimationEvent;
+import geminiclient.gemini.event.events.impl.moveFixEvent.FallFlyingEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.JumpEvent;
 import geminiclient.gemini.modules.impl.visual.FullLight;
 import net.minecraft.client.Minecraft;
@@ -14,13 +19,41 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import static geminiclient.gemini.base.MinecraftInstance.mc;
+
 @Mixin(LivingEntity.class)
 public class MixinLivingEntity {
-    @Redirect(method = "jumpFromGround",at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;getYRot()F",opcode = 182,ordinal = 0))
-    public float onJump(LivingEntity instance) {
-        JumpEvent event = new JumpEvent(instance.getYRot());
+    @WrapOperation(method = "jumpFromGround", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;getYRot()F"))
+    private float redirectGetYRotInJumpFromGround(LivingEntity instance, Operation<Float> original) {
+        if (instance == mc.player) {
+            JumpEvent event = new JumpEvent(instance.getYRot());
+            Gemini.eventManager.call(event);
+            return event.getYaw();
+        }
+        return original.call(instance);
+    }
+
+    @ModifyExpressionValue(method = "updateFallFlyingMovement", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;getXRot()F"))
+    private float modifyFallFlyingPitch(float original) {
+        FallFlyingEvent event = new FallFlyingEvent(original);
         Gemini.eventManager.call(event);
-        return event.getYaw();
+        return event.getPitch();
+    }
+
+    @Redirect(
+        method = "tickHeadTurn",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/world/entity/LivingEntity;getYRot()F"
+        )
+    )
+    private float modifyHeadYaw(LivingEntity entity) {
+        if (entity == Minecraft.getInstance().player) {
+            RotationAnimationEvent event = new RotationAnimationEvent(entity.getYRot(), 0.0F, 0.0F, 0.0F);
+            Gemini.eventManager.call(event);
+            return event.getYaw();
+        }
+        return entity.getYRot();
     }
 
     @Inject(method = "hasEffect", at = @At("HEAD"), cancellable = true)

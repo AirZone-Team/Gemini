@@ -19,12 +19,19 @@ public class KeyBindHandler {
     public void keyEvent(KeyInputEvent event) {
         long currentTime = System.currentTimeMillis();
         final long MIN_INTERVAL_MS = 180;
+        if (mc.screen != null || (currentTime - lastTriggerTime <= MIN_INTERVAL_MS)) {
+            return;
+        }
+        boolean triggered = false;
         for (Module module : Gemini.moduleManager.getModules()) {
-            if (module.key == event.key() && mc.screen == null && (currentTime - lastTriggerTime > MIN_INTERVAL_MS)) {
-                lastTriggerTime = currentTime;
+            if (module.key == event.key()) {
                 module.toggle();
-                JavaToCSharpIPC.toCS(Gemini.moduleManager);
+                triggered = true;
             }
+        }
+        if (triggered) {
+            lastTriggerTime = currentTime;
+            JavaToCSharpIPC.toCS(Gemini.moduleManager);
         }
     }
 }

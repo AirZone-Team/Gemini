@@ -16,7 +16,9 @@ import net.minecraft.tags.ItemTags;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.*;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.equipment.Equippable;
+import net.minecraft.world.level.block.Block;
 
 import java.util.*;
 
@@ -24,28 +26,6 @@ public class Stealer extends Module {
     private static final String CHEST_KEY = "container.chest";
     private static final String LARGE_CHEST_KEY = "container.chestDouble";
     private static final String FALLBACK_CHEST_TITLE = "Chest";
-
-    private static final Map<Item, Float> MATERIAL_SCORES = Map.ofEntries(
-            Map.entry(Items.ENCHANTED_GOLDEN_APPLE, 200f),
-            Map.entry(Items.BEACON, 150f),
-            Map.entry(Items.NETHERITE_INGOT, 100f),
-            Map.entry(Items.NETHERITE_SCRAP, 100f),
-            Map.entry(Items.ENCHANTED_BOOK, 100f),
-            Map.entry(Items.DIAMOND, 80f),
-            Map.entry(Items.SHULKER_SHELL, 70f),
-            Map.entry(Items.ENDER_EYE, 70f),
-            Map.entry(Items.EMERALD, 60f),
-            Map.entry(Items.GOLDEN_APPLE, 50f),
-            Map.entry(Items.GOLD_INGOT, 40f),
-            Map.entry(Items.GOLD_NUGGET, 40f),
-            Map.entry(Items.EXPERIENCE_BOTTLE, 40f),
-            Map.entry(Items.GHAST_TEAR, 35f),
-            Map.entry(Items.IRON_INGOT, 30f),
-            Map.entry(Items.IRON_NUGGET, 30f),
-            Map.entry(Items.ENDER_PEARL, 30f),
-            Map.entry(Items.BLAZE_ROD, 25f),
-            Map.entry(Items.OBSIDIAN, 20f)
-    );
 
     private final IntRangeValue stealDelay = new IntRangeValue("StealDelay", 100, 200, 0, 500);
     private final IntRangeValue closeDelay = new IntRangeValue("CloseDelay", 100, 200, 0, 500);
@@ -117,6 +97,10 @@ public class Stealer extends Module {
                 if (processedCategories.contains(category))
                     continue;
 
+                if (category == ItemCategory.MATERIAL) {
+                    return true;
+                }
+
                 float score = calculateItemScore(stack);
                 if (score > bestInvScores.getOrDefault(category, 0f)) {
                     return true;
@@ -161,7 +145,10 @@ public class Stealer extends Module {
 
         ItemStack stack = menu.getSlot(slotId).getItem();
         if (!stack.isEmpty()) {
-            processedCategories.add(getItemCategory(stack));
+            ItemCategory category = getItemCategory(stack);
+            if (category != ItemCategory.MATERIAL) {
+                processedCategories.add(category);
+            }
         }
         return true;
     }
@@ -183,7 +170,14 @@ public class Stealer extends Module {
                 continue;
 
             float score = calculateItemScore(stack);
-            if (score > bestInvScores.getOrDefault(category, 0f)) {
+            boolean isUpgrade;
+            if (category == ItemCategory.MATERIAL) {
+                isUpgrade = true;
+            } else {
+                isUpgrade = score > bestInvScores.getOrDefault(category, 0f);
+            }
+
+            if (isUpgrade) {
                 SlotValue currentBest = upgradeableItems.get(category);
                 if (currentBest == null || score > currentBest.score()) {
                     upgradeableItems.put(category, new SlotValue(i, score));
@@ -221,59 +215,48 @@ public class Stealer extends Module {
 
     private record SlotValue(int slotId, float score) {}
 
-    // ========== Item Scoring (delegates to InvUtils) ==========
+    // ========== Item Value Judgment (using InvUtils) ==========
 
-    private float calculateItemScore(ItemStack stack) {
-        Item item = stack.getItem();
-
-        // Weapons — use InvUtils damage scoring
-        if (stack.is(ItemTags.SWORDS))
-            return InvUtils.getSwordDamage(stack) * 10f;
-        if (InvUtils.isSharpnessAxe(stack))
-            return InvUtils.getAxeDamage(stack) * 10f;
-        if (item == Items.MACE)
-            return 150f;
-        if (item == Items.TRIDENT)
-            return 80f;
-
-        // Bows — use InvUtils bow scoring
-        if (item instanceof BowItem)
-            return Math.max(InvUtils.getPowerBowScore(stack), InvUtils.getPunchBowScore(stack)) * 10f;
-        if (item instanceof CrossbowItem)
-            return InvUtils.getCrossbowScore(stack) * 10f;
-
-        // Armor — use InvUtils protection scoring
-        if (stack.is(ItemTags.ARMOR_ENCHANTABLE))
-            return InvUtils.getProtection(stack);
-
-        // Tools — use InvUtils tool scoring (after sharpness axe check)
-        if (stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.AXES) || stack.is(ItemTags.SHOVELS))
-            return InvUtils.getToolScore(stack) * 100f;
-
-        // Misc
-        if (item == Items.FISHING_ROD)
-            return 20f;
-
-        // God items (totems, crystals, god apples, kb balls, kb sticks)
-        if (InvUtils.isGodItem(stack))
-            return 500f;
-
-        // Materials — use simplified value map
-        Float materialScore = MATERIAL_SCORES.get(item);
-        if (materialScore != null) {
-            return stack.getCount() > 1 ? materialScore + stack.getCount() : materialScore;
-        }
-        return 0f;
+    private enum ItemCategory {
+        WEAPON, TOOL, ARMOR_HEAD, ARMOR_CHEST, ARMOR_LEGS, ARMOR_FEET,
+        BOW, CROSSBOW, FISHING_ROD, BLOCK, MATERIAL
     }
 
-    // ========== Item Classification ==========
+    private static final Map<Item, Float> MATERIAL_SCORES = Map.ofEntries(
+            Map.entry(Items.ENCHANTED_GOLDEN_APPLE, 200f),
+            Map.entry(Items.BEACON, 150f),
+            Map.entry(Items.NETHERITE_INGOT, 100f),
+            Map.entry(Items.NETHERITE_SCRAP, 100f),
+            Map.entry(Items.ENCHANTED_BOOK, 100f),
+            Map.entry(Items.DIAMOND, 80f),
+            Map.entry(Items.SHULKER_SHELL, 70f),
+            Map.entry(Items.ENDER_EYE, 70f),
+            Map.entry(Items.EMERALD, 60f),
+            Map.entry(Items.GOLDEN_APPLE, 50f),
+            Map.entry(Items.GOLD_INGOT, 40f),
+            Map.entry(Items.GOLD_NUGGET, 40f),
+            Map.entry(Items.EXPERIENCE_BOTTLE, 40f),
+            Map.entry(Items.GHAST_TEAR, 35f),
+            Map.entry(Items.IRON_INGOT, 30f),
+            Map.entry(Items.IRON_NUGGET, 30f),
+            Map.entry(Items.ENDER_PEARL, 30f),
+            Map.entry(Items.BLAZE_ROD, 25f),
+            Map.entry(Items.OBSIDIAN, 20f)
+    );
 
     private boolean isValuableItem(ItemStack stack) {
         if (stack.isEmpty() || InvUtils.isNotItemValid(stack))
             return false;
+
         Item item = stack.getItem();
-        return item == Items.ENCHANTED_GOLDEN_APPLE
-                || item == Items.GOLDEN_APPLE
+
+        if (InvUtils.isGodItem(stack)
+                || InvUtils.isEnchantedGApple(stack)
+                || InvUtils.isEndCrystal(stack)
+                || InvUtils.isSharpnessAxe(stack))
+            return true;
+
+        if (item == Items.GOLDEN_APPLE
                 || item == Items.ENDER_PEARL
                 || item == Items.BEACON
                 || item == Items.ENCHANTED_BOOK
@@ -291,41 +274,79 @@ public class Stealer extends Module {
                 || item == Items.GOLD_NUGGET
                 || item == Items.IRON_INGOT
                 || item == Items.IRON_NUGGET
-                || InvUtils.isGodItem(stack)
-                || stack.is(ItemTags.SWORDS)
-                || stack.is(ItemTags.PICKAXES)
-                || stack.is(ItemTags.AXES)
-                || stack.is(ItemTags.SHOVELS)
-                || stack.is(ItemTags.ARMOR_ENCHANTABLE)
                 || item instanceof BowItem
                 || item instanceof CrossbowItem
                 || item == Items.TRIDENT
                 || item == Items.MACE
-                || item == Items.FISHING_ROD;
+                || item == Items.FISHING_ROD
+                || isStealableBlock(item)) {
+            return true;
+        }
+
+        if (isLowTierGearWithoutEnchants(stack))
+            return false;
+
+        return stack.is(ItemTags.SWORDS)
+                || stack.is(ItemTags.PICKAXES)
+                || stack.is(ItemTags.AXES)
+                || stack.is(ItemTags.SHOVELS)
+                || stack.is(ItemTags.ARMOR_ENCHANTABLE);
     }
 
-    private enum ItemCategory {
-        WEAPON, TOOL, HELMET, CHESTPLATE, LEGGINGS, BOOTS,
-        BOW, CROSSBOW, TRIDENT, FISHING_ROD, MATERIAL, OTHER_VALUABLE
+    private float calculateItemScore(ItemStack stack) {
+        Item item = stack.getItem();
+
+        if (stack.is(ItemTags.SWORDS))
+            return InvUtils.getSwordDamage(stack) * 10f;
+        if (InvUtils.isSharpnessAxe(stack))
+            return InvUtils.getAxeDamage(stack) * 10f;
+        if (item == Items.MACE)
+            return 150f;
+        if (item == Items.TRIDENT)
+            return 80f;
+
+        if (item instanceof BowItem)
+            return Math.max(InvUtils.getPowerBowScore(stack), InvUtils.getPunchBowScore(stack)) * 10f;
+        if (item instanceof CrossbowItem)
+            return InvUtils.getCrossbowScore(stack) * 10f;
+
+        if (stack.is(ItemTags.ARMOR_ENCHANTABLE))
+            return InvUtils.getProtection(stack);
+
+        if (stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.AXES) || stack.is(ItemTags.SHOVELS))
+            return InvUtils.getToolScore(stack) * 100f;
+
+        if (item == Items.FISHING_ROD)
+            return 20f;
+
+        if (item instanceof BlockItem)
+            return stack.getCount();
+
+        if (InvUtils.isGodItem(stack))
+            return 500f;
+
+        Float materialScore = MATERIAL_SCORES.get(item);
+        if (materialScore != null) {
+            return stack.getCount() > 1 ? materialScore + stack.getCount() : materialScore;
+        }
+        return 0f;
     }
 
     private ItemCategory getItemCategory(ItemStack stack) {
         Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
         if (equippable != null) {
             return switch (equippable.slot()) {
-                case HEAD -> ItemCategory.HELMET;
-                case CHEST -> ItemCategory.CHESTPLATE;
-                case LEGS -> ItemCategory.LEGGINGS;
-                case FEET -> ItemCategory.BOOTS;
-                default -> ItemCategory.OTHER_VALUABLE;
+                case HEAD -> ItemCategory.ARMOR_HEAD;
+                case CHEST -> ItemCategory.ARMOR_CHEST;
+                case LEGS -> ItemCategory.ARMOR_LEGS;
+                case FEET -> ItemCategory.ARMOR_FEET;
+                default -> ItemCategory.MATERIAL;
             };
         }
 
         Item item = stack.getItem();
 
-        if (item == Items.MACE || stack.is(ItemTags.SWORDS))
-            return ItemCategory.WEAPON;
-        if (InvUtils.isSharpnessAxe(stack))
+        if (item == Items.MACE || stack.is(ItemTags.SWORDS) || InvUtils.isSharpnessAxe(stack))
             return ItemCategory.WEAPON;
 
         if (item instanceof BowItem)
@@ -333,14 +354,48 @@ public class Stealer extends Module {
         if (item instanceof CrossbowItem)
             return ItemCategory.CROSSBOW;
         if (item == Items.TRIDENT)
-            return ItemCategory.TRIDENT;
+            return ItemCategory.WEAPON;
         if (item == Items.FISHING_ROD)
             return ItemCategory.FISHING_ROD;
 
         if (stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.AXES) || stack.is(ItemTags.SHOVELS))
             return ItemCategory.TOOL;
 
+        if (item instanceof BlockItem)
+            return ItemCategory.BLOCK;
+
         return ItemCategory.MATERIAL;
+    }
+
+    private boolean isStealableBlock(Item item) {
+        if (!(item instanceof BlockItem bi))
+            return false;
+        Block block = bi.getBlock();
+        return !InvUtils.blacklistedBlocks.contains(block);
+    }
+
+    private boolean isLowTierGearWithoutEnchants(ItemStack stack) {
+        ItemEnchantments enchants = stack.get(DataComponents.ENCHANTMENTS);
+        if (enchants != null && !enchants.isEmpty())
+            return false;
+        Item item = stack.getItem();
+        if (isHighTierMaterial(item))
+            return false;
+        return stack.is(ItemTags.SWORDS) || stack.is(ItemTags.PICKAXES)
+                || stack.is(ItemTags.AXES) || stack.is(ItemTags.SHOVELS)
+                || stack.is(ItemTags.ARMOR_ENCHANTABLE);
+    }
+
+    private static boolean isHighTierMaterial(Item item) {
+        return item == Items.IRON_SWORD || item == Items.IRON_PICKAXE || item == Items.IRON_AXE
+                || item == Items.IRON_SHOVEL || item == Items.IRON_HOE
+                || item == Items.DIAMOND_SWORD || item == Items.DIAMOND_PICKAXE || item == Items.DIAMOND_AXE
+                || item == Items.DIAMOND_SHOVEL || item == Items.DIAMOND_HOE
+                || item == Items.NETHERITE_SWORD || item == Items.NETHERITE_PICKAXE || item == Items.NETHERITE_AXE
+                || item == Items.NETHERITE_SHOVEL || item == Items.NETHERITE_HOE
+                || item == Items.IRON_HELMET || item == Items.IRON_CHESTPLATE || item == Items.IRON_LEGGINGS || item == Items.IRON_BOOTS
+                || item == Items.DIAMOND_HELMET || item == Items.DIAMOND_CHESTPLATE || item == Items.DIAMOND_LEGGINGS || item == Items.DIAMOND_BOOTS
+                || item == Items.NETHERITE_HELMET || item == Items.NETHERITE_CHESTPLATE || item == Items.NETHERITE_LEGGINGS || item == Items.NETHERITE_BOOTS;
     }
 
     // ========== Utility ==========

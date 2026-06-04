@@ -2,6 +2,7 @@ package geminiclient.mixin;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.events.impl.MotionEvent;
+import geminiclient.gemini.event.events.impl.SendPositionEvent;
 import geminiclient.gemini.event.events.impl.SlowDownEvent;
 import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.event.events.impl.UpdateEvent;

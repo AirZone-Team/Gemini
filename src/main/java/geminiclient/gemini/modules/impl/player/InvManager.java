@@ -9,10 +9,9 @@ import geminiclient.gemini.event.events.impl.enums.IOEnum;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.utils.ClientUtils;
-import geminiclient.gemini.modules.impl.player.invmanager.InvUtils;
+import geminiclient.gemini.modules.impl.player.invmanager.*;
 import geminiclient.gemini.utils.MathHelper;
 import geminiclient.gemini.utils.MovementUtils;
-import geminiclient.gemini.utils.TimerUtils;
 import geminiclient.gemini.values.impl.BoolValue;
 import geminiclient.gemini.values.impl.IntRangeValue;
 import geminiclient.gemini.values.impl.IntValue;
@@ -20,10 +19,8 @@ import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.network.protocol.game.*;
+import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 import net.minecraft.tags.ItemTags;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.*;
 import net.minecraft.world.item.equipment.Equippable;
 
@@ -31,6 +28,7 @@ import java.util.*;
 
 public class InvManager extends Module {
     private final IntRangeValue delay = new IntRangeValue("Delay", 90, 110, 0, 1000);
+    private final IntRangeValue openDelay = new IntRangeValue("Open Delay", 150, 250, 0, 2000);
 
     // ==================== Slot Item Types ====================
 
@@ -72,27 +70,27 @@ public class InvManager extends Module {
 
     // ==================== State ====================
 
-    private final TimerUtils timer = new TimerUtils();
+    private final InventoryActions actions = new InventoryActions(delay);
     private int noMoveTicks = 0;
-    private boolean clickOffHand = false;
-    private boolean inventoryOpen = false;
+    private long openDelayUntil = -1;
 
     public InvManager() {
         super("InvManager", ModuleEnum.Player);
         addValue(slot1, slot2, slot3, slot4, slot5, slot6, slot7, slot8, slot9,
                 offhandMode, preferBow, autoArmor, throwItems, inventoryOnly, keepProjectile,
                 maxBlockSize, maxArrowSize, maxProjectileSize,
-                waterBucketCount, lavaBucketCount);
+                waterBucketCount, lavaBucketCount, openDelay);
     }
 
-    // ==================== Slot Mapping Helper ====================
+    @Override
+    public void onEnabled() {
+        this.openDelayUntil = -1;
+        this.noMoveTicks = 0;
+    }
 
-    private static int toContainerSlot(int inventoryIndex) {
-        if (inventoryIndex < 9) return inventoryIndex + 36;        // 快捷栏 0-8 -> 36-44
-        if (inventoryIndex < 36) return inventoryIndex;            // 主背包 9-35 -> 9-35
-        if (inventoryIndex < 40) return 8 - (inventoryIndex - 36); // 盔甲栏 36-39 -> 8-5 (头到脚)
-        if (inventoryIndex == 40) return 45;                       // 副手栏 40 -> 45
-        return inventoryIndex;
+    @Override
+    public void onDisabled() {
+        this.openDelayUntil = -1;
     }
 
     // ==================== Slot Visibility Helpers ====================
@@ -119,6 +117,8 @@ public class InvManager extends Module {
     public int getMaxArrowSize() { return maxArrowSize.getValue(); }
     public int getWaterBucketCount() { return waterBucketCount.getValue(); }
     public int getLavaBucketCount() { return lavaBucketCount.getValue(); }
+
+    // ==================== Item Usefulness ====================
 
     public boolean isItemUseful(ItemStack stack) {
         if (stack.isEmpty()) return false;
@@ -162,7 +162,7 @@ public class InvManager extends Module {
         if (event.getIoEnum() != IOEnum.Out) return;
 
         if (event.getPacket() instanceof ServerboundContainerClosePacket) {
-            this.inventoryOpen = false;
+            actions.inventoryOpen = false;
         }
     }
 
@@ -172,6 +172,11 @@ public class InvManager extends Module {
     public void onMotion(MotionEvent event) {
         if (event.getTimeEnum() != TimeEnum.Pre || mc.player == null || mc.gameMode == null) return;
 
+        // 1. 始终重置打开延迟 (防止 OpenDelay 卡死)
+        if (!(mc.screen instanceof InventoryScreen)) {
+            openDelayUntil = -1;
+        }
+
         if (!checkSlotConflicts()) {
             ClientUtils.addChatMessage("Duplicate item type in hotbar slots! Check your config!");
             setEnabled(false);
@@ -180,337 +185,67 @@ public class InvManager extends Module {
 
         if (InvUtils.shouldDisableFeatures()) return;
 
+        // 2. 计算静止 Tick (修复原代码中遗漏的 noMoveTicks 逻辑)
         if (MovementUtils.moving()) {
             this.noMoveTicks = 0;
         } else {
             this.noMoveTicks++;
         }
 
-        Stealer stealer = Gemini.moduleManager.getModule(Stealer.class);
-        boolean stealerWorking = stealer != null && stealer.enabled
-                && mc.screen instanceof AbstractContainerScreen<?>;
+        // 3. 外部容器拦截 (箱子、熔炉等)
+        // 绝不能在浏览外部容器时整理背包，否则会误点箱子里的物品，也会与 Stealer 冲突
+        boolean inForeignContainer = mc.screen instanceof AbstractContainerScreen<?> container
+                && container.getMenu().containerId != mc.player.inventoryMenu.containerId;
 
-        if (stealerWorking
-                || (this.inventoryOnly.enabled
-                ? !(mc.screen instanceof InventoryScreen)
-                : this.noMoveTicks <= 1)) {
-            this.clickOffHand = false;
-            return;
+//        if (inForeignContainer) {
+//            return;
+//        }
+
+        // 4. 修复后的 inventoryOnly 核心逻辑
+        if (this.inventoryOnly.enabled) {
+            // 开启时：仅在明确打开自身物品栏时才允许工作
+            if (!(mc.screen instanceof InventoryScreen)) {
+                actions.clickOffHand = false;
+                return;
+            }
         }
 
-        if (mc.screen instanceof AbstractContainerScreen<?> container
-                && container.getMenu().containerId != mc.player.inventoryMenu.containerId) {
-            return;
+        // --- Open Delay ---
+        if (mc.screen instanceof InventoryScreen) {
+            if (openDelayUntil == -1) {
+                openDelayUntil = (long) (System.currentTimeMillis()
+                                        + MathHelper.getRandom(openDelay.getMinValue(), openDelay.getMaxValue()));
+            }
+            if (System.currentTimeMillis() < openDelayUntil) {
+                actions.clickOffHand = false;
+                return;
+            }
         }
 
         // --- Auto Armor ---
-        if (this.autoArmor.enabled && handleAutoArmor()) return;
+        if (this.autoArmor.enabled && AutoArmorHandler.handle(actions)) return;
 
         // --- Click Offhand (golden apple stacking) ---
-        if (this.clickOffHand
-                && timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)) {
-            clickSlot(45, 0, ContainerInput.PICKUP);
-            this.inventoryOpen = true;
-            this.clickOffHand = false;
-            timer.reset();
-            return;
-        }
+        if (actions.finishOffhandPickup()) return;
 
         // --- Offhand Management ---
-        if (handleOffhand()) return;
+        if (OffhandHandler.handle(offhandMode, actions)) return;
 
         // --- Hotbar Slot Management ---
         for (int i = 0; i < 9; i++) {
             String type = slotConfigs[i].get();
             if ("None".equals(type)) continue;
-            if (handleSlot(i, type)) return;
+            if (HotbarHandler.handleSlot(i, type, offhandMode, preferBow, actions)) return;
         }
 
         // --- Excess Item Limits ---
-        if (handleExcessItems()) return;
+        if (ExcessHandler.handleExcess(actions,
+                hasBowSlot(), maxArrowSize.getValue(),
+                hasBlockSlot(), maxBlockSize.getValue(),
+                keepProjectile.enabled, maxProjectileSize.getValue())) return;
 
         // --- Throw Junk ---
-        if (this.throwItems.enabled) {
-            for (int i = 0; i < 36; i++) {
-                ItemStack stack = mc.player.getInventory().getItem(i);
-
-                // 【修复1】必须检查空物品，否则会陷入无限点击丢弃空气的死循环
-                if (stack.isEmpty()) continue;
-
-                if (!this.isItemUseful(stack)) {
-                    clickSlot(toContainerSlot(i), 1, ContainerInput.THROW);
-                    this.inventoryOpen = true;
-                    timer.reset();
-                    return;
-                }
-            }
-        }
-    }
-
-    // ==================== Auto Armor ====================
-
-    private boolean handleAutoArmor() {
-        EquipmentSlot[] armorSlots = {EquipmentSlot.FEET, EquipmentSlot.LEGS,
-                EquipmentSlot.CHEST, EquipmentSlot.HEAD};
-        for (int i = 0; i < 4; i++) {
-            ItemStack stack = mc.player.getItemBySlot(armorSlots[i]);
-            if (stack.is(ItemTags.ARMOR_ENCHANTABLE)) {
-                Equippable equipment = stack.get(DataComponents.EQUIPPABLE);
-                if (equipment == null) continue;
-                if (!stack.isEmpty()
-                        && timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)
-                        && InvUtils.getBestArmorScore(equipment.slot()) > InvUtils.getProtection(stack)) {
-                    clickSlot(8 - i, 1, ContainerInput.THROW);
-                    this.inventoryOpen = true;
-                    timer.reset();
-                    return true;
-                }
-            }
-        }
-
-        for (int ix = 0; ix < 36; ix++) {
-            ItemStack stack = mc.player.getInventory().getItem(ix);
-            if (!stack.isEmpty() && stack.is(ItemTags.ARMOR_ENCHANTABLE)) {
-                float currentItemScore = InvUtils.getProtection(stack);
-                Equippable equipment = stack.get(DataComponents.EQUIPPABLE);
-                if (equipment == null) continue;
-                if (currentItemScore > InvUtils.getCurrentArmorScore(equipment.slot())
-                        && currentItemScore == InvUtils.getBestArmorScore(equipment.slot())
-                        && timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)) {
-                    clickSlot(toContainerSlot(ix), 0, ContainerInput.QUICK_MOVE);
-                    this.inventoryOpen = true;
-                    timer.reset();
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    // ==================== Offhand ====================
-
-    private boolean handleOffhand() {
-        String mode = offhandMode.get();
-        if ("None".equals(mode)) return false;
-
-        ItemStack offHand = mc.player.getOffhandItem();
-
-        if ("Golden Apple".equals(mode)) {
-            int slot = InvUtils.getItemSlot(Items.GOLDEN_APPLE);
-            if (slot != -1 && timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)) {
-                if (offHand.getItem() == Items.GOLDEN_APPLE) {
-                    ItemStack gaStack = mc.player.getInventory().getItem(slot);
-                    if (offHand.getCount() + gaStack.getCount() <= 64) {
-                        clickSlot(toContainerSlot(slot), 0, ContainerInput.PICKUP);
-                        this.inventoryOpen = true;
-                        this.clickOffHand = true;
-                        timer.reset();
-                        return true;
-                    }
-                } else {
-                    swapOffHand(slot);
-                    return true;
-                }
-            }
-        } else if ("Projectile".equals(mode)) {
-            ItemStack bestProjectile = InvUtils.getBestProjectile();
-            if (bestProjectile != null) {
-                int slot = InvUtils.getItemStackSlot(bestProjectile);
-                boolean shouldSwap = offHand.getItem() != Items.EGG && offHand.getItem() != Items.SNOWBALL
-                        || offHand.getCount() < bestProjectile.getCount();
-                if (shouldSwap && slot != -1
-                        && timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)) {
-                    swapOffHand(slot);
-                    return true;
-                }
-            }
-        } else if ("Fishing Rod".equals(mode)) {
-            int slot = InvUtils.getItemSlot(Items.FISHING_ROD);
-            if (slot != -1 && timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)
-                    && offHand.getItem() != Items.FISHING_ROD) {
-                swapOffHand(slot);
-                return true;
-            }
-        } else if ("Block".equals(mode)) {
-            ItemStack bestBlock = InvUtils.getBestBlock();
-            if (bestBlock != null) {
-                int slot = InvUtils.getItemStackSlot(bestBlock);
-                boolean shouldSwap = !InvUtils.isValidStack(offHand)
-                        || offHand.getCount() < bestBlock.getCount();
-                if (shouldSwap && slot != -1
-                        && timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)) {
-                    swapOffHand(slot);
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    // ==================== Hotbar Slot Dispatch ====================
-
-    private boolean handleSlot(int hotbarIndex, String type) {
-        return switch (type) {
-            case "Sword" -> handleSword(hotbarIndex);
-            case "Pickaxe" -> handlePickaxe(hotbarIndex);
-            case "Axe" -> handleAxe(hotbarIndex);
-            case "Shovel" -> handleShovel(hotbarIndex);
-            case "Bow" -> handleBow(hotbarIndex);
-            case "Block" -> handleBlock(hotbarIndex);
-            case "Food" -> handleFood(hotbarIndex);
-            case "Ender Pearl" -> handleSimpleItem(hotbarIndex, Items.ENDER_PEARL);
-            case "Golden Apple" -> offhandMode.is("Golden Apple") ? false : handleSimpleItem(hotbarIndex, Items.GOLDEN_APPLE);
-            case "Water Bucket" -> handleSimpleItem(hotbarIndex, Items.WATER_BUCKET);
-            case "Fire Charge" -> handleSimpleItem(hotbarIndex, Items.FIRE_CHARGE);
-            case "Projectile" -> handleProjectile(hotbarIndex);
-            case "Fishing Rod" -> handleFishingRod(hotbarIndex);
-            default -> false;
-        };
-    }
-
-    private boolean handleSimpleItem(int slot, Item item) {
-        if (InvUtils.getItemCount(item) == 0) return false;
-        return swapItem(slot, item);
-    }
-
-    private boolean handleSword(int slot) {
-        ItemStack current = mc.player.getInventory().getItem(slot);
-        ItemStack bestSword = InvUtils.getBestSword();
-        ItemStack bestShapeAxe = InvUtils.getBestShapeAxe();
-        if (InvUtils.getAxeDamage(bestShapeAxe) > InvUtils.getSwordDamage(bestSword)) {
-            bestSword = bestShapeAxe;
-        }
-        if (bestSword == null) return false;
-
-        float curDmg = current.is(ItemTags.SWORDS)
-                ? InvUtils.getSwordDamage(current) : InvUtils.getAxeDamage(current);
-        float bestDmg = bestSword.is(ItemTags.SWORDS)
-                ? InvUtils.getSwordDamage(bestSword) : InvUtils.getAxeDamage(bestSword);
-        if (bestDmg > curDmg) {
-            return swapItem(slot, bestSword);
-        }
-        return false;
-    }
-
-    private boolean handlePickaxe(int slot) {
-        ItemStack best = InvUtils.getBestPickaxe();
-        ItemStack current = mc.player.getInventory().getItem(slot);
-        if (best != null && (InvUtils.getToolScore(best) > InvUtils.getToolScore(current)
-                || !current.is(ItemTags.PICKAXES))) {
-            return swapItem(slot, best);
-        }
-        return false;
-    }
-
-    private boolean handleAxe(int slot) {
-        ItemStack best = InvUtils.getBestAxe();
-        ItemStack current = mc.player.getInventory().getItem(slot);
-        if (best != null && (InvUtils.getToolScore(best) > InvUtils.getToolScore(current)
-                || !current.is(ItemTags.AXES))) {
-            return swapItem(slot, best);
-        }
-        return false;
-    }
-
-    private boolean handleShovel(int slot) {
-        ItemStack best = InvUtils.getBestShovel();
-        ItemStack current = mc.player.getInventory().getItem(slot);
-        if (best != null && (InvUtils.getToolScore(best) > InvUtils.getToolScore(current)
-                || !(current.getItem() instanceof ShovelItem))) {
-            return swapItem(slot, best);
-        }
-        return false;
-    }
-
-    private boolean handleBow(int slot) {
-        ItemStack current = mc.player.getInventory().getItem(slot);
-        String priority = preferBow.get();
-
-        String[] order = {"Crossbow", "Power Bow", "Punch Bow"};
-        if ("Power Bow".equals(priority)) order = new String[]{"Power Bow", "Crossbow", "Punch Bow"};
-        else if ("Punch Bow".equals(priority)) order = new String[]{"Punch Bow", "Crossbow", "Power Bow"};
-
-        for (String type : order) {
-            ItemStack best = switch (type) {
-                case "Crossbow" -> InvUtils.getBestCrossbow();
-                case "Power Bow" -> InvUtils.getBestPowerBow();
-                default -> InvUtils.getBestPunchBow();
-            };
-            if (best == null) continue;
-
-            float bestScore = switch (type) {
-                case "Crossbow" -> InvUtils.getCrossbowScore(best);
-                case "Power Bow" -> InvUtils.getPowerBowScore(best);
-                default -> InvUtils.getPunchBowScore(best);
-            };
-            float curScore = switch (type) {
-                case "Crossbow" -> InvUtils.getCrossbowScore(current);
-                case "Power Bow" -> InvUtils.getPowerBowScore(current);
-                default -> InvUtils.getPunchBowScore(current);
-            };
-
-            if (bestScore > curScore) {
-                return swapItem(slot, best);
-            }
-        }
-        return false;
-    }
-
-    private boolean handleBlock(int slot) {
-        if (offhandMode.is("Block")) return false;
-        ItemStack current = mc.player.getInventory().getItem(slot);
-        ItemStack best = InvUtils.getBestBlock();
-        if (best != null
-                && (best.getCount() > current.getCount() || !InvUtils.isValidStack(current))) {
-            return swapItem(slot, best);
-        }
-        return false;
-    }
-
-    private boolean handleFood(int slot) {
-        ItemStack best = InvUtils.getBestFood();
-        ItemStack current = mc.player.getInventory().getItem(slot);
-        if (best != null && (InvUtils.getFoodScore(best) > InvUtils.getFoodScore(current)
-                || !current.has(DataComponents.FOOD))) {
-            return swapItem(slot, best);
-        }
-        return false;
-    }
-
-    private boolean handleProjectile(int slot) {
-        if (offhandMode.is("Projectile")) return false;
-        ItemStack best = InvUtils.getBestProjectile();
-        if (best == null) return false;
-        return swapItem(slot, best);
-    }
-
-    private boolean handleFishingRod(int slot) {
-        if (offhandMode.is("Fishing Rod")) return false;
-        ItemStack best = InvUtils.getFishingRod();
-        if (best == null) return false;
-        if (mc.player.getInventory().getItem(slot).getItem() instanceof FishingRodItem) return false;
-        return swapItem(slot, best);
-    }
-
-    // ==================== Excess Items ====================
-
-    private boolean handleExcessItems() {
-        if (hasBowSlot() && InvUtils.getItemCount(Items.ARROW) > maxArrowSize.getValue()) {
-            ItemStack worstArrow = InvUtils.getWorstArrow();
-            if (worstArrow != null && throwItem(worstArrow)) return true;
-        }
-        if (hasBlockSlot() && InvUtils.getBlockCountInInventory() > maxBlockSize.getValue()) {
-            ItemStack worstBlock = InvUtils.getWorstBlock();
-            if (worstBlock != null && throwItem(worstBlock)) return true;
-        }
-        if (keepProjectile.enabled) {
-            int projCount = InvUtils.getItemCount(Items.EGG) + InvUtils.getItemCount(Items.SNOWBALL);
-            if (projCount > maxProjectileSize.getValue()) {
-                ItemStack worstProj = InvUtils.getWorstProjectile();
-                if (worstProj != null && throwItem(worstProj)) return true;
-            }
-        }
-        return false;
+        if (this.throwItems.enabled && ExcessHandler.throwJunk(actions, this)) return;
     }
 
     // ==================== Config Validation ====================
@@ -523,84 +258,5 @@ public class InvManager extends Module {
             if (!used.add(type)) return false;
         }
         return true;
-    }
-
-    // ==================== Inventory Actions ====================
-
-    private void swapOffHand(int slot) {
-        clickSlot(toContainerSlot(slot), 40, ContainerInput.SWAP);
-        this.inventoryOpen = true;
-        timer.reset();
-    }
-
-    // ==================== 修改 throwItem 让其返回动作状态 ====================
-    private boolean throwItem(ItemStack item) {
-        if (item == null || item.isEmpty()) return false;
-        if (!timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)) return false;
-
-        int itemSlot = InvUtils.getItemStackSlot(item);
-        if (itemSlot != -1) {
-            clickSlot(toContainerSlot(itemSlot), 1, ContainerInput.THROW);
-            this.inventoryOpen = true;
-            timer.reset();
-            return true; // 真正丢出了物品，返回 true
-        }
-        return false;
-    }
-
-    private boolean swapItem(int targetSlot, ItemStack bestItem) {
-        if (bestItem == null) return false;
-        ItemStack currentSlot = mc.player.getInventory().getItem(targetSlot);
-
-        // 【修复2】移除了 InvUtils.isNotItemValid(currentSlot)，以允许物品被移入"空"快捷栏槽位
-        if (bestItem == currentSlot) return false;
-
-        if (!timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)) return false;
-
-        int bestItemSlot = InvUtils.getItemStackSlot(bestItem);
-        if (bestItemSlot != -1) {
-            clickSlot(toContainerSlot(bestItemSlot), targetSlot, ContainerInput.SWAP);
-            this.inventoryOpen = true;
-            timer.reset();
-            return true;
-        }
-        return false;
-    }
-
-    private boolean swapItem(int targetSlot, Item item) {
-        ItemStack currentSlot = mc.player.getInventory().getItem(targetSlot);
-
-        // 【修复2】同样的，移除拦截以确保可以将物品填入空槽
-        if (!timer.hasTimeElapsed((long) MathHelper.getRandom(delay.getMinValue(), delay.getMaxValue()), false)) return false;
-
-        int bestItemSlot = findBestSlotForItem(item);
-        if (bestItemSlot != -1 && bestItemSlot != targetSlot) {
-            ItemStack bestItemStack = mc.player.getInventory().getItem(bestItemSlot);
-            if (currentSlot.getItem() != item || currentSlot.getCount() < bestItemStack.getCount()) {
-                clickSlot(toContainerSlot(bestItemSlot), targetSlot, ContainerInput.SWAP);
-                this.inventoryOpen = true;
-                timer.reset();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private int findBestSlotForItem(Item item) {
-        int bestSlot = -1;
-        int bestCount = 0;
-        for (int i = 0; i < 36; i++) {
-            ItemStack stack = mc.player.getInventory().getItem(i);
-            if (stack.getItem() == item && stack.getCount() > bestCount) {
-                bestCount = stack.getCount();
-                bestSlot = i;
-            }
-        }
-        return bestSlot;
-    }
-
-    private void clickSlot(int slotNum, int buttonNum, ContainerInput containerInput) {
-        mc.gameMode.handleContainerInput(mc.player.inventoryMenu.containerId,
-                slotNum, buttonNum, containerInput, mc.player);
     }
 }

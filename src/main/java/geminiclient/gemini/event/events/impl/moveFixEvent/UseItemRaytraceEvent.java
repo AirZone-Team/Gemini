@@ -1,16 +1,13 @@
-package geminiclient.gemini.modules.impl.combat.killaura;
+package geminiclient.gemini.event.events.impl.moveFixEvent;
 
-import geminiclient.gemini.base.MinecraftInstance;
+import geminiclient.gemini.event.impl.Event;
 
-/**
- * Lightweight per-module rotation state holder.
- * Central management is handled by {@link geminiclient.gemini.base.RotationManager}.
- */
-public class Rotation implements MinecraftInstance {
+public class UseItemRaytraceEvent implements Event {
+
     private float yaw;
     private float pitch;
 
-    public Rotation(float yaw, float pitch) {
+    public UseItemRaytraceEvent(float yaw, float pitch) {
         this.yaw = yaw;
         this.pitch = pitch;
     }
@@ -30,4 +27,5 @@ public class Rotation implements MinecraftInstance {
     public void setPitch(float pitch) {
         this.pitch = pitch;
     }
+
 }
