@@ -2,6 +2,7 @@ package geminiclient.mixin;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.events.impl.BlockingEvent;
+import geminiclient.gemini.event.events.impl.EntityRemoveEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.RayTraceEvent;
 import geminiclient.gemini.event.events.impl.StrafeEvent;
 import net.minecraft.client.Minecraft;
@@ -15,7 +16,6 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Entity.class)
@@ -68,5 +68,11 @@ public abstract class MixinEntity {
         }
 
         return this.calculateViewVector(pitch, yaw);
+    }
+
+    @Inject(method = "remove", at = @At("HEAD"))
+    private void onRemove(Entity.RemovalReason reason, CallbackInfo ci) {
+        Entity thisEntity = (Entity)(Object)this;
+        Gemini.eventManager.call(new EntityRemoveEvent(thisEntity, reason == Entity.RemovalReason.KILLED));
     }
 }

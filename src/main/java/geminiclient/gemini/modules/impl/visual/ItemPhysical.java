@@ -5,11 +5,10 @@ import com.mojang.math.Axis;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.modules.impl.visual.itemPhysical.ItemEntityRenderStateExtender;
 import geminiclient.gemini.values.impl.FloatValue;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.state.ItemEntityRenderState;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -19,7 +18,7 @@ public class ItemPhysical extends Module {
 
     private static final double RANDOM_Y_OFFSET_SCALE = 0.05 / (Math.PI * 2);
 
-    private final FloatValue rotateSpeed = new FloatValue("Rotate Speed", 1.0f, 0.0f, 10.0f);
+    private final FloatValue rotateSpeed = new FloatValue("RotateSpeed", 1.0f, 0.0f, 10.0f);
 
     public ItemPhysical() {
         super("ItemPhysical", ModuleEnum.Visual);
@@ -31,7 +30,7 @@ public class ItemPhysical extends Module {
     }
 
     public static boolean submit(ItemEntityRenderState state, PoseStack pose, SubmitNodeCollector collector,
-                                  CameraRenderState camera, RandomSource rand) {
+                                 RandomSource rand) {
         ItemPhysical module = Gemini.moduleManager.getModule(ItemPhysical.class);
         if (module == null || !module.enabled)
             return false;
@@ -48,8 +47,7 @@ public class ItemPhysical extends Module {
         pose.mulPose(Axis.XP.rotation((float) Math.PI / 2));
         pose.mulPose(Axis.ZP.rotation(((ItemEntityRenderStateExtender) state).getYRot()));
 
-        Minecraft mc = Minecraft.getInstance();
-        if (state.ageInTicks != 0 && (gui3d || mc.options != null)) {
+        if (state.ageInTicks != 0) {
             if (gui3d)
                 pose.translate(0, -0.2, -0.08);
             else if (((ItemEntityRenderStateExtender) state).hasAdditionalOffset())

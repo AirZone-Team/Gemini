@@ -1,6 +1,7 @@
-package geminiclient.gemini.modules.impl.visual;
+package geminiclient.gemini.modules.impl.visual.itemPhysical;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.modules.impl.visual.ItemPhysical;
 import geminiclient.mixin.access.AccessEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.state.ItemEntityRenderState;
@@ -32,8 +33,7 @@ public class ClientPhysic {
                 rotateBy *= 2;
                 entity.setXRot(entity.getXRot() + rotateBy);
             }
-        } else if (entity != null && !Double.isNaN(entity.getX()) && !Double.isNaN(entity.getY())
-                && !Double.isNaN(entity.getZ()) && entity.level() != null) {
+        } else if (!Double.isNaN(entity.getX()) && !Double.isNaN(entity.getY()) && !Double.isNaN(entity.getZ())) {
             if (entity.onGround()) {
                 entity.setXRot(0);
             } else {

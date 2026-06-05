@@ -1,4 +1,4 @@
-package geminiclient.gemini.modules.impl.visual;
+package geminiclient.gemini.modules.impl.visual.itemPhysical;
 
 import net.minecraft.world.entity.item.ItemEntity;
 

@@ -4,9 +4,11 @@ import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.utils.RenderUtils;
 import geminiclient.gemini.values.impl.BoolValue;
 import geminiclient.gemini.values.impl.ColorValue;
 import geminiclient.gemini.values.impl.FloatValue;
+import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.client.Camera;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.util.Mth;
@@ -20,8 +22,12 @@ import net.minecraft.world.entity.monster.Slime;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.NonNull;
 
 public class ESP extends Module {
+    private final ListValue modes = new ListValue("Modes","2D",new String[]{
+            "2D","3D"
+    });
     private final BoolValue showPlayers = new BoolValue("Players", true);
     private final BoolValue showMobs = new BoolValue("Mobs", false);
     private final BoolValue showAnimals = new BoolValue("Animals", false);
@@ -32,7 +38,7 @@ public class ESP extends Module {
 
     public ESP() {
         super("ESP", ModuleEnum.Visual);
-        addValue(showPlayers, showMobs, showAnimals, showInvis, boxColor, outlineColor, lineThickness);
+        addValue(modes,showPlayers, showMobs, showAnimals, showInvis, boxColor, outlineColor, lineThickness);
     }
 
     @EventTarget
@@ -56,7 +62,11 @@ public class ESP extends Module {
             int outline = outlineColor.getColor();
             int t = Math.round(lineThickness.getValue());
 
-            draw2DBox(gui, minX, minY, maxX, maxY, t, fillColor, outline);
+            if (modes.is("2D"))
+                draw2DBox(gui, minX, minY, maxX, maxY, t, fillColor, outline);
+            else {
+                RenderUtils.drawFilledBox(entity.getBoundingBox(),fillColor);
+            }
         }
     }
 
@@ -67,24 +77,7 @@ public class ESP extends Module {
         AABB bb = entity.getBoundingBox();
         float partialTick = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
 
-        double x = Mth.lerp(partialTick, entity.xo, entity.getX());
-        double y = Mth.lerp(partialTick, entity.yo, entity.getY());
-        double z = Mth.lerp(partialTick, entity.zo, entity.getZ());
-
-        double hw = bb.getXsize() / 2.0;
-        double hh = bb.getYsize();
-        double hd = bb.getZsize() / 2.0;
-
-        double[][] corners = {
-                {x - hw, y,      z - hd},
-                {x - hw, y,      z + hd},
-                {x + hw, y,      z - hd},
-                {x + hw, y,      z + hd},
-                {x - hw, y + hh, z - hd},
-                {x - hw, y + hh, z + hd},
-                {x + hw, y + hh, z - hd},
-                {x + hw, y + hh, z + hd},
-        };
+        double[][] corners = getDoubles(entity, partialTick, bb);
 
         float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE;
         float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
@@ -102,6 +95,27 @@ public class ESP extends Module {
         }
 
         return any ? new float[]{minX, minY, maxX, maxY} : null;
+    }
+
+    private static double[] @NonNull [] getDoubles(Entity entity, float partialTick, AABB bb) {
+        double x = Mth.lerp(partialTick, entity.xo, entity.getX());
+        double y = Mth.lerp(partialTick, entity.yo, entity.getY());
+        double z = Mth.lerp(partialTick, entity.zo, entity.getZ());
+
+        double hw = bb.getXsize() / 2.0;
+        double hh = bb.getYsize();
+        double hd = bb.getZsize() / 2.0;
+
+        return new double[][]{
+                {x - hw, y,      z - hd},
+                {x - hw, y,      z + hd},
+                {x + hw, y,      z - hd},
+                {x + hw, y,      z + hd},
+                {x - hw, y + hh, z - hd},
+                {x - hw, y + hh, z + hd},
+                {x + hw, y + hh, z - hd},
+                {x + hw, y + hh, z + hd},
+        };
     }
 
     private Vec3 worldToScreen(double wx, double wy, double wz, Camera camera) {

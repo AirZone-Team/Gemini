@@ -14,14 +14,4 @@ public class ForgeEvent {
             event.setCanceled(true);
         }
     }
-//
-//    @SubscribeEvent
-//    public void onClientTick(PlayerTickEvent.Pre event) {
-//        Gemini.eventManager.call(new UpdateEvent());
-//    }
-//
-//    @SubscribeEvent
-//    public void post(PlayerTickEvent.Post event) {
-//        Gemini.eventManager.call(new UpdateEvent());
-//    }
 }

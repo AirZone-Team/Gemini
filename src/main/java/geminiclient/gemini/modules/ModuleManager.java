@@ -42,7 +42,9 @@ public class ModuleManager {
                 new ESP(),
                 new ItemPhysical(),
                 new Scaffold(),
-                new MovementFix()
+                new MovementFix(),
+                new KeepSprint(),
+                new BackTrack()
         );
     }
 

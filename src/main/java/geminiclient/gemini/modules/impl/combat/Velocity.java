@@ -31,6 +31,14 @@ public class Velocity extends Module {
     private int attacksRemaining;
     private int flagCooldown;
 
+    public boolean isSuspending() {
+        return suspending;
+    }
+
+    public boolean hasQueuedIncoming() {
+        return !packetQueue.isEmpty() || !movePacketQueue.isEmpty();
+    }
+
     // Queues
     private final LinkedBlockingDeque<Packet<?>> packetQueue = new LinkedBlockingDeque<>();
     private final LinkedBlockingDeque<Packet<?>> movePacketQueue = new LinkedBlockingDeque<>();

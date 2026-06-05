@@ -1,7 +1,7 @@
 package geminiclient.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import geminiclient.gemini.modules.impl.visual.ItemEntityRenderStateExtender;
+import geminiclient.gemini.modules.impl.visual.itemPhysical.ItemEntityRenderStateExtender;
 import geminiclient.gemini.modules.impl.visual.ItemPhysical;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.EntityRenderer;
@@ -33,7 +33,7 @@ public abstract class MixinItemEntityRenderer extends EntityRenderer<ItemEntity,
             at = @At("HEAD"), cancellable = true, require = 1)
     private void submit(ItemEntityRenderState state, PoseStack poseStack, SubmitNodeCollector collector,
                          CameraRenderState camera, CallbackInfo ci) {
-        if (ItemPhysical.submit(state, poseStack, collector, camera, this.random)) {
+        if (ItemPhysical.submit(state, poseStack, collector, this.random)) {
             super.submit(state, poseStack, collector, camera);
             ci.cancel();
         }

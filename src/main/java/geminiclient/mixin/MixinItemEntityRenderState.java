@@ -1,7 +1,7 @@
 package geminiclient.mixin;
 
-import geminiclient.gemini.modules.impl.visual.ClientPhysic;
-import geminiclient.gemini.modules.impl.visual.ItemEntityRenderStateExtender;
+import geminiclient.gemini.modules.impl.visual.itemPhysical.ClientPhysic;
+import geminiclient.gemini.modules.impl.visual.itemPhysical.ItemEntityRenderStateExtender;
 import geminiclient.gemini.modules.impl.visual.ItemPhysical;
 import net.minecraft.client.renderer.entity.state.ItemEntityRenderState;
 import net.minecraft.world.entity.item.ItemEntity;
