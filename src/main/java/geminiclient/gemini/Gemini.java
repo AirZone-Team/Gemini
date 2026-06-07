@@ -1,6 +1,7 @@
 package geminiclient.gemini;
 
 import geminiclient.gemini.base.RotationManager;
+import geminiclient.gemini.customRenderer.glsl.CustomRendererRegistry;
 import geminiclient.gemini.event.EventManager;
 import geminiclient.gemini.base.FileSystem;
 import geminiclient.gemini.commands.CommandManager;
@@ -9,6 +10,8 @@ import geminiclient.gemini.modules.ModuleManager;
 import geminiclient.gemini.modules.impl.visual.notice.NotificationManager;
 
 import java.util.logging.Logger;
+
+import static geminiclient.gemini.base.MinecraftInstance.mc;
 
 public class Gemini {
     public static String lastConfigName;

@@ -1,12 +1,11 @@
 package geminiclient.gemini.modules.impl.visual.effectDisplay;
 
+import geminiclient.gemini.customRenderer.cpu.CustomFontRenderer;
+import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.texture.AbstractTexture;
-import net.minecraft.client.renderer.texture.TextureAtlasSprite;
-import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -19,16 +18,25 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class RenderEffect {
 
-    // --- 颜色和尺寸常量 ---
-    private static final int HEADER_COLOR_RGB = 0xFFFF5555;
-    private static final int BODY_COLOR_ARGB = 0x99000000;
-    private static final int DURATION_BAR_COLOR_ARGB = 0xBBFF5555;
+    // --- Acrylic glass palette ---
+    private static final int BG_GLASS_TOP = 0xCC0C0C0C;
+    private static final int BG_GLASS_BOT = 0xAA050505;
+    private static final int GLASS_HIGHLIGHT = 0x14FFFFFF;
+    private static final int BORDER_GLOW = 0x10FFFFFF;
+
+    // --- Shadow ---
+    private static final int SHADOW_COLOR = 0x000000;
+    private static final int SHADOW_LAYERS = 3;
+    private static final int SHADOW_SPREAD = 2;
+
     private static final int DURATION_TEXT_COLOR_RGB = 0xFFAAAAAA;
+    private static final int ICON_BG_COLOR = 0x44FFFFFF;
 
     private static final float PADDING_X = 12.0F;
     private static final float ELEMENT_HEIGHT = 32.0F;
     private static final float SPACING_Y = 38.0F;
     private static final float ICON_SIZE = 18.0F;
+    private static final int CORNER_RADIUS = 5;
 
     private final Map<Holder<MobEffect>, MobEffectInfo> infos = new ConcurrentHashMap<>();
     private static final RenderEffect INSTANCE = new RenderEffect();
@@ -41,7 +49,6 @@ public class RenderEffect {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
-        // 1. 数据更新和动画目标计算
         for (MobEffectInstance effect : mc.player.getActiveEffects()) {
             Holder<MobEffect> effectHolder = effect.getEffect();
             MobEffectInfo info = this.infos.computeIfAbsent(effectHolder, k -> new MobEffectInfo());
@@ -50,6 +57,7 @@ public class RenderEffect {
             info.duration = effect.getDuration();
             info.amplifier = effect.getAmplifier();
             info.shouldDisappear = false;
+            info.color = effect.getEffect().value().getColor() | 0xFF000000;
 
             String text = getDisplayName(effectHolder.value(), info).getString();
             info.width = mc.font.width(text) * 0.85F + ICON_SIZE + 40.0F;
@@ -60,9 +68,7 @@ public class RenderEffect {
 
         final float initialY = mc.getWindow().getGuiScaledHeight() / 2.0F - this.infos.size() * (SPACING_Y / 2.0F);
         final float[] currentY = { initialY };
-        TextureManager textureManager = mc.getTextureManager();
 
-        // 2. 动画更新、渲染和移除判断
         this.infos.entrySet().removeIf(entry -> {
             Holder<MobEffect> effect = entry.getKey();
             MobEffectInfo info = entry.getValue();
@@ -87,45 +93,86 @@ public class RenderEffect {
 
             if (x < mc.getWindow().getGuiScaledWidth()) {
                 graphics.pose().pushMatrix();
-                graphics.pose().translate(x, y); // Matrix3x2fStack 只需要 x 和 y
+                graphics.pose().translate(x, y);
 
-                // --- 渲染背景与进度条 ---
-                graphics.fill(0, 0, (int) info.width, (int) ELEMENT_HEIGHT, BODY_COLOR_ARGB);
-                if (info.durationTimer.value > 0) {
-                    int barWidth = (int) Math.min(info.durationTimer.value, info.width);
-                    graphics.fill(0, (int) ELEMENT_HEIGHT - 2, barWidth, (int) ELEMENT_HEIGHT, DURATION_BAR_COLOR_ARGB);
+                int w = (int) info.width;
+                int h = (int) ELEMENT_HEIGHT;
+
+                // --- Multi-layer shadow ---
+                for (int i = 0; i < SHADOW_LAYERS; i++) {
+                    int sa = 0x30 - (i * 10);
+                    int so = SHADOW_SPREAD + i;
+                    CustomRoundedRectRenderer.drawRoundedRect(graphics,
+                            so, so, w, h, CORNER_RADIUS + i,
+                            (SHADOW_COLOR & 0xFFFFFF) | (sa << 24));
                 }
 
-                // 左侧点缀竖条
-                graphics.fill(0, 0, 2, (int) ELEMENT_HEIGHT, HEADER_COLOR_RGB);
+                // --- Glass background ---
+                CustomRoundedRectRenderer.drawRoundedRectVertGrad(graphics,
+                        0, 0, w, h, CORNER_RADIUS, BG_GLASS_TOP, BG_GLASS_BOT);
 
-                // --- 渲染药水图标 (适配最新管线 API) ---
-//                AbstractTexture sprite = textureManager.getTexture(effect.getKey().identifier());
+                // --- Glass reflection highlight ---
+                CustomRoundedRectRenderer.drawRoundedRect(graphics,
+                        1, 0, w - 2, 1, CORNER_RADIUS, GLASS_HIGHLIGHT);
+
+                // --- Border glow ---
+                CustomRoundedRectRenderer.drawRoundedOutline(graphics,
+                        0, 0, w, h, CORNER_RADIUS, BORDER_GLOW, 1);
+
+                // --- Accent bar (left edge) with glow ---
+                int accentColor = info.color;
+                int accentDark = darken(accentColor, 0.35f);
+                int accentGlow = (accentColor & 0x00FFFFFF) | 0x30 << 24;
+                CustomRoundedRectRenderer.drawRoundedRect(graphics,
+                        -1, 2, 4, h - 4, 1, accentGlow);
+                CustomRoundedRectRenderer.drawRoundedRectVertGrad(graphics,
+                        0, 3, 2, h - 6, 1, accentColor, accentDark);
+
+                // --- Icon with background ---
+                int iconX = 8;
+                int iconY = (int) (h / 2 - ICON_SIZE / 2);
                 if (effect.getKey() != null) {
+                    CustomRoundedRectRenderer.drawRoundedRect(graphics,
+                            iconX - 1, iconY - 1,
+                            (int) ICON_SIZE + 2, (int) ICON_SIZE + 2,
+                            3, ICON_BG_COLOR);
                     graphics.blitSprite(
                             RenderPipelines.GUI_TEXTURED,
                             Gui.getMobEffectSprite(effect),
-                            6,
-                            (int) (ELEMENT_HEIGHT / 2 - ICON_SIZE / 2),
-                            (int) ICON_SIZE,
-                            (int) ICON_SIZE
-                    );
+                            iconX, iconY,
+                            (int) ICON_SIZE, (int) ICON_SIZE);
                 }
 
-                // --- 渲染文本 (适配最新文本 API) ---
+                // --- Progress bar with glow ---
+                if (info.durationTimer.value > 0) {
+                    int barWidth = (int) Math.min(info.durationTimer.value, w);
+                    int barGlow = (accentColor & 0x00FFFFFF) | 0x25 << 24;
+                    // Glow behind progress bar
+                    CustomRoundedRectRenderer.drawRoundedRect(graphics,
+                            0, h - 3, w, 3, 1, barGlow);
+                    // Progress fill
+                    CustomRoundedRectRenderer.drawRoundedRect(graphics,
+                            0, h - 2, barWidth, 2, 1,
+                            (accentColor & 0x00FFFFFF) | 0xBB000000);
+                }
+
+                // --- Text ---
                 graphics.pose().pushMatrix();
                 float textScale = 0.85F;
-                graphics.pose().scale(textScale, textScale); // Matrix3x2fStack 缩放仅支持 XY 平面
+                graphics.pose().scale(textScale, textScale);
 
-                Component name = getDisplayName(effect.value(), info);
-                float textX = (6 + ICON_SIZE + 6) / textScale;
+                String name = getDisplayName(effect.value(), info).getString();
+                float textX = (6 + ICON_SIZE + 10) / textScale;
+                int nameLen = name.length();
 
-                // 绘制名称
-                graphics.text(mc.font, name, (int) textX, (int) (6.0F / textScale), HEADER_COLOR_RGB, true);
+                int nameTopColor = lighten(accentColor, 0.35f);
+                CustomFontRenderer.drawString(graphics, mc.font, name,
+                        textX, 6.0F / textScale,
+                        i -> lerpColor(nameTopColor, accentColor, (float) i / Math.max(1, nameLen - 1)));
 
-                // 绘制持续时间
                 String duration = StringUtil.formatTickDuration(info.duration, 20);
-                graphics.text(mc.font, duration, (int) textX, (int) (18.0F / textScale), DURATION_TEXT_COLOR_RGB, true);
+                graphics.text(mc.font, duration,
+                        (int) textX, (int) (18.0F / textScale), DURATION_TEXT_COLOR_RGB, true);
 
                 graphics.pose().popMatrix();
                 graphics.pose().popMatrix();
@@ -138,6 +185,32 @@ public class RenderEffect {
             }
             return false;
         });
+    }
+
+    private static int lighten(int color, float amount) {
+        int r = (color >> 16) & 0xFF;
+        int g = (color >> 8) & 0xFF;
+        int b = color & 0xFF;
+        r = (int) Math.min(255, r + (255 - r) * amount);
+        g = (int) Math.min(255, g + (255 - g) * amount);
+        b = (int) Math.min(255, b + (255 - b) * amount);
+        return (color & 0xFF000000) | (r << 16) | (g << 8) | b;
+    }
+
+    private static int darken(int color, float amount) {
+        int r = (int) ((color >> 16 & 0xFF) * (1.0f - amount));
+        int g = (int) ((color >> 8 & 0xFF) * (1.0f - amount));
+        int b = (int) ((color & 0xFF) * (1.0f - amount));
+        return (color & 0xFF000000) | (r << 16) | (g << 8) | b;
+    }
+
+    private static int lerpColor(int a, int b, float t) {
+        int ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, aa = a & 0xFF;
+        int br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
+        int rr = (int) (ar + (br - ar) * t);
+        int rg = (int) (ag + (bg - ag) * t);
+        int rb = (int) (aa + (bb - aa) * t);
+        return (a & 0xFF000000) | (rr << 16) | (rg << 8) | rb;
     }
 
     private Component getDisplayName(MobEffect effect, MobEffectInfo info) {
@@ -158,5 +231,6 @@ class MobEffectInfo {
     public int maxDuration = 1;
     public int amplifier = 0;
     public float width = 0.0F;
+    public int color = 0xFFFF5555;
     public boolean shouldDisappear = false;
 }

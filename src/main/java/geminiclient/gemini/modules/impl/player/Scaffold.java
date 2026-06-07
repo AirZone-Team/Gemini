@@ -187,30 +187,35 @@ public class Scaffold extends Module {
         }
     }
 
-    private boolean checkBlock(Vec3 eyePos, BlockPos pos) {
-        if (!(mc.level.getBlockState(pos).getBlock() instanceof AirBlock)) {
+    private boolean checkBlock(Vec3 baseVec, BlockPos pos) {
+        if (!onAir() || pos.getY() > getYLevel()) {
             return false;
         }
 
-        Vec3 center = new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
+        Vec3 center = pos.getBottomCenter();
         for (Direction dir : Direction.values()) {
-            BlockPos neighborPos = pos.offset(dir.getUnitVec3i());
-            BlockState neighborState = mc.level.getBlockState(neighborPos);
+            Vec3 normal = dir.getUnitVec3();
+            Vec3 hit = center.add(normal.scale(0.5));
+            BlockPos baseBlockPos = pos.relative(dir);
 
-            if (!canPlaceAgainst(neighborState, neighborPos)) continue;
-
-            Vec3 faceCenter = center.add(Vec3.atLowerCornerOf(dir.getUnitVec3i()).scale(0.5));
-            Vec3 toFace = faceCenter.subtract(eyePos);
-
-            if (toFace.lengthSqr() <= 4.5 * 4.5 && toFace.dot(Vec3.atLowerCornerOf(dir.getUnitVec3i())) >= 0) {
-                // Skip UP face placement in GodBridge when moving and not jumping
-                if (dir == Direction.DOWN && mode.is("GodBridge") && MovementUtils.moving() && !mc.options.keyJump.isDown()) {
-                    continue;
-                }
-                blockInfo = new BlockInfo(pos, neighborPos, dir.getOpposite());
-                return true;
+            BlockState state = mc.level.getBlockState(baseBlockPos);
+            if (state.getCollisionShape(mc.level, baseBlockPos).isEmpty() || state.getMenuProvider(mc.level, baseBlockPos) != null) {
+                continue;
             }
+
+            Direction face = dir.getOpposite();
+            if (hit.distanceToSqr(baseVec) > 4.5 * 4.5 || hit.subtract(baseVec).dot(normal) < 0.0) {
+                continue;
+            }
+
+            if (face == Direction.UP && MovementUtils.moving() && !mc.options.keyJump.isDown()) {
+                continue;
+            }
+
+            blockInfo = new BlockInfo(pos, baseBlockPos, dir.getOpposite());
+            return true;
         }
+
         return false;
     }
 
