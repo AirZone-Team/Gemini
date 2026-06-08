@@ -1,6 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.effectDisplay;
 
-import geminiclient.gemini.customRenderer.cpu.CustomFontRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;

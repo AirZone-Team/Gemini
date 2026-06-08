@@ -28,9 +28,6 @@ public class MixinGameRenderer {
 
     @Inject(method = "render",at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;render(Lcom/mojang/blaze3d/buffers/GpuBufferSlice;)V"))
     public void inject2D(DeltaTracker deltaTracker, boolean renderLevel, CallbackInfo ci) {
-        if (renderLevel) {
-            Gemini.eventManager.call(new Render3DEvent(null, deltaTracker.getGameTimeDeltaPartialTick(false)));
-        }
         int i = (int) this.minecraft.mouseHandler.getScaledXPos(this.minecraft.getWindow());
         int j = (int) this.minecraft.mouseHandler.getScaledYPos(this.minecraft.getWindow());
         GuiGraphicsExtractor g = new GuiGraphicsExtractor(this.minecraft, this.gameRenderState.guiRenderState, i, j);

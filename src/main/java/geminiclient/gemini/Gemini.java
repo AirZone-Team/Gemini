@@ -7,8 +7,11 @@ import geminiclient.gemini.base.FileSystem;
 import geminiclient.gemini.commands.CommandManager;
 import geminiclient.gemini.base.KeyBindHandler;
 import geminiclient.gemini.modules.ModuleManager;
+import geminiclient.gemini.modules.impl.visual.Arraylists;
 import geminiclient.gemini.modules.impl.visual.notice.NotificationManager;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Logger;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -34,6 +37,17 @@ public class Gemini {
         keyBindHandler = new KeyBindHandler();
         commandManager = new CommandManager();
         fileSystem = new FileSystem(moduleManager);
+
+        // Sync available TTF fonts into Arraylists' Font ListValue before config load
+        List<String> ttfFonts = fileSystem.scanTtfFonts();
+        Arraylists arraylists = moduleManager.getModule(Arraylists.class);
+        if (arraylists != null && !ttfFonts.isEmpty()) {
+            List<String> options = new ArrayList<>();
+            options.add("Default");
+            options.addAll(ttfFonts);
+            arraylists.ttfFont.setList(options);
+        }
+
         fileSystem.loadConfigName();
         fileSystem.loadConfig();
     }

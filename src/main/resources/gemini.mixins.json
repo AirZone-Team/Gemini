@@ -22,10 +22,12 @@
     "MixinItemEntityRenderState",
     "MixinKeyboardHandler",
     "MixinKeyboardInput",
+    "MixinLevelRenderer",
     "MixinLivingEntityRenderer",
     "MixinLocalPlayer",
     "MixinMinecraft",
-    "MixinMultiPlayerGameMode"
+    "MixinMultiPlayerGameMode",
+    "MixinTitleScreen"
   ],
   "injectors": {
     "defaultRequire": 1

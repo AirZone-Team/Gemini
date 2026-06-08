@@ -1,7 +1,9 @@
 package geminiclient.gemini.modules.impl.combat;
 
+import geminiclient.gemini.customRenderer.glsl.modules.KillAuraIndicatorRenderer;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.MotionEvent;
+import geminiclient.gemini.event.events.impl.Render3DEvent;
 import geminiclient.gemini.event.events.impl.UpdateEvent;
 import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.modules.Module;
@@ -53,6 +55,7 @@ public class KillAura extends Module {
     private final ListValue aimMode = new ListValue("AimMode", "Head", new String[]{
             "Head", "Chest", "Body", "Legs", "Random"
     });
+    private final FloatValue indicatorYOffset = new FloatValue("IndicatorYOffset", 0.0f, -0.5f, 1.0f);
 
     private final List<Entity> entities = new CopyOnWriteArrayList<>();
     private Entity curr;
@@ -71,7 +74,7 @@ public class KillAura extends Module {
         super("KillAura", ModuleEnum.Combat);
         addValue(noCoolDown, cps, range, fov, hurtTime, pro,
                 targets, stop, rotationSpeed, rotationMode,
-                silentRotate, requireAim, aimMode);
+                silentRotate, requireAim, aimMode, indicatorYOffset);
     }
 
     @Override
@@ -137,6 +140,48 @@ public class KillAura extends Module {
             }
         } else {
             Gemini.rotationManager.releaseRotation(this);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    @EventTarget
+    public void onRender3D(Render3DEvent event) {
+        if (mc.player == null || mc.level == null) return;
+        if (entities.isEmpty()) return;
+
+        float yOff = indicatorYOffset.getValue();
+        int dotCount = entities.size() * KillAuraIndicatorRenderer.DOT_COUNT;
+        float[] dotData = new float[dotCount * 7];
+        int di = 0;
+
+        for (Entity entity : entities) {
+            if (!(entity instanceof LivingEntity living)) continue;
+            if (!entity.isAlive()) continue;
+
+            double ex = entity.getX();
+            double ez = entity.getZ();
+            double baseY = entity.getBoundingBox().minY + yOff;
+
+            float hpPercent = living.getHealth() / living.getMaxHealth();
+            float ringRadius = entity.getBbWidth() * 1.25f;
+            float dotVisualRadius = ringRadius * 0.05f;
+
+            int maxDots = KillAuraIndicatorRenderer.DOT_COUNT;
+            for (int i = 0; i < maxDots && di + 7 <= dotData.length; i++) {
+                double angle = (double) i / maxDots * Math.PI * 2.0 - Math.PI / 2.0;
+                dotData[di]     = (float)(ex + Math.cos(angle) * ringRadius);
+                dotData[di + 1] = (float) baseY;
+                dotData[di + 2] = (float)(ez + Math.sin(angle) * ringRadius);
+                dotData[di + 3] = dotVisualRadius;
+                dotData[di + 4] = (float) i / maxDots;
+                dotData[di + 5] = hpPercent;
+                dotData[di + 6] = 0.85f;
+                di += 7;
+            }
+        }
+
+        if (di > 0) {
+            KillAuraIndicatorRenderer.drawIndicators(event.poseStack(), dotData, di / 7);
         }
     }
 

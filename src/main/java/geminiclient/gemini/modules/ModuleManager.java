@@ -44,7 +44,9 @@ public class ModuleManager {
                 new Scaffold(),
                 new MovementFix(),
                 new KeepSprint(),
-                new BackTrack()
+                new BackTrack(),
+                new JumpCircle(),
+                new SkyLantern()
         );
     }
 

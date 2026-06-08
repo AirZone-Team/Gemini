@@ -16,6 +16,8 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -32,6 +34,7 @@ public class FileSystem {
     private final Path configDirectory;
     private final Path configNameFile;
     private final Path altsFile;
+    private final Path ttfDirectory;
 
     public FileSystem(ModuleManager moduleManager) {
         Gemini.eventManager.register(this);
@@ -43,6 +46,8 @@ public class FileSystem {
         this.configNameFile = Paths.get(Minecraft.getInstance().gameDirectory.getAbsolutePath(),
                 "gemini", "configName.txt");
         this.altsFile = configDirectory.resolve("alts.json");
+        this.ttfDirectory = Paths.get(Minecraft.getInstance().gameDirectory.getAbsolutePath(),
+                "gemini", "ttf");
 
         ensureDirectoriesExist();
     }
@@ -61,6 +66,48 @@ public class FileSystem {
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Failed to create config directory: " + configDirectory, e);
         }
+        try {
+            Files.createDirectories(ttfDirectory);
+            LOGGER.info("TTF directory ensured: " + ttfDirectory);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Failed to create TTF directory: " + ttfDirectory, e);
+        }
+    }
+
+    /**
+     * Scans the gemini/ttf/ directory for .ttf files and returns their names
+     * (without the .ttf extension).
+     */
+    public List<String> scanTtfFonts() {
+        List<String> fonts = new ArrayList<>();
+        try {
+            File dir = ttfDirectory.toFile();
+            if (!dir.exists() || !dir.isDirectory()) {
+                return fonts;
+            }
+            File[] files = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".ttf"));
+            if (files != null) {
+                for (File file : files) {
+                    String name = file.getName();
+                    fonts.add(name.substring(0, name.length() - 4)); // strip .ttf
+                }
+            }
+            LOGGER.info("Scanned TTF fonts: " + fonts);
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Failed to scan TTF fonts directory", e);
+        }
+        return fonts;
+    }
+
+    /**
+     * Returns the File for a given TTF font name (without .ttf extension).
+     * Returns null if the name is "Default" or blank.
+     */
+    public File getTtfFontFile(String name) {
+        if (name == null || name.isEmpty() || "Default".equals(name)) {
+            return null;
+        }
+        return ttfDirectory.resolve(name + ".ttf").toFile();
     }
 
     // =========================================================================

@@ -1,6 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl;
 
 import com.mojang.blaze3d.pipeline.RenderPipeline;
+import geminiclient.gemini.customRenderer.glsl.modules.JumpCircleRenderer;
+import geminiclient.gemini.customRenderer.glsl.modules.KillAuraIndicatorRenderer;
+import geminiclient.gemini.customRenderer.glsl.modules.SkyLanternRenderer;
 import net.neoforged.neoforge.client.event.RegisterRenderPipelinesEvent;
 
 import java.util.function.Consumer;
@@ -26,5 +29,9 @@ public final class CustomRendererRegistry {
     public static void registerAll(Consumer<RenderPipeline> registry) {
         GlowRenderer.registerPipelines(registry);
         CustomAcrylicRenderer.registerPipelines(registry);
+        CustomFontRenderer.registerPipeline(registry);
+        JumpCircleRenderer.registerPipeline(registry);
+        KillAuraIndicatorRenderer.registerPipeline(registry);
+        SkyLanternRenderer.registerPipeline(registry);
     }
 }

@@ -3,7 +3,7 @@ package geminiclient.gemini.modules.impl.visual;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import geminiclient.gemini.Gemini;
-import geminiclient.gemini.customRenderer.cpu.CustomFontRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
@@ -23,7 +23,7 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.awt.Color;
-import java.awt.Font;
+import java.io.File;
 import java.util.*;
 
 /**
@@ -48,6 +48,9 @@ public class Arraylists extends Module {
     public final FloatValue rainbowSpeed      = new FloatValue("Speed",       3500f, 500f, 10000f);
     public final FloatValue rainbowSaturation = new FloatValue("Saturation", 0.8f,  0.1f, 1.0f);
     public final FloatValue rainbowBrightness = new FloatValue("Brightness", 1.0f,  0.1f, 1.0f);
+    public final ListValue ttfFont           = new ListValue("Font",
+            "Default", new String[]{"Default"});
+    public final FloatValue fontSize          = new FloatValue("Font Size", 18f, 8f, 40f);
 
     // ==================== VISUAL THEME CONSTANTS ====================
 
@@ -175,6 +178,8 @@ public class Arraylists extends Module {
     private final Map<Module, ModuleAnimation> animMap = new LinkedHashMap<>();
     private float containerHeight = 0f;
     private CustomFontRenderer.GlyphFont customFont;
+    private String lastSelectedFont = null;
+    private float lastFontSize = 18f;
 
     // ==================== CONSTRUCTOR ====================
 
@@ -182,7 +187,7 @@ public class Arraylists extends Module {
         super("Arraylists", ModuleEnum.Visual);
         addValue(mainBackground, moduleBackground, compactMode, textShadow,
                 sortMode, rainbowMode, fontColor, accentColor, backgroundColor,
-                rainbowSpeed, rainbowSaturation, rainbowBrightness);
+                rainbowSpeed, rainbowSaturation, rainbowBrightness, ttfFont, fontSize);
     }
 
     // ==================== EVENT HANDLER ====================
@@ -203,18 +208,41 @@ public class Arraylists extends Module {
     // ==================== FONT INITIALIZATION ====================
 
     private void initFontIfNeeded() {
-        if (customFont != null) return;
+        String selected = ttfFont.get();
+        float size = fontSize.getValue();
+        if (selected.equals(lastSelectedFont) && size == lastFontSize) return;
+        lastSelectedFont = selected;
+        lastFontSize = size;
 
-        String[] candidates = {"Segoe UI", "Microsoft YaHei", "Arial"};
-        Font resolved = new Font("SansSerif", Font.PLAIN, 18);
-        for (String name : candidates) {
-            Font trial = new Font(name, Font.PLAIN, 18);
-            if (trial.getFamily().equalsIgnoreCase(name)) {
-                resolved = trial;
-                break;
+        if ("Default".equals(selected)) {
+            customFont = null;
+            CustomFontRenderer.setCurrentTtfGlyphFont(null, null);
+            return;
+        }
+
+        // Try loading a user TTF font
+        File fontFile = Gemini.fileSystem.getTtfFontFile(selected);
+        if (fontFile != null && fontFile.exists()) {
+            try {
+                customFont = CustomFontRenderer.loadFont(fontFile, size);
+                CustomFontRenderer.setCurrentTtfGlyphFont(customFont, selected);
+                return;
+            } catch (Exception e) {
+                System.err.println("[Arraylists] Failed to load TTF font '" + selected + "': " + e.getMessage());
             }
         }
-        customFont = CustomFontRenderer.fromAwtFont(resolved);
+        // Font file missing or invalid — fall back to mc.font
+        customFont = null;
+    }
+
+    private float textWidth(String text) {
+        return customFont != null
+            ? CustomFontRenderer.stringWidth(customFont, text)
+            : CustomFontRenderer.stringWidth(mc.font, text);
+    }
+
+    private int textLineHeight(int lineGap) {
+        return (int) (customFont != null ? customFont.lineHeight : mc.font.lineHeight) + lineGap;
     }
 
     // ==================== LAYOUT & ANIMATION ENGINE ====================
@@ -231,7 +259,7 @@ public class Arraylists extends Module {
         boolean compact  = compactMode.enabled;
         int paddingY     = compact ? C_PADDING_Y     : PADDING_Y;
         int lineGap      = compact ? C_LINE_GAP      : LINE_GAP;
-        int lineHeight   = (int) mc.font.lineHeight + lineGap;
+        int lineHeight   = textLineHeight(lineGap);
 
         // ---- Collect renderable modules ----
         List<Module> sorted = new ArrayList<>();
@@ -258,7 +286,7 @@ public class Arraylists extends Module {
             default ->
                 // "Length" — descending width creates a stepped visual edge
                 sorted.sort(Comparator.comparingInt(
-                        (Module m) -> -(int) CustomFontRenderer.stringWidth(mc.font, m.getName())));
+                        (Module m) -> -(int) textWidth(m.getName())));
         }
 
         // ---- Compute per-module target Y and animate ----
@@ -328,7 +356,7 @@ public class Arraylists extends Module {
         int originY = 6;
 
         int maxTextW = modules.stream()
-                .mapToInt(m -> (int) CustomFontRenderer.stringWidth(mc.font, m.getName()))
+                .mapToInt(m -> (int) textWidth(m.getName()))
                 .max().orElse(0);
 
         int containerW = barW + maxTextW + paddingX * 3;
@@ -388,11 +416,11 @@ public class Arraylists extends Module {
         int paddingX   = compact ? C_PADDING_X    : PADDING_X;
         int barW       = compact ? C_STATUS_BAR_W : STATUS_BAR_W;
         int lineGap    = compact ? C_LINE_GAP     : LINE_GAP;
-        int lineHeight = (int) mc.font.lineHeight + lineGap;
+        int lineHeight = textLineHeight(lineGap);
         int modRadius  = compact ? C_RADIUS_MODULE : RADIUS_MODULE;
 
         String name = m.getName();
-        int textW   = (int) CustomFontRenderer.stringWidth(mc.font, name);
+        int textW   = (int) textWidth(name);
         int itemW   = barW + textW + paddingX * 2;
         int itemH   = lineHeight;
 
@@ -490,43 +518,69 @@ public class Arraylists extends Module {
 
         // Text shadow: offset dark copy behind the main text
         if (textShadow.enabled && enabled) {
-            CustomFontRenderer.drawString(g, mc.font, name,
-                    x + 1f, y + 1f, withAlpha(0, 0x44));
+            if (customFont != null)
+                CustomFontRenderer.drawString(g, customFont, name,
+                        x + 1f, y + 1f, withAlpha(0, 0x44));
+            else
+                CustomFontRenderer.drawString(g, mc.font, name,
+                        x + 1f, y + 1f, withAlpha(0, 0x44));
         }
 
         switch (mode) {
             case "Gradient" -> {
                 int len = Math.max(1, name.length());
-                CustomFontRenderer.drawGradientString(g, mc.font, name, x, y,
-                        i -> {
-                            float hue = ((System.currentTimeMillis() % speed) / (float) speed
-                                    + (float) i / len) % 1f;
-                            return withAlpha(Color.HSBtoRGB(hue, sat, bri), alpha);
-                        },
-                        i -> {
-                            float hue = ((System.currentTimeMillis() % speed) / (float) speed
-                                    + (float) i / len + 0.06f) % 1f;
-                            return withAlpha(Color.HSBtoRGB(hue, sat, bri), alpha);
-                        });
+                if (customFont != null)
+                    CustomFontRenderer.drawGradientString(g, customFont, name, x, y,
+                            i -> {
+                                float hue = ((System.currentTimeMillis() % speed) / (float) speed
+                                        + (float) i / len) % 1f;
+                                return withAlpha(Color.HSBtoRGB(hue, sat, bri), alpha);
+                            },
+                            i -> {
+                                float hue = ((System.currentTimeMillis() % speed) / (float) speed
+                                        + (float) i / len + 0.06f) % 1f;
+                                return withAlpha(Color.HSBtoRGB(hue, sat, bri), alpha);
+                            });
+                else
+                    CustomFontRenderer.drawGradientString(g, mc.font, name, x, y,
+                            i -> {
+                                float hue = ((System.currentTimeMillis() % speed) / (float) speed
+                                        + (float) i / len) % 1f;
+                                return withAlpha(Color.HSBtoRGB(hue, sat, bri), alpha);
+                            },
+                            i -> {
+                                float hue = ((System.currentTimeMillis() % speed) / (float) speed
+                                        + (float) i / len + 0.06f) % 1f;
+                                return withAlpha(Color.HSBtoRGB(hue, sat, bri), alpha);
+                            });
             }
             case "Wave" -> {
                 float hue = ((System.currentTimeMillis() % speed) / (float) speed
                         + (float) idx / Math.max(1, total)) % 1f;
                 int c1 = withAlpha(Color.HSBtoRGB(hue, sat, bri), alpha);
                 int c2 = withAlpha(Color.HSBtoRGB(hue, sat * 0.85f, bri * 0.75f), alpha);
-                CustomFontRenderer.drawGradientString(g, mc.font, name, x, y, c1, c2);
+                if (customFont != null)
+                    CustomFontRenderer.drawGradientString(g, customFont, name, x, y, c1, c2);
+                else
+                    CustomFontRenderer.drawGradientString(g, mc.font, name, x, y, c1, c2);
             }
             case "Sync" -> {
                 float hue = (System.currentTimeMillis() % speed) / (float) speed;
                 int c1 = withAlpha(Color.HSBtoRGB(hue, sat, bri), alpha);
                 int c2 = withAlpha(Color.HSBtoRGB(hue, sat * 0.85f, bri * 0.75f), alpha);
-                CustomFontRenderer.drawGradientString(g, mc.font, name, x, y, c1, c2);
+                if (customFont != null)
+                    CustomFontRenderer.drawGradientString(g, customFont, name, x, y, c1, c2);
+                else
+                    CustomFontRenderer.drawGradientString(g, mc.font, name, x, y, c1, c2);
             }
             default -> {
                 // "Off" — static color with subtle vertical gradient
                 int c1 = withAlpha(brighten(baseColor, 0.12f), alpha);
                 int c2 = withAlpha(darken(baseColor, 0.08f), alpha);
-                CustomFontRenderer.drawGradientString(g, mc.font, name, x, y, c1, c2);
+                if (customFont != null)
+                    CustomFontRenderer.drawGradientString(g, customFont, name, x, y, c1, c2);
+                else
+                    CustomFontRenderer.drawGradientString(g, mc.font, name, x, y, c1, c2);
             }
         }
     }

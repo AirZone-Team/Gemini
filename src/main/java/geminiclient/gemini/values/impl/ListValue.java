@@ -3,6 +3,7 @@ package geminiclient.gemini.values.impl;
 
 import geminiclient.gemini.values.ValueParent;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
@@ -66,6 +67,20 @@ public class ListValue extends ValueParent {
             index--;
         } else {
             index = list.size() - 1;
+        }
+    }
+
+    public void setList(String[] newList) {
+        this.list = new ArrayList<>(Arrays.asList(newList));
+        if (index >= this.list.size()) {
+            index = 0;
+        }
+    }
+
+    public void setList(List<String> newList) {
+        this.list = new ArrayList<>(newList);
+        if (index >= this.list.size()) {
+            index = 0;
         }
     }
 
