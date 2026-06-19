@@ -3,72 +3,61 @@ package geminiclient.gemini.modules.impl.visual.notice;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 
 public class ModuleNotification {
 
     public enum NotificationLevel {
-        INFO(0x3B82F6, "i"),    // 现代蓝
-        WARN(0xF59E0B, "!"),    // 琥珀橙
-        ERROR(0xEF4444, "✕");   // 柔和红
+        INFO(0x22C55E, Identifier.fromNamespaceAndPath("gemini", "icon/notice/check.png")),
+        WARN(0xF59E0B, Identifier.fromNamespaceAndPath("gemini", "icon/notice/priority_high.png")),
+        ERROR(0xEF4444, Identifier.fromNamespaceAndPath("gemini", "icon/notice/close.png"));
 
         private final int color;
-        private final String icon;
+        private final Identifier texture;
 
-        NotificationLevel(int color, String icon) {
+        NotificationLevel(int color, Identifier texture) {
             this.color = color;
-            this.icon = icon;
+            this.texture = texture;
         }
 
         public int getColorInt() {
             return 0xFF000000 | this.color;
         }
 
-        public int getGlowColorInt() {
-            return 0x80000000 | (this.color & 0xFFFFFF); // 半透明发光色
-        }
-
-        public String getIcon() {
-            return icon;
+        public Identifier getTexture() {
+            return texture;
         }
     }
 
     // --- 尺寸与排版优化 ---
-    private static final int HEIGHT = 32;                     // 稍微增高以容纳更宽裕的排版
-    private static final int PROGRESS_BAR_HEIGHT = 2;         // 进度条稍微加粗
-    private static final int STATUS_BAR_WIDTH = 3;            // 状态指示条加宽
-    private static final int CORNER_RADIUS = 6;               // 圆角加大，更柔和
-    private static final int PADDING_X = 14;                  // 增加水平留白
+    private static final int HEIGHT = 32;
+    private static final int PADDING_X = 14;
     private static final int PADDING_Y = 6;
+    private static final int CIRCLE_SIZE = 16;      // 圆形背景直径
+    private static final int ICON_SIZE = 12;         // 图标渲染尺寸
+    private static final int ICON_TEX_SIZE = 24;     // PNG 原始尺寸
 
-    private static final int INTRO_DURATION_MS = 400;         // 配合回弹动画，时间稍拉长
+    private static final int INTRO_DURATION_MS = 400;
     private static final int OUTRO_DURATION_MS = 350;
     private static final int MIN_LIFE_MS = INTRO_DURATION_MS + OUTRO_DURATION_MS;
 
     // --- 调色板 ---
-    private static final int BG_COLOR_BASE = 0x141414;        // 提升一点点明度，避免死黑
-    private static final int SHADOW_COLOR_BASE = 0x000000;
-    private static final int BORDER_COLOR_BASE = 0xFFFFFF;
-    private static final int TEXT_COLOR_BASE = 0xFAFAFA;      // 更纯净的白
-    private static final int STATUS_ENABLED_COLOR = 0x43E096;
-    private static final int STATUS_DISABLED_COLOR = 0xFF5B5B;
+    private static final int TEXT_COLOR_BASE = 0xFAFAFA;
 
     private final NotificationLevel level;
     private final String message;
     private final long maxAge;
     private final long createTime = System.currentTimeMillis();
-    private final boolean showModuleStatus;
-    private final boolean moduleIsEnabled;
 
     private float currentWidth;
     private float renderXOffset = 0f;
 
-    public ModuleNotification(NotificationLevel level, String message, long age, boolean isEnabled, boolean showStatus) {
+    public ModuleNotification(NotificationLevel level, String message, long age) {
         this.level = level;
         this.message = message;
         this.maxAge = Math.max(age, MIN_LIFE_MS);
-        this.moduleIsEnabled = isEnabled;
-        this.showModuleStatus = showStatus;
         this.currentWidth = calculateTargetWidth();
     }
 
@@ -133,91 +122,60 @@ public class ModuleNotification {
 
         int rectX1 = (int) currentX;
         int rectY1 = (int) targetY + PADDING_Y;
-        int rectX2 = (int) (currentX + notificationWidth);
         int rectY2 = (int) (targetY + PADDING_Y + (HEIGHT - PADDING_Y * 2));
 
-        int rectWidth = rectX2 - rectX1;
-        int rectHeight = rectY2 - rectY1;
+        // 背景已由 NotificationManager 统一绘制
 
-        // --- 1. 阴影渲染 ---
-        CustomRoundedRectRenderer.drawRoundedRect(guiGraphics,
-                rectX1 + 2, rectY1 + 3, rectWidth, rectHeight, CORNER_RADIUS,
-                applyAlpha(SHADOW_COLOR_BASE, alphaFactor * 0.25f));
-        CustomRoundedRectRenderer.drawRoundedRect(guiGraphics,
-                rectX1 + 4, rectY1 + 6, rectWidth, rectHeight, CORNER_RADIUS + 2,
-                applyAlpha(SHADOW_COLOR_BASE, alphaFactor * 0.10f));
+        // --- 图标圆形背景 + PNG 图标 ---
+        Identifier texture = level.getTexture();
+        int circleColor = applyAlpha(level.getColorInt(), alphaFactor);
 
-        // --- 2. 主背景与边框 ---
-        int bgColor = applyAlpha(BG_COLOR_BASE, alphaFactor * 0.85f);
-        // 边框高光仅在顶部或四周微弱存在
-        int borderColor = applyAlpha(BORDER_COLOR_BASE, alphaFactor * 0.08f);
-        CustomRoundedRectRenderer.drawRoundedBorderedRect(guiGraphics,
-                rectX1, rectY1, rectWidth, rectHeight, CORNER_RADIUS,
-                bgColor, borderColor, 1);
+        int circleX = rectX1 + PADDING_X;
+        int circleY = rectY1 + (rectY2 - rectY1 - CIRCLE_SIZE) / 2;
 
-        int textXOffset = PADDING_X;
+        // 绘制圆形背景
+        CustomRoundedRectRenderer.drawRoundedRect(
+                guiGraphics, circleX, circleY, CIRCLE_SIZE, CIRCLE_SIZE,
+                CIRCLE_SIZE / 2, circleColor);
 
-        // --- 3. 状态胶囊 (Pill Status Bar) ---
-        if (showModuleStatus) {
-            int statusColor = applyAlpha(moduleIsEnabled ? STATUS_ENABLED_COLOR : STATUS_DISABLED_COLOR, alphaFactor);
-            // 绘制成悬浮在内部的小圆角矩形/胶囊
-            CustomRoundedRectRenderer.drawRoundedRect(guiGraphics,
-                    rectX1 + 6,
-                    rectY1 + (rectHeight / 2) - 5,
-                    STATUS_BAR_WIDTH,
-                    10,
-                    1, // 小圆角
-                    statusColor
-            );
-            textXOffset = STATUS_BAR_WIDTH + PADDING_X + 4; // 根据悬浮胶囊的位置调整文本偏移
-        }
+        // 在圆形上绘制 PNG 图标
+        int iconX = circleX + (CIRCLE_SIZE - ICON_SIZE) / 2;
+        int iconY = circleY + (CIRCLE_SIZE - ICON_SIZE) / 2;
+        int iconTint = applyAlpha(0xFFFFFF, alphaFactor);
+// 获取矩阵栈 (具体方法取决于你的 GuiGraphicsExtractor 实现，通常是 .pose() 或原生 GuiGraphics)
+        var pose = guiGraphics.pose();
+        pose.pushMatrix();
 
-        // --- 4. 文本与图标渲染 ---
-        String icon = level.getIcon();
+// 1. 将原点平移到目标坐标
+        pose.translate(iconX, iconY);
+
+// 2. 计算缩放比例 (12 / 24 = 0.5)
+        float scale = (float) ICON_SIZE / ICON_TEX_SIZE;
+        pose.scale(scale, scale);
+
+// 3. 此时坐标和缩放已经应用在矩阵上，所以坐标传 0，并使用 24x24 (ICON_TEX_SIZE) 绘制完整纹理
+        guiGraphics.blit(RenderPipelines.GUI_TEXTURED, texture,
+                0, 0, 0, 0, ICON_TEX_SIZE, ICON_TEX_SIZE, ICON_TEX_SIZE, ICON_TEX_SIZE, iconTint);
+
+        pose.popMatrix();
+
+        // --- 3. 消息文本 ---
         Minecraft mc = Minecraft.getInstance();
-        int iconColor = applyAlpha(level.getColorInt(), alphaFactor);
-
         int contentHeight = mc.font.lineHeight;
-        int iconY = rectY1 + (rectY2 - rectY1 - contentHeight) / 2;
-
-        // 绘制图标发光底色 (如果渲染器支持)
-        CustomRoundedRectRenderer.drawRoundedRect(guiGraphics,
-                rectX1 + textXOffset - 2, iconY - 2, mc.font.width(icon) + 4, contentHeight + 4, 4,
-                applyAlpha(level.getGlowColorInt(), alphaFactor * 0.15f));
-
-        guiGraphics.text(mc.font, icon, rectX1 + textXOffset, iconY, iconColor, false);
-
-        int iconXOffset = mc.font.width(icon) + 8; // 图标与文字的舒朗间距
-
+        int textY = rectY1 + (rectY2 - rectY1 - contentHeight) / 2;
         int textColor = applyAlpha(TEXT_COLOR_BASE, alphaFactor);
-        guiGraphics.text(mc.font, message, rectX1 + textXOffset + iconXOffset, iconY, textColor, false);
-
-        // --- 5. 圆角进度条 ---
-        float progressRatio = Mth.clamp((float) remainingTime / (float) (maxAge - MIN_LIFE_MS), 0.0F, 1.0F);
-        // 让进度条两侧保留一点内边距，看起来更精致
-        int barPaddingX = 4;
-        float progressBarFullWidth = rectWidth - (barPaddingX * 2);
-        float progressWidth = progressBarFullWidth * progressRatio;
-
-        int barX1 = rectX1 + barPaddingX;
-        int barY = rectY2 - PROGRESS_BAR_HEIGHT - 2; // 底部留 2 像素间隙
-
-        int progressColor = applyAlpha(level.getColorInt(), alphaFactor * 0.9f);
-
-        // 使用圆角矩形绘制进度条，代替生硬的直角填充
-        if (progressWidth > 1) {
-            CustomRoundedRectRenderer.drawRoundedRect(guiGraphics,
-                    barX1, barY, (int)progressWidth, PROGRESS_BAR_HEIGHT, PROGRESS_BAR_HEIGHT / 2, progressColor);
-        }
+        guiGraphics.text(mc.font, message, rectX1 + PADDING_X + CIRCLE_SIZE + 8, textY, textColor, false);
     }
 
     public float calculateTargetWidth() {
-        String icon = level.getIcon();
-        int iconWidth = Minecraft.getInstance().font.width(icon);
         int stringWidth = Minecraft.getInstance().font.width(message);
-        float textTotalWidth = stringWidth + iconWidth + 2.0F * PADDING_X + 8; // 图标间距增加
-        float statusBarOffset = showModuleStatus ? (STATUS_BAR_WIDTH + 8) : 0.0F; // 胶囊状态栏的占用宽度
-        return textTotalWidth + statusBarOffset;
+        return stringWidth + CIRCLE_SIZE + 2.0F * PADDING_X + 8;
+    }
+
+    public boolean isInOutro() {
+        long timeElapsed = System.currentTimeMillis() - createTime;
+        return timeElapsed >= INTRO_DURATION_MS
+                && (maxAge - timeElapsed) <= OUTRO_DURATION_MS;
     }
 
     public boolean isExpired() {

@@ -46,7 +46,10 @@ public class ModuleManager {
                 new KeepSprint(),
                 new BackTrack(),
                 new JumpCircle(),
-                new SkyLantern()
+                new SkyLantern(),
+                new Radar(),
+                new Trajectories(),
+                new TargetDisplay()
         );
     }
 

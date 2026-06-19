@@ -4,6 +4,7 @@ import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.MinecraftInstance;
 import geminiclient.gemini.modules.impl.visual.notice.ModuleNotification;
 import geminiclient.gemini.values.ValueParent;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,6 +18,9 @@ public class Module implements MinecraftInstance {
     private final List<ValueParent> values = new ArrayList<>();
 
     public float animationXOffset = 0.0f;
+
+    public int hudX = 6;
+    public int hudY = 50;
 
     public Module(String name, ModuleEnum moduleEnum) {
         this.name = name;
@@ -61,16 +65,22 @@ public class Module implements MinecraftInstance {
             Gemini.eventManager.register(this);
             onEnabled();
             Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.INFO,
-                    "Enabled: " + this.name, 2000, true, true);
+                    "Enabled: " + this.name, 2000);
         } else {
             Gemini.eventManager.unregister(this);
             onDisabled();
-            Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.INFO,
-                    "Disabled: " + this.name, 2000, false, true);
+            Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.ERROR,
+                    "Disabled: " + this.name, 2000);
         }
     }
 
     public final void toggle() {
         setEnabled(!enabled);
     }
+
+    /**
+     * Override in HUD modules to render a placeholder outline + dummy text
+     * when the chat screen is open (drag-editor mode), even if the module is disabled.
+     */
+    public void renderEditorPlaceholder(GuiGraphicsExtractor g) {}
 }

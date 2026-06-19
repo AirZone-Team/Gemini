@@ -15,22 +15,16 @@ in vec2 texCoord;
 out vec4 fragColor;
 
 void main() {
+    // 1. 获取从 Java 端生成的标准字体位图纹理颜色
     vec4 texel = texture(Sampler0, texCoord);
-    float glyph = texel.a;
 
-    // 基于屏幕空间导数的自适应边缘宽度
-    // 在任何缩放级别下边缘都恰好过渡 1 像素
-    float edge = fwidth(glyph);
-    glyph = smoothstep(0.5 - edge, 0.5 + edge, glyph);
+    // 2. 标准的栅格化字体渲染：直接将纹理颜色与顶点颜色进行乘法混合
+    vec4 color = texel * vertexColor * ColorModulator;
 
-    // 颜色调制
-    vec4 modulated = vertexColor * ColorModulator;
-
-    // 正确预乘 alpha，避免半透明黑边
-    float finalAlpha = modulated.a * glyph;
-    fragColor = vec4(modulated.rgb * finalAlpha, finalAlpha);
-
-    if (fragColor.a < 0.004) {
+    // 3. 丢弃几乎完全透明的像素以优化性能
+    if (color.a < 0.004) {
         discard;
     }
+
+    fragColor = color;
 }

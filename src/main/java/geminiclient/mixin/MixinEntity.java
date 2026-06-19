@@ -7,7 +7,6 @@ import geminiclient.gemini.event.events.impl.moveFixEvent.RayTraceEvent;
 import geminiclient.gemini.event.events.impl.StrafeEvent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
@@ -23,13 +22,13 @@ public abstract class MixinEntity {
     @Shadow
     protected Vec3 stuckSpeedMultiplier;
     @Shadow
-    public abstract float getViewXRot(float var1);
+    public abstract float getViewXRot(float a);
 
     @Shadow
-    public abstract float getViewYRot(float var1);
+    public abstract float getViewYRot(float a);
 
     @Shadow
-    public abstract Vec3 calculateViewVector(float var1, float var2);
+    public abstract Vec3 calculateViewVector(float xRot, float yRot);
     @ModifyArg(method = "moveRelative",at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getInputVector(Lnet/minecraft/world/phys/Vec3;FF)Lnet/minecraft/world/phys/Vec3;",ordinal = 0),index = 2)
     public float strafe(float motionScaler) {
         StrafeEvent strafeEvent = new StrafeEvent(motionScaler);
@@ -38,10 +37,10 @@ public abstract class MixinEntity {
     }
 
     @Inject(method = "makeStuckInBlock", at = @At("RETURN"))
-    private void Blocking(BlockState pState, Vec3 pMotionMultiplier, CallbackInfo ci) {
+    private void Blocking(BlockState blockState, Vec3 speedMultiplier, CallbackInfo ci) {
         Entity thisEntity = (Entity)(Object)this;
         if (Minecraft.getInstance().player == thisEntity) {
-            BlockingEvent event = new BlockingEvent(pState,pMotionMultiplier);
+            BlockingEvent event = new BlockingEvent(blockState, speedMultiplier);
             Gemini.eventManager.call(event);
             if (event.isCancelled()) {
                 this.stuckSpeedMultiplier = Vec3.ZERO;

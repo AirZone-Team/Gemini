@@ -4,7 +4,10 @@ import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.vertex.*;
+import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import geminiclient.gemini.utils.ResourceLocationUtils;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -20,7 +23,9 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.awt.*;
+import java.awt.Color;
+import java.awt.FontMetrics;
+import java.awt.RenderingHints;
 import java.awt.font.FontRenderContext;
 import java.awt.font.GlyphVector;
 import java.awt.geom.Rectangle2D;
@@ -28,8 +33,11 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.*;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
@@ -40,7 +48,7 @@ import static geminiclient.gemini.base.MinecraftInstance.mc;
  * GPU-accelerated font renderer with custom GLSL fragment shader.
  *
  * <p>Glyphs are rasterized on the CPU via AWT and uploaded to a GPU
- * texture atlas.  Rendering uses a dedicated {@link RenderPipeline}
+ * texture atlas. Rendering uses a dedicated {@link RenderPipeline}
  * ({@link #FONT_PIPELINE}) whose fragment shader samples the glyph
  * atlas and applies per-vertex color modulation — enabling gradient,
  * rainbow, and quad-color text effects with minimal CPU overhead.</p>
@@ -134,13 +142,12 @@ public class CustomFontRenderer {
         final FontMetrics metrics;
         public final float ascent, descent, lineHeight;
         final Map<Integer, Glyph> glyphs = new HashMap<>();
-        boolean antiAlias = true;
 
         final List<AtlasPage> pages = new ArrayList<>();
         int currentPageIdx = -1;
 
         BufferedImage atlasImage;
-        Graphics2D atlasG2d;
+        java.awt.Graphics2D atlasG2d;
         int cursorX, cursorY, rowHeight;
         final Map<Integer, AtlasSlot> pendingSlots = new HashMap<>();
 
@@ -150,7 +157,7 @@ public class CustomFontRenderer {
             this.awtFont = awtFont;
 
             BufferedImage dummy = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g2d = dummy.createGraphics();
+            java.awt.Graphics2D g2d = dummy.createGraphics();
             applyRenderingHints(g2d);
             this.frc = g2d.getFontRenderContext();
             this.metrics = g2d.getFontMetrics(awtFont);
@@ -163,19 +170,13 @@ public class CustomFontRenderer {
             newCpuPage();
         }
 
-        private void applyRenderingHints(Graphics2D g2d) {
-            if (antiAlias) {
-                g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                        RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                g2d.setRenderingHint(RenderingHints.KEY_TEXT_LCD_CONTRAST, 140);
-            } else {
-                g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                        RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
-            }
+        private void applyRenderingHints(java.awt.Graphics2D g2d) {
+            g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
             g2d.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
                     RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         }
 
         private java.awt.Font getFallbackFont() {
@@ -207,10 +208,6 @@ public class CustomFontRenderer {
 
             pages.add(page);
             currentPageIdx = pages.size() - 1;
-        }
-
-        public void setAntiAlias(boolean aa) {
-            this.antiAlias = aa;
         }
 
         public Glyph getGlyph(int codePoint) {
@@ -248,7 +245,7 @@ public class CustomFontRenderer {
                 return new Glyph(0, 0, 0, 0, advance, false, -1);
             }
 
-            int padding = antiAlias ? 3 : 1;
+            int padding = 1;
             int glyphWidth = (int) Math.ceil(visualW) + padding * 2;
             int glyphHeight = (int) Math.ceil(visualH) + padding * 2;
 
@@ -321,10 +318,9 @@ public class CustomFontRenderer {
                     for (int x = 0; x < slot.pw; x++) {
                         int argb = pixels[rowBase + x];
                         int alpha = (argb >> 24) & 0xFF;
-                        int red   = (argb >> 16) & 0xFF;
+                        int red = (argb >> 16) & 0xFF;
                         int green = (argb >> 8) & 0xFF;
-                        int blue  = argb & 0xFF;
-                        // ARGB (BufferedImage) → ABGR (NativeImage)
+                        int blue = argb & 0xFF;
                         nativeImage.setPixel(dstX + x, dstY,
                                 (alpha << 24) | (blue << 16) | (green << 8) | red);
                     }
@@ -332,19 +328,18 @@ public class CustomFontRenderer {
             }
             pendingSlots.clear();
             page.texture.upload();
-            setLinearFilter(page.texture);
+            setNearestFilter(page.texture);
         }
 
-        @SuppressWarnings("deprecation")
-        private static void setLinearFilter(DynamicTexture texture) {
+        private static void setNearestFilter(DynamicTexture texture) {
             try {
                 java.lang.reflect.Field field = texture.getClass().getSuperclass()
                         .getDeclaredField("sampler");
                 field.setAccessible(true);
                 field.set(texture, com.mojang.blaze3d.systems.RenderSystem.getSamplerCache()
-                        .getRepeat(com.mojang.blaze3d.textures.FilterMode.LINEAR));
+                        .getRepeat(FilterMode.NEAREST));
             } catch (Exception e) {
-                LOGGER.warn("Failed to set linear filter on font atlas texture", e);
+                LOGGER.warn("Failed to set NEAREST filter on font atlas texture", e);
             }
         }
 
@@ -445,8 +440,9 @@ public class CustomFontRenderer {
     //  MC Font drawing
     // ========================
 
-    public static void drawString(GuiGraphicsExtractor gui, Font font, String text,
-                                  float x, float y, IntFunction<Integer> colorFunc) {
+    public static void drawString(GuiGraphicsExtractor gui, Font font,
+                                  String text, float x, float y,
+                                  IntFunction<Integer> colorFunc) {
         float cursorX = x;
         int charIndex = 0;
         for (int i = 0; i < text.length();) {
@@ -462,19 +458,21 @@ public class CustomFontRenderer {
         }
     }
 
-    public static void drawString(GuiGraphicsExtractor gui, Font font, String text,
-                                  float x, float y, int color) {
+    public static void drawString(GuiGraphicsExtractor gui, Font font,
+                                  String text, float x, float y, int color) {
         drawString(gui, font, text, x, y, __ -> color);
     }
 
-    public static void drawGradientString(GuiGraphicsExtractor gui, Font font, String text,
-                                          float x, float y, int topColor, int bottomColor) {
+    public static void drawGradientString(GuiGraphicsExtractor gui, Font font,
+                                          String text, float x, float y,
+                                          int topColor, int bottomColor) {
         drawGradientString(gui, font, text, x, y, __ -> topColor, __ -> bottomColor);
     }
 
-    public static void drawGradientString(GuiGraphicsExtractor gui, Font font, String text,
-                                          float x, float y,
-                                          IntFunction<Integer> topFunc, IntFunction<Integer> botFunc) {
+    public static void drawGradientString(GuiGraphicsExtractor gui, Font font,
+                                          String text, float x, float y,
+                                          IntFunction<Integer> topFunc,
+                                          IntFunction<Integer> botFunc) {
         float cursorX = x;
         float halfLineHeight = font.lineHeight / 2f;
         int charIndex = 0;
@@ -510,13 +508,14 @@ public class CustomFontRenderer {
     //  GlyphFont drawing (GLSL pipeline)
     // ========================
 
-    public static void drawString(GuiGraphicsExtractor gui, GlyphFont font, String text,
-                                  float x, float y, int color) {
+    public static void drawString(GuiGraphicsExtractor gui, GlyphFont font,
+                                  String text, float x, float y, int color) {
         drawString(gui, font, text, x, y, __ -> color);
     }
 
-    public static void drawString(GuiGraphicsExtractor gui, GlyphFont font, String text,
-                                  float x, float y, IntFunction<Integer> colorFunc) {
+    public static void drawString(GuiGraphicsExtractor gui, GlyphFont font,
+                                  String text, float x, float y,
+                                  IntFunction<Integer> colorFunc) {
         if (text.isEmpty()) {
             return;
         }
@@ -525,14 +524,18 @@ public class CustomFontRenderer {
         drawGrouped(gui, font, text, x, y, uniformEmitter(colorFunc));
     }
 
-    public static void drawGradientString(GuiGraphicsExtractor gui, GlyphFont font, String text,
-                                          float x, float y, int topColor, int bottomColor) {
-        drawGradientString(gui, font, text, x, y, __ -> topColor, __ -> bottomColor);
+    public static void drawGradientString(GuiGraphicsExtractor gui,
+                                          GlyphFont font, String text,
+                                          float x, float y,
+                                          int topColor, int bottomColor) {
+        drawGradientString(gui, font, text, x, y, _ -> topColor, _ -> bottomColor);
     }
 
-    public static void drawGradientString(GuiGraphicsExtractor gui, GlyphFont font, String text,
+    public static void drawGradientString(GuiGraphicsExtractor gui,
+                                          GlyphFont font, String text,
                                           float x, float y,
-                                          IntFunction<Integer> topFunc, IntFunction<Integer> botFunc) {
+                                          IntFunction<Integer> topFunc,
+                                          IntFunction<Integer> botFunc) {
         if (text.isEmpty()) {
             return;
         }
@@ -541,8 +544,10 @@ public class CustomFontRenderer {
         drawGrouped(gui, font, text, x, y, gradientEmitter(topFunc, botFunc));
     }
 
-    public static void drawHorizontalGradientString(GuiGraphicsExtractor gui, GlyphFont font,
-                                                    String text, float x, float y,
+    public static void drawHorizontalGradientString(GuiGraphicsExtractor gui,
+                                                    GlyphFont font,
+                                                    String text, float x,
+                                                    float y,
                                                     IntFunction<Integer> leftFunc,
                                                     IntFunction<Integer> rightFunc) {
         if (text.isEmpty()) {
@@ -569,7 +574,8 @@ public class CustomFontRenderer {
         };
     }
 
-    public static FourColorFunc gradient(IntFunction<Integer> top, IntFunction<Integer> bot) {
+    public static FourColorFunc gradient(IntFunction<Integer> top,
+                                         IntFunction<Integer> bot) {
         return new FourColorFunc() {
             public int topLeft(int i)     { return top.apply(i); }
             public int topRight(int i)    { return top.apply(i); }
@@ -578,8 +584,10 @@ public class CustomFontRenderer {
         };
     }
 
-    public static void drawQuadGradientString(GuiGraphicsExtractor gui, GlyphFont font,
-                                              String text, float x, float y, FourColorFunc f) {
+    public static void drawQuadGradientString(GuiGraphicsExtractor gui,
+                                              GlyphFont font, String text,
+                                              float x, float y,
+                                              FourColorFunc f) {
         if (text.isEmpty()) {
             return;
         }
@@ -588,33 +596,37 @@ public class CustomFontRenderer {
         drawGrouped(gui, font, text, x, y, quadEmitter(f));
     }
 
-    public static void drawRainbowString(GuiGraphicsExtractor gui, GlyphFont font, String text,
-                                         float x, float y, long speedMs,
-                                         float sat, float bri, int alpha) {
+    public static void drawRainbowString(GuiGraphicsExtractor gui,
+                                          GlyphFont font, String text,
+                                          float x, float y, long speedMs,
+                                          float sat, float bri, int alpha) {
         int length = Math.max(1, (int) text.codePoints().count());
         drawString(gui, font, text, x, y, i -> {
-            float hue = ((System.currentTimeMillis() % speedMs) / (float) speedMs
-                    + (float) i / length) % 1.0f;
-            int rgb = java.awt.Color.HSBtoRGB(hue, sat, bri);
+            float hue = ((System.currentTimeMillis() % speedMs)
+                    / (float) speedMs + (float) i / length) % 1.0f;
+            int rgb = Color.HSBtoRGB(hue, sat, bri);
             return (alpha << 24) | (rgb & 0xFFFFFF);
         });
     }
 
-    public static void drawRainbowGradientString(GuiGraphicsExtractor gui, GlyphFont font,
-                                                  String text, float x, float y, long speedMs,
-                                                  float sat, float bri, int alpha) {
+    public static void drawRainbowGradientString(GuiGraphicsExtractor gui,
+                                                  GlyphFont font, String text,
+                                                  float x, float y,
+                                                  long speedMs, float sat,
+                                                  float bri, int alpha) {
         int length = Math.max(1, (int) text.codePoints().count());
         drawGradientString(gui, font, text, x, y,
                 i -> {
-                    float hue = ((System.currentTimeMillis() % speedMs) / (float) speedMs
-                            + (float) i / length) % 1.0f;
-                    int rgb = java.awt.Color.HSBtoRGB(hue, sat, bri);
+                    float hue = ((System.currentTimeMillis() % speedMs)
+                            / (float) speedMs + (float) i / length) % 1.0f;
+                    int rgb = Color.HSBtoRGB(hue, sat, bri);
                     return (alpha << 24) | (rgb & 0xFFFFFF);
                 },
                 i -> {
-                    float hue = ((System.currentTimeMillis() % speedMs) / (float) speedMs
-                            + (float) i / length + 0.08f) % 1.0f;
-                    int rgb = java.awt.Color.HSBtoRGB(hue, sat, bri);
+                    float hue = ((System.currentTimeMillis() % speedMs)
+                            / (float) speedMs + (float) i / length
+                            + 0.08f) % 1.0f;
+                    int rgb = Color.HSBtoRGB(hue, sat, bri);
                     return (alpha << 24) | (rgb & 0xFFFFFF);
                 });
     }
@@ -631,7 +643,7 @@ public class CustomFontRenderer {
     private static void writeColor(int argb, byte[] dst, int offset) {
         dst[offset]     = (byte) (argb >> 16); // R
         dst[offset + 1] = (byte) (argb >> 8);  // G
-        dst[offset + 2] = (byte) argb;         // B
+        dst[offset + 2] = (byte) argb;          // B
         dst[offset + 3] = (byte) (argb >> 24); // A
     }
 
@@ -643,7 +655,7 @@ public class CustomFontRenderer {
             byte b = (byte) color;
             byte a = (byte) (color >> 24);
             for (int v = 0; v < 4; v++, offset += 4) {
-                dst[offset] = r;
+                dst[offset]     = r;
                 dst[offset + 1] = g;
                 dst[offset + 2] = b;
                 dst[offset + 3] = a;
@@ -654,41 +666,29 @@ public class CustomFontRenderer {
     private static ColorEmitter gradientEmitter(IntFunction<Integer> topFunc,
                                                  IntFunction<Integer> botFunc) {
         return (charIndex, glyph, dst, offset) -> {
-            // TL
-            writeColor(topFunc.apply(charIndex), dst, offset);
-            // BL
-            writeColor(botFunc.apply(charIndex), dst, offset + 4);
-            // BR
-            writeColor(botFunc.apply(charIndex), dst, offset + 8);
-            // TR
-            writeColor(topFunc.apply(charIndex), dst, offset + 12);
+            writeColor(topFunc.apply(charIndex), dst, offset);       // TL
+            writeColor(botFunc.apply(charIndex), dst, offset + 4);   // BL
+            writeColor(botFunc.apply(charIndex), dst, offset + 8);   // BR
+            writeColor(topFunc.apply(charIndex), dst, offset + 12);  // TR
         };
     }
 
-    private static ColorEmitter horizontalGradientEmitter(IntFunction<Integer> leftFunc,
-                                                           IntFunction<Integer> rightFunc) {
+    private static ColorEmitter horizontalGradientEmitter(
+            IntFunction<Integer> leftFunc, IntFunction<Integer> rightFunc) {
         return (charIndex, glyph, dst, offset) -> {
-            // TL
-            writeColor(leftFunc.apply(charIndex),  dst, offset);
-            // BL
-            writeColor(leftFunc.apply(charIndex),  dst, offset + 4);
-            // BR
-            writeColor(rightFunc.apply(charIndex), dst, offset + 8);
-            // TR
-            writeColor(rightFunc.apply(charIndex), dst, offset + 12);
+            writeColor(leftFunc.apply(charIndex),  dst, offset);       // TL
+            writeColor(leftFunc.apply(charIndex),  dst, offset + 4);   // BL
+            writeColor(rightFunc.apply(charIndex), dst, offset + 8);   // BR
+            writeColor(rightFunc.apply(charIndex), dst, offset + 12);  // TR
         };
     }
 
     private static ColorEmitter quadEmitter(FourColorFunc f) {
         return (charIndex, glyph, dst, offset) -> {
-            // TL
-            writeColor(f.topLeft(charIndex),     dst, offset);
-            // BL
-            writeColor(f.bottomLeft(charIndex),  dst, offset + 4);
-            // BR
-            writeColor(f.bottomRight(charIndex), dst, offset + 8);
-            // TR
-            writeColor(f.topRight(charIndex),    dst, offset + 12);
+            writeColor(f.topLeft(charIndex),     dst, offset);       // TL
+            writeColor(f.bottomLeft(charIndex),  dst, offset + 4);   // BL
+            writeColor(f.bottomRight(charIndex), dst, offset + 8);   // BR
+            writeColor(f.topRight(charIndex),    dst, offset + 12);  // TR
         };
     }
 
@@ -706,9 +706,9 @@ public class CustomFontRenderer {
 
     private record GlyphRun(int charIndex, Glyph glyph, float x) {}
 
-    private static void drawGrouped(GuiGraphicsExtractor gui, GlyphFont font, String text,
-                                     float x, float y, ColorEmitter emitter) {
-        // Group glyphs by atlas page
+    private static void drawGrouped(GuiGraphicsExtractor gui, GlyphFont font,
+                                     String text, float x, float y,
+                                     ColorEmitter emitter) {
         Map<Integer, List<GlyphRun>> groups = new LinkedHashMap<>();
         float cursorX = x;
         int charIndex = 0;
@@ -736,10 +736,9 @@ public class CustomFontRenderer {
             AtlasPage page = font.pages.get(entry.getKey());
             int quadCount = runs.size();
 
-            int bufferSize = quadCount * QUAD_VERTS;
-            float[] positions = new float[bufferSize * POS_STRIDE];
-            float[] uvs       = new float[bufferSize * UV_STRIDE];
-            byte[]  colors    = new byte[bufferSize * COL_STRIDE];
+            float[] positions = new float[quadCount * QUAD_VERTS * POS_STRIDE];
+            float[] uvs       = new float[quadCount * QUAD_VERTS * UV_STRIDE];
+            byte[]  colors    = new byte[quadCount * QUAD_VERTS * COL_STRIDE];
 
             int posIdx = 0, uvIdx = 0, colorIdx = 0;
 
@@ -752,22 +751,18 @@ public class CustomFontRenderer {
 
                 emitter.emit(run.charIndex, glyph, colors, colorIdx);
 
-                // TL
                 positions[posIdx] = x0;     positions[posIdx + 1] = y0;
                 uvs[uvIdx] = glyph.u0;      uvs[uvIdx + 1] = glyph.v0;
                 posIdx += 2; uvIdx += 2; colorIdx += 4;
 
-                // BL
                 positions[posIdx] = x0;     positions[posIdx + 1] = y1;
                 uvs[uvIdx] = glyph.u0;      uvs[uvIdx + 1] = glyph.v1;
                 posIdx += 2; uvIdx += 2; colorIdx += 4;
 
-                // BR
                 positions[posIdx] = x1;     positions[posIdx + 1] = y1;
                 uvs[uvIdx] = glyph.u1;      uvs[uvIdx + 1] = glyph.v1;
                 posIdx += 2; uvIdx += 2; colorIdx += 4;
 
-                // TR
                 positions[posIdx] = x1;     positions[posIdx + 1] = y0;
                 uvs[uvIdx] = glyph.u1;      uvs[uvIdx + 1] = glyph.v0;
                 posIdx += 2; uvIdx += 2; colorIdx += 4;
@@ -779,12 +774,8 @@ public class CustomFontRenderer {
         }
     }
 
-    /**
-     * Snap a float coordinate to the nearest integer pixel boundary
-     * for 1:1 texel-to-pixel mapping.
-     */
     private static float snapToPixel(float v) {
-        return Math.round(v);
+        return Math.round(v) + 0.5f;
     }
 
     // ========================
@@ -798,10 +789,8 @@ public class CustomFontRenderer {
         private final float[] uvs;
         private final byte[] colors;
         private final int quadCount;
-        @Nullable
-        private final ScreenRectangle scissor;
-        @Nullable
-        private final ScreenRectangle bounds;
+        @Nullable private final ScreenRectangle scissor;
+        @Nullable private final ScreenRectangle bounds;
 
         FontRenderState(Matrix3x2f pose, AtlasPage page,
                         float[] positions, float[] uvs, byte[] colors,
@@ -903,6 +892,12 @@ public class CustomFontRenderer {
             font.atlasG2d = null;
         }
         font.glyphs.clear();
+    }
+
+    public static void flushAllPages() {
+        for (GlyphFont font : FONT_CACHE.values()) {
+            font.ensureReady();
+        }
     }
 
     public static void disposeAll() {

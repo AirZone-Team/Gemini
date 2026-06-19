@@ -1,7 +1,9 @@
 package geminiclient.gemini.modules.impl.visual.effectDisplay;
 
+import geminiclient.gemini.Gemini;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -45,9 +47,13 @@ public class RenderEffect {
         return INSTANCE;
     }
 
-    public void render(GuiGraphicsExtractor graphics) {
+    public void render(GuiGraphicsExtractor graphics, Module module) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
+
+        boolean rightAligned = Gemini.hudDragManager.isOnRightSide(module);
+        float originX = module.hudX;
+        int screenW = mc.getWindow().getGuiScaledWidth();
 
         for (MobEffectInstance effect : mc.player.getActiveEffects()) {
             Holder<MobEffect> effectHolder = effect.getEffect();
@@ -66,8 +72,9 @@ public class RenderEffect {
             info.xTimer.target = PADDING_X;
         }
 
-        final float initialY = mc.getWindow().getGuiScaledHeight() / 2.0F - this.infos.size() * (SPACING_Y / 2.0F);
+        final float initialY = module.hudY;
         final float[] currentY = { initialY };
+        final float[] maxWidth = { 0f };
 
         this.infos.entrySet().removeIf(entry -> {
             Holder<MobEffect> effect = entry.getKey();
@@ -76,7 +83,7 @@ public class RenderEffect {
             if (!info.shouldDisappear) {
                 info.yTimer.target = currentY[0];
             } else {
-                info.xTimer.target = -info.width - 20.0F;
+                info.xTimer.target = -info.width - screenW;
             }
 
             info.durationTimer.update(true);
@@ -85,13 +92,17 @@ public class RenderEffect {
 
             if (!info.shouldDisappear && !mc.player.hasEffect(effect)) {
                 info.shouldDisappear = true;
-                info.xTimer.target = -info.width - 20.0F;
+                info.xTimer.target = -info.width - screenW;
             }
 
-            float x = info.xTimer.value;
+            float x = rightAligned
+                    ? originX - info.width - info.xTimer.value
+                    : originX + info.xTimer.value;
             float y = info.yTimer.value;
 
-            if (x < mc.getWindow().getGuiScaledWidth()) {
+            boolean visible = rightAligned ? (x + info.width > 0) : (x < screenW);
+
+            if (visible) {
                 graphics.pose().pushMatrix();
                 graphics.pose().translate(x, y);
 
@@ -147,10 +158,8 @@ public class RenderEffect {
                 if (info.durationTimer.value > 0) {
                     int barWidth = (int) Math.min(info.durationTimer.value, w);
                     int barGlow = (accentColor & 0x00FFFFFF) | 0x25 << 24;
-                    // Glow behind progress bar
                     CustomRoundedRectRenderer.drawRoundedRect(graphics,
                             0, h - 3, w, 3, 1, barGlow);
-                    // Progress fill
                     CustomRoundedRectRenderer.drawRoundedRect(graphics,
                             0, h - 2, barWidth, 2, 1,
                             (accentColor & 0x00FFFFFF) | 0xBB000000);
@@ -180,11 +189,93 @@ public class RenderEffect {
                 currentY[0] += SPACING_Y;
             }
 
+            if (!info.shouldDisappear) {
+                maxWidth[0] = Math.max(maxWidth[0], info.width);
+            }
+
             if (info.shouldDisappear) {
                 return info.xTimer.value <= -info.width - 15.0F;
             }
             return false;
         });
+
+        // Register drag region
+        float totalH = currentY[0] - initialY;
+        if (totalH > 0 && maxWidth[0] > 0) {
+            float regionX = rightAligned ? originX - maxWidth[0] - PADDING_X : originX;
+            float regionW = maxWidth[0] + PADDING_X * 2;
+            Gemini.hudDragManager.registerDragRegion(module, (int) regionX, (int) initialY, (int) regionW, (int) totalH);
+        }
+    }
+
+    /**
+     * Draws just the editor outline border (no dummy content) for enabled modules.
+     */
+    public void renderOutline(GuiGraphicsExtractor graphics, Module module) {
+        Minecraft mc = Minecraft.getInstance();
+        boolean rightAligned = Gemini.hudDragManager.isOnRightSide(module);
+        float originX = module.hudX;
+        float originY = module.hudY;
+
+        String dummyName = "Speed II";
+        float dummyWidth = mc.font.width(dummyName) * 0.85F + ICON_SIZE + 40.0F;
+        float elementW = Math.max(dummyWidth, 120f);
+        float totalW = elementW + PADDING_X * 2;
+
+        float x = rightAligned ? originX - totalW : originX;
+
+        CustomRoundedRectRenderer.drawRoundedOutline(graphics,
+                (int) x, (int) originY, (int) totalW, (int) ELEMENT_HEIGHT,
+                CORNER_RADIUS, 0xAAFFD700, 2);
+
+        Gemini.hudDragManager.registerDragRegion(module, (int) x, (int) originY, (int) totalW, (int) ELEMENT_HEIGHT);
+    }
+
+    /**
+     * Draws a placeholder outline + dummy effect entry for drag-editor mode.
+     */
+    public void renderPlaceholder(GuiGraphicsExtractor graphics, Module module) {
+        Minecraft mc = Minecraft.getInstance();
+        boolean rightAligned = Gemini.hudDragManager.isOnRightSide(module);
+        float originX = module.hudX;
+        float originY = module.hudY;
+
+        // Dummy effect dimensions
+        String dummyName = "Speed II";
+        String dummyDuration = "12:34";
+        float dummyWidth = mc.font.width(dummyName) * 0.85F + ICON_SIZE + 40.0F;
+        float elementW = Math.max(dummyWidth, 120f);
+        float elementH = ELEMENT_HEIGHT;
+        float totalW = elementW + PADDING_X * 2;
+
+        float x = rightAligned ? originX - totalW : originX;
+
+        // Editor outline
+        CustomRoundedRectRenderer.drawRoundedOutline(graphics,
+                (int) x, (int) originY, (int) totalW, (int) elementH,
+                CORNER_RADIUS, 0x80FFD700, 2);
+
+        // Glass background for the dummy entry
+        CustomRoundedRectRenderer.drawRoundedRectVertGrad(graphics,
+                (int) x, (int) originY, (int) totalW, (int) elementH,
+                CORNER_RADIUS, 0x220C0C0C, 0x18050505);
+
+        // Accent bar
+        int accent = 0xFFFF5555;
+        CustomRoundedRectRenderer.drawRoundedRectVertGrad(graphics,
+                (int) x, (int) originY + 3, 2, (int) elementH - 6, 1, accent, darken(accent, 0.35f));
+
+        // Dummy text
+        float textScale = 0.85F;
+        graphics.pose().pushMatrix();
+        graphics.pose().translate(x, originY);
+        graphics.pose().scale(textScale, textScale);
+        float textX = (6 + ICON_SIZE + 10) / textScale;
+        graphics.text(mc.font, dummyName, (int) textX, (int) (6.0F / textScale), 0x80FFFFFF, false);
+        graphics.text(mc.font, dummyDuration, (int) textX, (int) (18.0F / textScale), 0x80AAAAAA, true);
+        graphics.pose().popMatrix();
+
+        Gemini.hudDragManager.registerDragRegion(module, (int) x, (int) originY, (int) totalW, (int) elementH);
     }
 
     private static int lighten(int color, float amount) {

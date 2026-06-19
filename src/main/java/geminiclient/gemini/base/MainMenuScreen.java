@@ -5,7 +5,6 @@ import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer.GlyphFont;
-import geminiclient.gemini.customRenderer.glsl.GlowRenderer;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
@@ -261,16 +260,16 @@ public class MainMenuScreen extends Screen {
         int startY = this.height / 2 - 30;
 
         buttons.add(new Button("Singleplayer", startY,
-                Identifier.fromNamespaceAndPath("gemini", "icon/person.png"), 'S',
+                Identifier.fromNamespaceAndPath("gemini", "icon/mainmenu/person.png"), 'S',
                 () -> this.minecraft.setScreen(new SelectWorldScreen(this))));
         buttons.add(new Button("Multiplayer", startY + (BUTTON_HEIGHT + BUTTON_SPACING),
-                Identifier.fromNamespaceAndPath("gemini", "icon/groups.png"), 'M',
+                Identifier.fromNamespaceAndPath("gemini", "icon/mainmenu/groups.png"), 'M',
                 () -> this.minecraft.setScreen(new JoinMultiplayerScreen(this))));
         buttons.add(new Button("Settings", startY + (BUTTON_HEIGHT + BUTTON_SPACING) * 2,
-                Identifier.fromNamespaceAndPath("gemini", "icon/settings.png"), 'O',
+                Identifier.fromNamespaceAndPath("gemini", "icon/mainmenu/settings.png"), 'O',
                 () -> this.minecraft.setScreen(new OptionsScreen(this, this.minecraft.options, false))));
         buttons.add(new Button("Quit Game", startY + (BUTTON_HEIGHT + BUTTON_SPACING) * 3,
-                Identifier.fromNamespaceAndPath("gemini", "icon/exit_to_app.png"), 'Q',
+                Identifier.fromNamespaceAndPath("gemini", "icon/mainmenu/exit_to_app.png"), 'Q',
                 this.minecraft::stop));
 
         if (hoverProgress.length != buttons.size()) {
@@ -651,12 +650,6 @@ public class MainMenuScreen extends Screen {
         if (btnEntryEased <= 0.01f) return;
         int btnAlpha = (int) (btnEntryEased * 255);
         if (btnAlpha <= 0) return;
-
-        // ── Drop shadow ──
-        GlowRenderer.drawDropShadowRoundedRect(gui,
-                scaledX, scaledY, scaledW, scaledH,
-                BUTTON_RADIUS, 3, 3, 4,
-                multiplyAlpha(0xFF000000, btnAlpha / 255f * 0.5f));
 
         // ── Gradient fill ──
         int fillTopIdle = multiplyAlpha(BTN_FILL_TOP_IDLE, btnAlpha / 255f);

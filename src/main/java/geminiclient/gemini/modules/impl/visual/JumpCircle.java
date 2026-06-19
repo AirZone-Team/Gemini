@@ -10,6 +10,7 @@ import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.values.impl.ColorValue;
 import geminiclient.gemini.values.impl.FloatValue;
 import geminiclient.gemini.values.impl.IntValue;
+import net.minecraft.client.Camera;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -19,10 +20,16 @@ public class JumpCircle extends Module {
 
     // ── Config ──────────────────────────────────────────────────
 
-    private final ColorValue ringColor     = new ColorValue("Ring Color", 0xFFFFFFFF);
-    private final FloatValue maxRadius     = new FloatValue("Max Radius", 1.5f, 0.5f, 5.0f);
-    private final IntValue   duration      = new IntValue("Duration", 600, 200, 2000);
-    private final FloatValue shadowOpacity = new FloatValue("Shadow", 0.3f, 0.0f, 1.0f);
+    private final ColorValue ringColor           = new ColorValue("Ring Color", 0xFFFFFFFF);
+    private final ColorValue normalLandingColor  = new ColorValue("Normal Landing Color", 0xFFD0C8B8);
+    private final ColorValue heavyLandingColor   = new ColorValue("Heavy Landing Color", 0xFFFF6622);
+    private final FloatValue maxRadius           = new FloatValue("Max Radius", 1.5f, 0.5f, 5.0f);
+    private final IntValue   duration            = new IntValue("Duration", 600, 200, 2000);
+    private final FloatValue heavyThreshold      = new FloatValue("Heavy Threshold", 3.0f, 0.5f, 10.0f);
+    private final FloatValue growSpeed           = new FloatValue("Grow Speed", 1.0f, 0.1f, 5.0f);
+    private final FloatValue shadowOpacity       = new FloatValue("Shadow", 0.3f, 0.0f, 1.0f);
+    private final IntValue   maxCircles          = new IntValue("Max Circles", 30, 1, 100);
+    private final FloatValue cullDistance        = new FloatValue("Cull Distance", 16.0f, 4.0f, 64.0f);
 
     // ── State ───────────────────────────────────────────────────
 
@@ -52,7 +59,9 @@ public class JumpCircle extends Module {
 
     public JumpCircle() {
         super("JumpCircle", ModuleEnum.Visual);
-        addValue(ringColor, maxRadius, duration, shadowOpacity);
+        addValue(ringColor, normalLandingColor, heavyLandingColor,
+                maxRadius, duration, heavyThreshold, growSpeed,
+                shadowOpacity, maxCircles, cullDistance);
     }
 
     @Override
@@ -86,7 +95,7 @@ public class JumpCircle extends Module {
 
         // Detect air → ground transition
         if (!wasOnGround && onGround && peakFallDistance > 0.1f) {
-            JumpType type = peakFallDistance >= 3.0f
+            JumpType type = peakFallDistance >= heavyThreshold.getValue()
                     ? JumpType.LANDING_HEAVY
                     : JumpType.LANDING_NORMAL;
 
@@ -110,11 +119,24 @@ public class JumpCircle extends Module {
         long  now        = System.currentTimeMillis();
         int   dur        = duration.getValue();
         float radius     = maxRadius.getValue();
-        int   themeColor = ringColor.getColor();
         float shadow     = shadowOpacity.getValue();
+        float speed      = growSpeed.getValue();
+        float maxDist    = cullDistance.getValue();
+        int   maxCirc    = maxCircles.getValue();
+        float cullDistSq = maxDist * maxDist;
+
+        Camera camera = mc.getEntityRenderDispatcher().camera;
 
         activeCircles.removeIf(instance -> {
-            float progress = (now - instance.timestamp) / (float) dur;
+            // Cull by distance
+            if (camera == null)
+                return false;
+
+            double dx = instance.x - camera.position().x;
+            double dz = instance.z - camera.position().z;
+            if (dx * dx + dz * dz > cullDistSq) return true;
+
+            float progress = (now - instance.timestamp) / (float) dur * speed;
             if (progress >= 1f) return true;
 
             float quadHalfSize = radius * 2.2f;
@@ -124,27 +146,32 @@ public class JumpCircle extends Module {
             if (shadow > 0.001f) {
                 int shadowABGR = packShadow(progress, shadow);
                 float shadowScale = 1.3f + progress * 0.5f;
-                JumpCircleRenderer.drawShadowDecal(event.poseStack(),instance.x, groundY, instance.z,
+                JumpCircleRenderer.drawShadowDecal(event.poseStack(), instance.x, groundY, instance.z,
                         quadHalfSize * shadowScale, shadowABGR);
             }
 
             // Main ring
-            int ringABGR = packProgress(typeColor(instance.type, themeColor), progress);
-            JumpCircleRenderer.drawJumpCircle(event.poseStack(),instance.x, groundY, instance.z,
+            int ringABGR = packProgress(typeColor(instance.type), progress);
+            JumpCircleRenderer.drawJumpCircle(event.poseStack(), instance.x, groundY, instance.z,
                     quadHalfSize, ringABGR, instance.type.toRingType());
 
             return false;
         });
+
+        // Enforce circle cap (trim oldest if over limit)
+        while (activeCircles.size() > maxCirc) {
+            activeCircles.removeFirst();
+        }
     }
 
     // ── Colour packing ─────────────────────────────────────────
 
     /** Ring base colour (ARGB) per jump type. */
-    private static int typeColor(JumpType type, int themeColor) {
+    private int typeColor(JumpType type) {
         return switch (type) {
-            case TAKEOFF         -> themeColor;      // user-configured
-            case LANDING_NORMAL  -> 0xFFD0C8B8;      // gray-tan
-            case LANDING_HEAVY   -> 0xFFFF6622;      // orange-red
+            case TAKEOFF         -> ringColor.getColor();
+            case LANDING_NORMAL  -> normalLandingColor.getColor();
+            case LANDING_HEAVY   -> heavyLandingColor.getColor();
         };
     }
 

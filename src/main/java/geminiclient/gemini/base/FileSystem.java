@@ -252,6 +252,8 @@ public class FileSystem {
         moduleObject.put("category", module.getModuleEnum().name());
         moduleObject.put("enabled", module.enabled);
         moduleObject.put("key", module.key);
+        moduleObject.put("hudX", module.hudX);
+        moduleObject.put("hudY", module.hudY);
 
         // Module Values
         JSONArray valuesArray = new JSONArray();
@@ -408,6 +410,8 @@ public class FileSystem {
         if (moduleJson.has("key")) {
             module.key = moduleJson.getInt("key");
         }
+        module.hudX = moduleJson.optInt("hudX", 6);
+        module.hudY = moduleJson.optInt("hudY", 6);
 
         // Apply module values
         if (moduleJson.has("values")) {

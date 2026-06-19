@@ -30,9 +30,6 @@ repositories {
     mavenCentral()
     maven { url 'https://jitpack.io' }
     maven { url 'https://cursemaven.com' }
-    maven {
-        url "https://packages.jetbrains.team/maven/p/skija/maven"
-    }
     // Add here additional repositories if required by some of the dependencies below.
 }
 
@@ -107,9 +104,6 @@ dependencies {
     // Source: https://mvnrepository.com/artifact/org.json/json
     implementation 'org.json:json:20251224'
     jarJar 'org.json:json:20251224'
-// Source: https://mvnrepository.com/artifact/org.jetbrains.skija/skija-windows
-    implementation 'org.jetbrains.skija:skija-windows:0.93.6'
-    jarJar 'org.jetbrains.skija:skija-windows:0.93.6'
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
