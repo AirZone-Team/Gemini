@@ -1,15 +1,47 @@
-# 🚀 Gemimi Client 
+<div align="center">
 
-**开发者：XeBook**
+# 本客户端只作AI编程的学习作用
+
+不会也不打算更新任何反作弊的绕过
+
+</div>
+
+
+# 🚀 Gemimi Client | Minecraft 26.1.2 智能增强客户端
+
+**开发者：XeBook** | **专为 Minecraft 26.1.2 深度定制**  
 一款将 **Google Gemini 核心能力**与游戏运行时深度融合的智能客户端，为你带来**无与伦比的性能表现**与**决策级智能辅助**。
+
+## 性能与优化
+
+- 不使用任何的第三方渲染库(Skija,MCef)。
+- 使用GLSL进行GPU渲染2D及3D画面。
+- 外置ClickGui使用dart及Flutter编写与残留的C# WPF架构。
+
+## 🛠️ 快速开始  
+### 前置要求  
+- ✅ Minecraft 26.1.2 最新版  
+- ✅ Java [Java25]
+
+### 安装指引  
+1. 下载对应版本的 Gemimi Client  
+2. 将客户端文件放入 `.minecraft/mods` 目录（NeoForge）  
+3. 启动游戏
+
+### 重要提示  
+本工具为技术研究性质，使用可能涉及游戏规则风险。**XeBook及其团队不对因不当使用导致的账号封禁或其他后果负责**，请谨慎评估后使用。
 
 ---
 
-## ✨ 为什么选择 Gemimi Client？
-我们重新定义了「游戏辅助」—— 不止于功能叠加，而是通过 AI 重构游戏交互逻辑。Gemimi 以 **「低感知、高智能」** 为核心设计理念，让你在享受技术红利的同保持自然游戏体验。
+## 💬 社区与支持  
+- 📢 功能建议/BUG 反馈：[点击加入 Dev Discord 社区]  
+- 📊 进度追踪：关注 [XeBook 官方动态]获取最新更新  
 
-## 🧠 核心智能模块  
-基于 Gemini 大模型的深度赋能，Gemimi 提供三大核心能力矩阵：
+---
 
-本项目采用 [MIT 许可证] 欢迎提交 PR 改进代码或文档。  
-© 2025 XeBook Studio. 保留所有权利。
+## 📜 许可与贡献  
+因为[Espilon](https://github.com/NekoyaHouse/Epsilon)更换开源协议为GPL-3。
+
+所以本项目采用 [GPL-3 许可证] 欢迎提交 PR 改进代码或文档。  
+
+© 2025-2026 XeBook Studio. 保留所有权利。
