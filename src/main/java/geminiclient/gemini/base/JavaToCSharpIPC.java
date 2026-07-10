@@ -22,8 +22,19 @@ public class JavaToCSharpIPC {
     private static BufferedWriter csharpIn;
     private static BufferedReader csharpOut;
     private static JSONArray accountsList = new JSONArray();
-    static URL url = JavaToCSharpIPC.class.getClassLoader().getResource("publish/WpfApp1.exe");
+    static URL url = JavaToCSharpIPC.class.getClassLoader().getResource("debug/clickgui.exe");
     static ProcessBuilder pb = new ProcessBuilder(url != null ? url.getFile() : null);
+
+    /** 是否抑制 onChange 回调发往 C#（用于本地加载配置 / C#→Java 回传时避免回显） */
+    private static boolean suppressCallbacks = false;
+
+    public static boolean isSuppressCallbacks() {
+        return suppressCallbacks;
+    }
+
+    public static void setSuppressCallbacks(boolean suppress) {
+        suppressCallbacks = suppress;
+    }
     
     public static void startExe() {
         try {
@@ -47,7 +58,7 @@ public class JavaToCSharpIPC {
             String line;
             try {
                 while ((line = csharpOut.readLine()) != null) {
-                    System.out.println(csharpOut);
+                    System.out.println("line: " + line);
                     handleMessage(line);
                 }
             } catch (IOException e) {
@@ -195,10 +206,87 @@ public class JavaToCSharpIPC {
 
     private static void sendMessage(JSONObject msg) {
         try {
+            if (csharpIn == null) return;
             System.out.println("msg: " + msg.toString());
             csharpIn.write(msg + "\n");
             csharpIn.flush();
         } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // =========================================================================
+    // Delta 更新发送 — 仅在非抑制状态下发送增量变更
+    // =========================================================================
+
+    /** 模块开关变更时发送增量 */
+    public static void sendModuleUpdate(String moduleName, boolean enabled) {
+        if (suppressCallbacks) return;
+        try {
+            JSONObject msg = new JSONObject();
+            msg.put("type", "module_update");
+            msg.put("module", moduleName);
+            msg.put("enabled", enabled);
+            sendMessage(msg);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** 简单类型配置项变更时发送增量（bool / int / float / color / list index） */
+    public static void sendSettingUpdate(String moduleName, String settingName, Object value) {
+        if (suppressCallbacks) return;
+        try {
+            JSONObject msg = new JSONObject();
+            msg.put("type", "setting_update");
+            msg.put("module", moduleName);
+            msg.put("setting", settingName);
+            msg.put("value", value);
+            sendMessage(msg);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** 根据 ValueParent 类型自动构建增量消息并发送 */
+    public static void sendSettingUpdate(String moduleName, String settingName, ValueParent vp) {
+        if (suppressCallbacks) return;
+        try {
+            JSONObject msg = new JSONObject();
+            msg.put("type", "setting_update");
+            msg.put("module", moduleName);
+            msg.put("setting", settingName);
+
+            switch (vp) {
+                case BoolValue bv -> msg.put("value", bv.enabled);
+                case IntValue iv -> msg.put("value", iv.getValue());
+                case FloatValue fv -> msg.put("value", fv.getValue());
+                case ListValue lv -> msg.put("value", lv.index);
+                case IntRangeValue irv -> {
+                    msg.put("value", 0); // 占位
+                    msg.put("minValue", irv.getMinValue());
+                    msg.put("maxValue", irv.getMaxValue());
+                }
+                case FloatRangeValue frv -> {
+                    msg.put("value", 0f); // 占位
+                    msg.put("minValue", frv.getMinValue());
+                    msg.put("maxValue", frv.getMaxValue());
+                }
+                case ColorValue cv -> msg.put("value", cv.getColor());
+                case CheckboxValue chkv -> {
+                    JSONObject items = new JSONObject();
+                    for (BoolValue bv : chkv.boolValues) {
+                        items.put(bv.getName(), bv.enabled);
+                    }
+                    msg.put("value", items);
+                }
+                default -> {
+                    return; // 未知类型不发送
+                }
+            }
+
+            sendMessage(msg);
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -218,10 +306,13 @@ public class JavaToCSharpIPC {
                 String moduleName = msg.getString("module");
                 boolean enabled = msg.getBoolean("enabled");
                 applyModuleUpdate(moduleName, enabled);
-            } else if ("account_update".equals(type)) {
+            } else if ("account_update".equals(type) || msg.has("action")) {
+                // account_update: 标准 type 匹配
+                // msg.has("action"):   兼容 Dart 端不发送 type 的格式
                 handleAccountUpdate(msg);
             }
         } catch (Exception e) {
+            System.err.println("[IPC] Failed to handle message: " + json);
             e.printStackTrace();
         }
     }
@@ -293,12 +384,17 @@ public class JavaToCSharpIPC {
 
     private static void applyModuleUpdate(String moduleName, boolean enabled) {
         ModuleManager mm = Gemini.moduleManager;
-        mm.getModules().stream()
-                .filter(m -> m.getName().equalsIgnoreCase(moduleName))
-                .findFirst()
-                .ifPresent(module -> module.setEnabled(enabled));
+        // C#→Java 回传时抑制回显，避免死循环
+        suppressCallbacks = true;
+        try {
+            mm.getModules().stream()
+                    .filter(m -> m.getName().equalsIgnoreCase(moduleName))
+                    .findFirst()
+                    .ifPresent(module -> module.setEnabled(enabled));
+        } finally {
+            suppressCallbacks = false;
+        }
         Gemini.fileSystem.saveConfig();
-        // 如果 Module 类有 setEnabled 方法触发监听器，建议调用 setEnabled(enabled)
     }
 
     private static void applySettingUpdate(String moduleName, String settingName,
@@ -315,40 +411,44 @@ public class JavaToCSharpIPC {
                 .findFirst();
         if (valueOpt.isEmpty()) return;
 
-        ValueParent vp = valueOpt.get();
-        // 根据具体类型更新值
-        switch (vp) {
-            case BoolValue bv -> bv.enabled = (boolean) value;
-            case IntValue iv -> iv.setValue((int) value);
-            case FloatValue fv -> fv.setValue(((Number) value).floatValue());
-            case ListValue lv -> {
-                int idx = ((Number) value).intValue();
-                lv.setMode(lv.getList().get(idx)); // 需要根据实际 ListValue API 调整
-            }
-            case IntRangeValue irv -> {
-                if (fullMsg.has("minValue")) irv.setMinValue(fullMsg.getInt("minValue"));
-                if (fullMsg.has("maxValue")) irv.setMaxValue(fullMsg.getInt("maxValue"));
-            }
-            case FloatRangeValue frv -> {
-                if (fullMsg.has("minValue")) frv.setMinValue((float) fullMsg.getDouble("minValue"));
-                if (fullMsg.has("maxValue")) frv.setMaxValue((float) fullMsg.getDouble("maxValue"));
-            }
-            case CheckboxValue chkv -> {
-                JSONObject items = (JSONObject) value; // 实际是 JSONObject
-
-                for (String key : items.keySet()) {
-                    Arrays.stream(chkv.boolValues)
-                            .filter(bv -> bv.getName().equalsIgnoreCase(key))
-                            .findFirst()
-                            .ifPresent(bv -> bv.enabled = items.getBoolean(key));
+        // C#→Java 回传时抑制回显，避免死循环
+        suppressCallbacks = true;
+        try {
+            ValueParent vp = valueOpt.get();
+            // 根据具体类型更新值
+            switch (vp) {
+                case BoolValue bv -> bv.enabled = (boolean) value;
+                case IntValue iv -> iv.setValue((int) value);
+                case FloatValue fv -> fv.setValue(((Number) value).floatValue());
+                case ListValue lv -> {
+                    int idx = ((Number) value).intValue();
+                    lv.setMode(lv.getList().get(idx));
+                }
+                case IntRangeValue irv -> {
+                    if (fullMsg.has("minValue")) irv.setMinValue(fullMsg.getInt("minValue"));
+                    if (fullMsg.has("maxValue")) irv.setMaxValue(fullMsg.getInt("maxValue"));
+                }
+                case FloatRangeValue frv -> {
+                    if (fullMsg.has("minValue")) frv.setMinValue((float) fullMsg.getDouble("minValue"));
+                    if (fullMsg.has("maxValue")) frv.setMaxValue((float) fullMsg.getDouble("maxValue"));
+                }
+                case CheckboxValue chkv -> {
+                    JSONObject items = (JSONObject) value;
+                    for (String key : items.keySet()) {
+                        Arrays.stream(chkv.boolValues)
+                                .filter(bv -> bv.getName().equalsIgnoreCase(key))
+                                .findFirst()
+                                .ifPresent(bv -> bv.enabled = items.getBoolean(key));
+                    }
+                }
+                case ColorValue cv -> cv.setColor(((Number) value).intValue());
+                default -> {
                 }
             }
-            case ColorValue cv -> cv.setColor(((Number) value).intValue());
-            default -> {
-            }
+        } finally {
+            suppressCallbacks = false;
         }
         Gemini.fileSystem.saveConfig();
-        // 必要时通知模块/UI 刷新（如果有观察者模式）
     }
 
     // 程序退出时关闭进程

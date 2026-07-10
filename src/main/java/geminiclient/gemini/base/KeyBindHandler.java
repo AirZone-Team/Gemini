@@ -31,7 +31,7 @@ public class KeyBindHandler {
         }
         if (triggered) {
             lastTriggerTime = currentTime;
-            JavaToCSharpIPC.toCS(Gemini.moduleManager);
+            // 不发送全量快照 — module.toggle() → setEnabled() 已自动发送 module_update 增量
         }
     }
 }

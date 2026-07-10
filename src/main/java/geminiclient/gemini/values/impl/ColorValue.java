@@ -31,5 +31,6 @@ public class ColorValue extends ValueParent {
 
     public void setColor(int color) {
         this.color = color;
+        notifyChange();
     }
 }

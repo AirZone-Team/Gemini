@@ -25,4 +25,10 @@ public class BoolValue extends ValueParent {
         super(name,booleanSupplier);
         this.enabled = b;
     }
+
+    /** 通过 setter 修改值，会触发 onChange 回调。推荐替代直接字段赋值。 */
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+        notifyChange();
+    }
 }

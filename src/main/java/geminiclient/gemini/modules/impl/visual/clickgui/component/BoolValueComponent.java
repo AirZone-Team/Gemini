@@ -55,7 +55,7 @@ public class BoolValueComponent extends ValueComponent {
         BoolValue boolValue = (BoolValue) this.value;
 
         if (isHovered(mouseX, mouseY) && button == 0) {
-            boolValue.enabled = !boolValue.enabled;
+            boolValue.setEnabled(!boolValue.enabled);
             return true;
         }
         return false;

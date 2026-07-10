@@ -33,5 +33,6 @@ public class FloatValue extends ValueParent {
     public void setValue(float value) {
         // 确保值在范围内
         this.value = Math.max(min, Math.min(max, value));
+        notifyChange();
     }
 }

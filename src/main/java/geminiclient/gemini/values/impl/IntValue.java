@@ -33,5 +33,6 @@ public class IntValue extends ValueParent {
     public void setValue(int value) {
         // 确保值在范围内
         this.value = Math.max(min, Math.min(max, value));
+        notifyChange();
     }
 }

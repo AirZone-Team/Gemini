@@ -40,6 +40,7 @@ public class IntRangeValue extends ValueParent {
         int boundedValue = Math.max(min, Math.min(max, value));
         // 2. 确保不大于当前的最大值
         this.minValue = Math.min(boundedValue, maxValue);
+        notifyChange();
     }
 
     public void setMaxValue(int value) {
@@ -47,5 +48,6 @@ public class IntRangeValue extends ValueParent {
         int boundedValue = Math.max(min, Math.min(max, value));
         // 2. 确保不小于当前的最小值
         this.maxValue = Math.max(boundedValue, minValue);
+        notifyChange();
     }
 }

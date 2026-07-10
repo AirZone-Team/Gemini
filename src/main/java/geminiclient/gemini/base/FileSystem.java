@@ -2,6 +2,7 @@ package geminiclient.gemini.base;
 
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.JavaToCSharpIPC;
 import geminiclient.gemini.event.events.impl.ShutdownEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleManager;
@@ -376,17 +377,23 @@ public class FileSystem {
             return;
         }
 
-        JSONArray modulesArray = configRoot.getJSONArray("modules");
-        int loadedCount = 0;
+        // 加载配置时抑制 IPC 回调，避免模块/值变更时误发增量到 C#
+        JavaToCSharpIPC.setSuppressCallbacks(true);
+        try {
+            JSONArray modulesArray = configRoot.getJSONArray("modules");
+            int loadedCount = 0;
 
-        for (int i = 0; i < modulesArray.length(); i++) {
-            JSONObject moduleJson = modulesArray.getJSONObject(i);
-            if (applyModuleConfig(moduleJson)) {
-                loadedCount++;
+            for (int i = 0; i < modulesArray.length(); i++) {
+                JSONObject moduleJson = modulesArray.getJSONObject(i);
+                if (applyModuleConfig(moduleJson)) {
+                    loadedCount++;
+                }
             }
-        }
 
-        LOGGER.info("Applied configuration to " + loadedCount + " modules");
+            LOGGER.info("Applied configuration to " + loadedCount + " modules");
+        } finally {
+            JavaToCSharpIPC.setSuppressCallbacks(false);
+        }
     }
 
     /**

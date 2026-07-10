@@ -49,7 +49,8 @@ public class ModuleManager {
                 new SkyLantern(),
                 new Radar(),
                 new Trajectories(),
-                new TargetDisplay()
+                new TargetDisplay(),
+                new KillEffect()
         );
     }
 

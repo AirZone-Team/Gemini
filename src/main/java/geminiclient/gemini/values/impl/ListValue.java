@@ -44,6 +44,7 @@ public class ListValue extends ValueParent {
 
     public void setMode(String mode) {
         this.index = list.indexOf(mode);
+        notifyChange();
     }
 
     public boolean is(String mode) {
@@ -60,6 +61,7 @@ public class ListValue extends ValueParent {
         } else {
             index = 0;
         }
+        notifyChange();
     }
 
     public void decrement() {
@@ -68,6 +70,7 @@ public class ListValue extends ValueParent {
         } else {
             index = list.size() - 1;
         }
+        notifyChange();
     }
 
     public void setList(String[] newList) {

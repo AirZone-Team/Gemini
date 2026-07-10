@@ -3,6 +3,8 @@ package geminiclient.gemini.customRenderer.glsl;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import geminiclient.gemini.customRenderer.glsl.modules.JumpCircleRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.KillAuraIndicatorRenderer;
+import geminiclient.gemini.customRenderer.glsl.modules.KillEffectPostProcessor;
+import geminiclient.gemini.customRenderer.glsl.modules.KillEffectRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.SkyLanternRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.TargetDisplayRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.TrajectoriesRenderer;
@@ -37,6 +39,8 @@ public final class CustomRendererRegistry {
         CustomBlurRenderer.registerPipeline(registry);
         JumpCircleRenderer.registerPipeline(registry);
         KillAuraIndicatorRenderer.registerPipeline(registry);
+        KillEffectRenderer.registerPipeline(registry);
+        KillEffectPostProcessor.registerPipeline(registry);
         SkyLanternRenderer.registerPipeline(registry);
         TargetDisplayRenderer.registerPipeline(registry);
         TrajectoriesRenderer.registerPipeline(registry);
