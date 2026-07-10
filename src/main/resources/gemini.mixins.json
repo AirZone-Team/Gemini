@@ -16,6 +16,7 @@
     "access.AccessServerboundMovePlayerPacket"
   ],
   "client": [
+    "MixinCamera",
     "MixinEntityRenderer",
     "MixinGameRenderer",
     "MixinItemEntityRenderer",
