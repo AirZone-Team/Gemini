@@ -6,6 +6,7 @@ import geminiclient.gemini.customRenderer.glsl.modules.KillEffectInstance;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectPostProcessor;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.impl.visual.KillEffect;
+import geminiclient.gemini.modules.impl.visual.SweepingAttackVFX;
 import geminiclient.gemini.modules.impl.visual.FullLight;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
@@ -158,12 +159,42 @@ public class MixinGameRenderer {
             bhIntensity = 0f;
         }
 
+        // ── Light source position for depth-aware passes ─────────
+        // Glow sphere is at hypernova center, raised 2.5 blocks (same as drawHypernova)
+        float[] lightWorldPos = null;
+        float[] lightColor = null;
+        float ssrIntensity = 0f;
+        int volumetricSteps = 16;
+
+        // Activate depth-aware lighting during black hole + hypernova stages
+        if (center != null && stage >= KillEffectInstance.STAGE_BLACK_HOLE
+                && stage <= KillEffectInstance.STAGE_AFTERGLOW) {
+            lightWorldPos = new float[]{
+                (float) center[0],
+                (float) center[1] + 2.5f, // raised to hypernova glow ball height
+                (float) center[2],
+                48f  // light radius in blocks
+            };
+            lightColor = new float[]{1.0f, 0.85f, 0.55f, 1.0f};
+            ssrIntensity = (stage == KillEffectInstance.STAGE_HYPERNOVA
+                    || stage == KillEffectInstance.STAGE_FLASH) ? 0.7f : 0f;
+            volumetricSteps = 16;
+        }
+
         KillEffectPostProcessor.processFrame(
                 bloom * globalFadeIn, 0.35f,
                 distort * globalFadeIn, godRay * globalFadeIn,
                 chromatic * globalFadeIn, radius * globalFadeIn,
                 center, null,
-                bhStage, bhProgress, bhIntensity);
+                bhStage, bhProgress, bhIntensity,
+                lightWorldPos, lightColor,
+                ssrIntensity, volumetricSteps);
+
+        // ── Sweep Attack post-processing (distortion + chromatic) ──
+        SweepingAttackVFX sweep = Gemini.moduleManager.getModule(SweepingAttackVFX.class);
+        if (sweep != null && sweep.enabled && sweep.hasActiveEffects()) {
+            sweep.processPost();
+        }
     }
 
     @Inject(method = "getNightVisionScale", at = @At("HEAD"), cancellable = true)

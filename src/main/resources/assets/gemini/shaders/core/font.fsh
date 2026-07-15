@@ -1,5 +1,15 @@
 #version 330
 
+// SDF (Signed Distance Field) font fragment shader.
+//
+// The atlas stores distance values in the R channel:
+//   0.0   = far outside the glyph
+//   0.5   = exactly on the glyph edge
+//   1.0   = at the glyph center
+//
+// smoothstep + fwidth() provides resolution-independent anti-aliasing:
+// glyphs stay crisp at any zoom level — from 8px to 512px+.
+
 uniform sampler2D Sampler0;
 
 layout(std140) uniform DynamicTransforms {
@@ -15,13 +25,21 @@ in vec2 texCoord;
 out vec4 fragColor;
 
 void main() {
-    // 1. 获取从 Java 端生成的标准字体位图纹理颜色
-    vec4 texel = texture(Sampler0, texCoord);
+    float dist = texture(Sampler0, texCoord).r;
 
-    // 2. 标准的栅格化字体渲染：直接将纹理颜色与顶点颜色进行乘法混合
-    vec4 color = texel * vertexColor * ColorModulator;
+    float smoothing = fwidth(dist);
 
-    // 3. 丢弃几乎完全透明的像素以优化性能
+    float alpha =
+        smoothstep(
+            0.45 - smoothing,
+            0.45 + smoothing,
+            dist
+        );
+
+    // Apply vertex color (includes per-character tint/gradient)
+    vec4 color = vec4(vertexColor.rgb, vertexColor.a * alpha) * ColorModulator;
+
+    // Discard fully transparent pixels for early-Z optimization
     if (color.a < 0.004) {
         discard;
     }

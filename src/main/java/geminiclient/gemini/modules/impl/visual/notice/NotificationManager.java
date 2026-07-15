@@ -2,7 +2,7 @@ package geminiclient.gemini.modules.impl.visual.notice;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
-import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomAcrylicRenderer;
 import geminiclient.gemini.modules.Module;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.util.Mth;
@@ -160,9 +160,10 @@ public class NotificationManager {
             int currentTint = (currentAlpha << 24) | 0x141414;
 
             if (currentBlurHeight > 0.5f && currentAlpha > 0) {
-                CustomBlurRenderer.render(exitBlurStartX, currentBlurY,
-                        exitBlurStartWidth, currentBlurHeight,
-                        4f, currentTint, 12f);
+                CustomAcrylicRenderer.drawFrostedRoundedRect(guiGraphics,
+                        (int) exitBlurStartX, (int) currentBlurY,
+                        (int) exitBlurStartWidth, (int) currentBlurHeight,
+                        4, currentTint, 0.03f);
             }
 
             if (exitBlurProgress >= 1.0f) {
@@ -171,8 +172,10 @@ public class NotificationManager {
             }
         } else if (!notifications.isEmpty()) {
             // 常规渲染：只有列表非空时才绘制模糊
-            CustomBlurRenderer.render(blurX, blurY, blurWidth, blurHeight,
-                    4f, 0xD9141414, 12f);
+            CustomAcrylicRenderer.drawFrostedRoundedRect(guiGraphics,
+                    (int) blurX, (int) blurY,
+                    (int) blurWidth, (int) blurHeight,
+                    4, 0xD9141414, 0.03f);
         }
 
         // 【修复】空列表时不再立即掐断退场动画，而是让动画自然完结

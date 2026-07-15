@@ -4,40 +4,53 @@
 //  KillEffect Post-Processing — multi-pass fragment shader
 //
 //  Compile-time defines select the active pass:
-//    BRIGHT_PASS   — luminance threshold → bloom source
-//    BLUR_H        — separable horizontal gaussian blur
-//    BLUR_V        — separable vertical gaussian blur
-//    DISTORTION    — screen-space heat distortion
-//    GODRAY        — screen-space radial blur from effect centers
-//    CHROMATIC     — RGB channel separation (chromatic aberration)
-//    BLACK_HOLE    — Screen-space black hole center: event horizon, photon
-//                    ring (HDR), accretion disk (ray-marched), gravitational
-//                    lensing, photon sphere glow, alpha=1 override
-//    GLOW_FLASH    — Supernova pre-flash: bright pulsing central spot with
-//                    expanding halo, flicker envelope, blue/purple color ramp
-//    SHOCKWAVE     — Expanding concentric shock rings: UV distortion + blue
-//                    shift at wave crests, bipolar stretch along Y axis
-//    ACES          — ACES filmic tone mapping (Narkowicz 2015 fit)
+//    BRIGHT_PASS          — luminance threshold → bloom source
+//    BRIGHT_PASS_EDGE     — enhanced BRIGHT_PASS with depth-edge detection
+//    BLUR_H               — separable horizontal gaussian blur
+//    BLUR_V               — separable vertical gaussian blur
+//    DISTORTION           — screen-space heat distortion
+//    GODRAY               — screen-space radial blur from effect centers
+//    VOLUMETRIC_GODRAY    — ray-marched volumetric god rays (depth-aware)
+//    CHROMATIC            — RGB channel separation (chromatic aberration)
+//    SCREEN_LIGHTING      — screen-space dynamic lighting from glow sphere
+//    SSRT                 — screen-space ray-traced reflections
+//    BLACK_HOLE           — Screen-space black hole center: event horizon, photon
+//                           ring (HDR), accretion disk (ray-marched), gravitational
+//                           lensing, photon sphere glow, alpha=1 override
+//    GLOW_FLASH           — Supernova pre-flash: bright pulsing central spot
+//    SHOCKWAVE            — Expanding concentric shock rings
+//    FLASH_SCREEN         — Full-screen white flash overlay
+//    AFTERIMAGE           — Temporal motion trail blending
+//    ACES                 — ACES filmic tone mapping (Narkowicz 2015 fit)
 //
-//  Uniforms (PostUniforms, std140):
+//  Uniforms (PostUniforms, std140, 160 bytes = 10 × vec4):
 //    vec4 Params:       x=fbWidth, y=fbHeight, z=bloomStrength, w=threshold
-//    vec4 TimePack:     x=time(sec), yzw=unused
-//    vec4 Center1:      xy=effect center NDC (-1..1), zw=unused
+//    vec4 TimePack:     x=time(sec), y=frameIndex, zw=unused
+//    vec4 Center1:      xy=effect center NDC (-1..1), z=worldDist, w=unused
 //    vec4 Center2:      xy=secondary center NDC, zw=unused
 //    vec4 PassParams:   x=distortionStrength, y=godRayStrength,
 //                       z=chromaticStrength, w=bloomRadius
+//    vec4 BHParams:     x=bhRadiusUV, y=stage, z=progress, w=intensity
+//    vec4 CameraParams: x=FOV(rad), y=aspect, z=near, w=far
+//    vec4 LightViewPos: xyz=light pos (view space), w=radius
+//    vec4 LightColor:   rgb=light color, a=intensity
+//    vec4 MiscParams:   x=ssrIntensity, y=volumetricSteps, zw=unused
 // ═══════════════════════════════════════════════════════════════════
 
 uniform sampler2D SceneSampler;
 uniform sampler2D BloomSampler;
 
 layout(std140) uniform PostUniforms {
-    vec4 Params;       // xy=fbRes, z=bloomStrength, w=threshold
-    vec4 TimePack;     // x=time (sec)
-    vec4 Center1;      // xy=effectCenter1 NDC
-    vec4 Center2;      // xy=effectCenter2 NDC
-    vec4 PassParams;   // x=distort, y=godRay, z=chromatic, w=bloomRadius
-    vec4 BHParams;     // x=bhRadius(UV), y=stage, z=progress, w=intensity
+    vec4 Params;        // xy=fbRes, z=bloomStrength, w=threshold    [0..15]
+    vec4 TimePack;      // x=time(sec), y=frameIndex                  [16..31]
+    vec4 Center1;       // xy=effectCenter1 NDC                       [32..47]
+    vec4 Center2;       // xy=effectCenter2 NDC                       [48..63]
+    vec4 PassParams;    // x=distort, y=godRay, z=chromatic, w=bloomRad [64..79]
+    vec4 BHParams;      // x=bhRadiusUV, y=stage, z=progress, w=intensity [80..95]
+    vec4 CameraParams;  // x=FOV(rad), y=aspect, z=near, w=far        [96..111]
+    vec4 LightViewPos;  // xyz=light pos (view space), w=radius       [112..127]
+    vec4 LightColor;    // rgb=color, w=intensity                     [128..143]
+    vec4 MiscParams;    // x=ssrIntensity, y=volumetricSteps           [144..159]
 };
 
 in vec2 vUv;
@@ -52,6 +65,12 @@ float luminance(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 vec3 aces(vec3 x) {
     float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+// ── Shared hash ──────────────────────────────────────────────────
+
+float postHash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -73,6 +92,74 @@ void main() {
     float bright = w * max(lum - t, 0.0) / max(lum, 0.001);
 
     fragColor = vec4(color * bright, 1.0);
+}
+
+#endif
+
+// ══════════════════════════════════════════════════════════════════
+//  Pass 1b: Bright Extract (depth-edge enhanced)
+//  In:  SceneSampler (scene), DepthSampler (depth)
+//  Out: fragColor (bright pixels + edge-enhanced regions)
+//
+//  Extends BRIGHT_PASS with depth discontinuity detection.
+//  Objects near the light source get edge glow even if their
+//  raw luminance is below threshold, simulating rim lighting
+//  from the glow sphere.
+// ══════════════════════════════════════════════════════════════════
+
+#ifdef BRIGHT_PASS_EDGE
+
+uniform sampler2D DepthSampler;
+
+void main() {
+    vec3 color = texture(SceneSampler, vUv).rgb;
+    float depth = texture(DepthSampler, vUv).r;
+
+    float lum = luminance(color);
+    float t = Params.w;
+    float knee = 0.08;
+
+    // Standard soft-knee threshold
+    float w = clamp((lum - t + knee) / (2.0 * knee), 0.0, 1.0);
+    float bright = w * max(lum - t, 0.0) / max(lum, 0.001);
+
+    // ── Depth edge detection (Sobel 3×3) ────────────────────────
+    vec2 ts = vec2(1.0 / Params.x, 1.0 / Params.y);
+
+    float dTL = texture(DepthSampler, vUv + vec2(-ts.x,  ts.y)).r;
+    float dT  = texture(DepthSampler, vUv + vec2( 0.0,   ts.y)).r;
+    float dTR = texture(DepthSampler, vUv + vec2( ts.x,  ts.y)).r;
+    float dL  = texture(DepthSampler, vUv + vec2(-ts.x,   0.0)).r;
+    float dR  = texture(DepthSampler, vUv + vec2( ts.x,   0.0)).r;
+    float dBL = texture(DepthSampler, vUv + vec2(-ts.x,  -ts.y)).r;
+    float dB  = texture(DepthSampler, vUv + vec2( 0.0,  -ts.y)).r;
+    float dBR = texture(DepthSampler, vUv + vec2( ts.x,  -ts.y)).r;
+
+    float gx = -dTL - 2.0*dL - dBL + dTR + 2.0*dR + dBR;
+    float gy = -dTL - 2.0*dT - dTR + dBL + 2.0*dB + dBR;
+    float edge = sqrt(gx*gx + gy*gy);
+
+    // ── Proximity to light source in screen space ────────────────
+    vec2 lightNDC = Center1.xy;  // already NDC [-1,1]
+    vec2 ndc = vUv * 2.0 - 1.0;
+    float distToLight = length(ndc - lightNDC);
+    float proximity = exp(-distToLight * 2.8);
+
+    // ── Edge boost ──────────────────────────────────────────────
+    float edgeBoost = edge * 3.5 * proximity;
+    float enhancedBright = bright + edgeBoost * 0.25;
+
+    // Fade edge boost by depth (distant edges produce less glow)
+    float depthFade = 1.0 - smoothstep(0.85, 1.0, depth);
+    enhancedBright += edge * 1.5 * proximity * depthFade * 0.1;
+
+    enhancedBright = clamp(enhancedBright, 0.0, 3.0);
+
+    // Subtle blue shift at edges (Fresnel-like)
+    vec3 edgeColor = vec3(0.4, 0.6, 1.0);
+    color = mix(color, color + edgeColor * 0.08, edge * proximity * 0.4 * depthFade);
+
+    fragColor = vec4(color * enhancedBright, 1.0);
 }
 
 #endif
@@ -254,6 +341,144 @@ void main() {
 #endif
 
 // ══════════════════════════════════════════════════════════════════
+//  Pass 4b: Volumetric God Rays (ray-marched, depth-aware)
+//  In:  SceneSampler (composited HDR scene), DepthSampler (depth)
+//  Out: fragColor (scene + volumetric light shafts)
+//
+//  Replaces screen-space radial blur with true ray-marching
+//  along the view direction toward the 3D light position.
+//  Density accumulates via Beer's law through a spherical
+//  volume centered on the light source.  Depth buffer provides
+//  correct integration bounds — rays terminate at surfaces.
+//
+//  Algorithm:
+//    1. Reconstruct view-space position from depth + UV
+//    2. Step along the ray from camera toward the light source
+//    3. At each step: compute density (Gaussian around light sphere)
+//    4. Accumulate in-scattered light × phase function × transmittance
+//    5. Composite result over the scene
+//
+//  Performance: 16 steps (configurable via MiscParams.y)
+// ══════════════════════════════════════════════════════════════════
+
+#ifdef VOLUMETRIC_GODRAY
+
+uniform sampler2D DepthSampler;
+
+// ── Reconstruct view-space position from depth + UV ──────────────
+// Returns position in camera-basis view space:
+//   X = camera right, Y = camera up, Z = camera forward (positive)
+vec3 viewPosFromDepth(vec2 uv, float depth) {
+    float fov   = CameraParams.x;
+    float aspect = CameraParams.y;
+    float near  = CameraParams.z;
+    float far   = CameraParams.w;
+
+    // NDC [-1,1]
+    float ndcX = uv.x * 2.0 - 1.0;
+    float ndcY = uv.y * 2.0 - 1.0;
+    float ndcZ = depth * 2.0 - 1.0;
+
+    // Reconstruct linear view-space Z (camera-forward distance)
+    float viewZ = 2.0 * far * near / ((far + near) - ndcZ * (far - near));
+
+    float halfFovTan = tan(fov * 0.5);
+    float viewX = ndcX * viewZ * aspect * halfFovTan;
+    float viewY = ndcY * viewZ * halfFovTan;
+
+    return vec3(viewX, viewY, viewZ);
+}
+
+// Henyey-Greenstein phase function (forward-scattering bias)
+float phaseHG(float cosTheta, float g) {
+    float g2 = g * g;
+    float denom = 1.0 + g2 - 2.0 * g * cosTheta;
+    return (1.0 - g2) / (4.0 * 3.14159265 * denom * sqrt(denom));
+}
+
+void main() {
+    float strength = PassParams.y;
+    vec3 scene = texture(SceneSampler, vUv).rgb;
+    float depth = texture(DepthSampler, vUv).r;
+
+    if (strength < 0.01) {
+        fragColor = vec4(scene, 1.0);
+        return;
+    }
+
+    // ── Reconstruct view-space position ──────────────────────────
+    vec3 viewPos = viewPosFromDepth(vUv, depth);
+
+    // ── Light position (view space) ─────────────────────────────
+    vec3 lightPos = LightViewPos.xyz;
+    float lightRadius = LightViewPos.w;
+
+    vec3 toLight = lightPos - viewPos;
+    float distToLight = length(toLight);
+    vec3 lightDir = toLight / max(distToLight, 0.001);
+
+    if (distToLight > lightRadius * 4.0) {
+        // Too far from light source — skip for performance
+        fragColor = vec4(scene, 1.0);
+        return;
+    }
+
+    // ── Ray march ───────────────────────────────────────────────
+    int steps = int(MiscParams.y);
+    steps = clamp(steps, 8, 32);
+    float stepSize = distToLight / float(steps);
+
+    // Jitter start position to reduce banding
+    float jitter = postHash(vUv + fract(TimePack.x)) * stepSize;
+    float t = jitter;
+
+    vec3 accumulated = vec3(0.0);
+    float transmittance = 1.0;
+
+    for (int i = 0; i < 32; i++) {
+        if (i >= steps) break;
+
+        vec3 samplePos = viewPos + lightDir * t;
+        float d = length(lightPos - samplePos);
+
+        // Density: Gaussian peak at light center, zero outside radius
+        float density = exp(-d * d / (lightRadius * lightRadius * 0.25));
+
+        if (density > 0.002) {
+            // Beer's law absorption + out-scattering
+            float absorption = density * stepSize * 0.12;
+            transmittance *= exp(-absorption);
+
+            // Phase function (forward-scattering g=0.65)
+            float cosTheta = dot(normalize(-viewPos), lightDir);
+            float phase = phaseHG(cosTheta, 0.65);
+
+            // In-scattered radiance from light source
+            vec3 lightContrib = LightColor.rgb * LightColor.w
+                / (1.0 + d * d * 0.0008);
+
+            float scatterCoeff = density * stepSize * phase * transmittance * 0.025;
+            accumulated += lightContrib * scatterCoeff;
+        }
+
+        t += stepSize;
+        if (t > distToLight) break;
+    }
+
+    // ── Composite ───────────────────────────────────────────────
+    vec3 godRays = accumulated * strength;
+
+    // Warmer color near the light source
+    float glowProximity = exp(-distToLight / (lightRadius * 1.5));
+    godRays = mix(godRays, godRays * LightColor.rgb, glowProximity * 0.4);
+
+    // Screen-blend with scene (1 - (1-scene)(1-godRays) ≈ scene + godRays)
+    fragColor = vec4(scene + godRays, 1.0);
+}
+
+#endif
+
+// ══════════════════════════════════════════════════════════════════
 //  Pass 5: Chromatic Aberration
 //  In:  SceneSampler
 //  Out: fragColor (RGB-separated)
@@ -275,6 +500,338 @@ void main() {
     float b = texture(SceneSampler, vUv - dir * scale).b;
 
     fragColor = vec4(r, g, b, 1.0);
+}
+
+#endif
+
+// ══════════════════════════════════════════════════════════════════
+//  Pass 5b: Screen-Space Dynamic Lighting
+//  In:  SceneSampler (composited HDR scene), DepthSampler (depth)
+//  Out: fragColor (scene with dynamic light contribution)
+//
+//  Simulates the glow sphere illuminating nearby blocks and entities
+//  without modifying Minecraft's lightmaps.  Reconstructs view-space
+//  position and screen-space normals from the depth buffer, then
+//  applies N·L diffuse lighting, inverse-square attenuation, and
+//  specular highlights for physically-plausible lighting.
+//
+//  This is purely visual — run as a post-processing pass — but
+//  produces convincing illumination of the scene by the light.
+// ══════════════════════════════════════════════════════════════════
+
+#ifdef SCREEN_LIGHTING
+
+uniform sampler2D DepthSampler;
+
+// Reconstruct view-space position (shared with VOLUMETRIC_GODRAY)
+vec3 slViewPosFromDepth(vec2 uv, float depth) {
+    float fov    = CameraParams.x;
+    float aspect = CameraParams.y;
+    float near   = CameraParams.z;
+    float far    = CameraParams.w;
+    float ndcX = uv.x * 2.0 - 1.0;
+    float ndcY = uv.y * 2.0 - 1.0;
+    float ndcZ = depth * 2.0 - 1.0;
+    float viewZ = 2.0 * far * near / ((far + near) - ndcZ * (far - near));
+    float halfFovTan = tan(fov * 0.5);
+    float viewX = ndcX * viewZ * aspect * halfFovTan;
+    float viewY = ndcY * viewZ * halfFovTan;
+    return vec3(viewX, viewY, viewZ);
+}
+
+// Reconstruct screen-space normal from depth gradients
+vec3 screenSpaceNormal(vec2 uv, float depth, vec3 viewPos) {
+    vec2 ts = vec2(1.0 / Params.x, 1.0 / Params.y);
+
+    // Reconstruct neighbors' view-space positions
+    vec3 posR = slViewPosFromDepth(uv + vec2(ts.x, 0.0),
+                    texture(DepthSampler, uv + vec2(ts.x, 0.0)).r);
+    vec3 posL = slViewPosFromDepth(uv - vec2(ts.x, 0.0),
+                    texture(DepthSampler, uv - vec2(ts.x, 0.0)).r);
+    vec3 posU = slViewPosFromDepth(uv + vec2(0.0, ts.y),
+                    texture(DepthSampler, uv + vec2(0.0, ts.y)).r);
+    vec3 posD = slViewPosFromDepth(uv - vec2(0.0, ts.y),
+                    texture(DepthSampler, uv - vec2(0.0, ts.y)).r);
+
+    // Check for depth discontinuities (object boundaries)
+    float maxDz = max(
+        max(abs(posR.z - viewPos.z), abs(posL.z - viewPos.z)),
+        max(abs(posU.z - viewPos.z), abs(posD.z - viewPos.z))
+    );
+
+    // At large depth jumps, fall back to camera-facing normal
+    if (maxDz > 8.0) {
+        return vec3(0.0, 0.0, -1.0);
+    }
+
+    vec3 dx = normalize(posR - posL);
+    vec3 dy = normalize(posU - posD);
+    vec3 n = normalize(cross(dx, dy));
+
+    // Ensure normal faces the camera
+    if (dot(n, vec3(0.0, 0.0, -1.0)) < 0.0) n = -n;
+
+    return n;
+}
+
+void main() {
+    vec3 lightPos = LightViewPos.xyz;
+    float lightRadius = LightViewPos.w;
+    vec3 lightCol = LightColor.rgb;
+    float intensity = LightColor.w;
+
+    vec3 scene = texture(SceneSampler, vUv).rgb;
+    float depth = texture(DepthSampler, vUv).r;
+
+    // ── Sky / far geometry: only subtle ambient ──────────────────
+    if (depth >= 0.999) {
+        float ambientDist = length(vUv - Center1.xy * 0.5 - 0.5);
+        float ambient = exp(-ambientDist * 2.5) * intensity * 0.04;
+        fragColor = vec4(scene + lightCol * ambient, 1.0);
+        return;
+    }
+
+    // ── Reconstruct view-space position ──────────────────────────
+    vec3 viewPos = slViewPosFromDepth(vUv, depth);
+
+    // ── Distance to light ────────────────────────────────────────
+    vec3 toLight = lightPos - viewPos;
+    float dist = length(toLight);
+    vec3 L = toLight / max(dist, 0.001);
+
+    // ── Distance attenuation ─────────────────────────────────────
+    // Inverse-square with linear term for stability
+    float atten = 1.0 / (1.0 + dist * 0.09 + dist * dist * 0.032);
+    float cutoff = 1.0 - smoothstep(lightRadius * 0.6, lightRadius, dist);
+    atten *= cutoff;
+
+    if (atten < 0.002) {
+        fragColor = vec4(scene, 1.0);
+        return;
+    }
+
+    // ── Screen-space normal ──────────────────────────────────────
+    vec3 N = screenSpaceNormal(vUv, depth, viewPos);
+
+    // ── Diffuse (N·L, half-Lambert) ──────────────────────────────
+    float NdotL = max(dot(N, L), 0.0);
+    float halfLambert = NdotL * 0.5 + 0.5;
+    halfLambert = halfLambert * halfLambert;
+
+    // ── Specular (Blinn-Phong) ───────────────────────────────────
+    vec3 V = normalize(vec3(0.0, 0.0, 1.0)); // view dir in camera-basis
+    vec3 H = normalize(L + V);
+    float specular = pow(max(dot(N, H), 0.0), 32.0);
+
+    // ── Light contribution ───────────────────────────────────────
+    vec3 lightContrib = lightCol * intensity * atten * halfLambert;
+    lightContrib += lightCol * specular * atten * intensity * 0.35;
+
+    // Ambient bounce (simulate 1-bounce indirect)
+    lightContrib += lightCol * intensity * atten * 0.06;
+
+    // ── Composite: additive blend ────────────────────────────────
+    // Soft clamp to prevent extreme HDR blowout in bloom
+    vec3 lit = scene + lightContrib;
+    float sceneLum = luminance(scene);
+    float litLum = luminance(lit);
+    if (litLum > 8.0 && litLum > sceneLum * 3.0) {
+        lit = mix(lit, scene, smoothstep(8.0, 15.0, litLum));
+    }
+
+    fragColor = vec4(lit, 1.0);
+}
+
+#endif
+
+// ══════════════════════════════════════════════════════════════════
+//  Pass 5c: Screen-Space Ray-Traced Reflections (SSRT)
+//  In:  SceneSampler (composited HDR scene), DepthSampler (depth)
+//  Out: fragColor (scene + indirect illumination via reflections)
+//
+//  Traces reflected view rays through screen space to simulate
+//  indirect lighting.  For each pixel:
+//    1. Reconstruct view-space position and normal
+//    2. Reflect view direction about the normal
+//    3. March along the reflected ray in view space
+//    4. Project each step to screen space, check depth collision
+//    5. On hit: sample scene color, apply Fresnel + distance falloff
+//
+//  Active only near the light source (hypernova stages 7-8)
+//  where indirect illumination is visually significant.
+//
+//  Performance: 32 steps with adaptive step size.
+// ══════════════════════════════════════════════════════════════════
+
+#ifdef SSRT
+
+uniform sampler2D DepthSampler;
+
+// Reconstruct view-space position (shared)
+vec3 ssrtViewPosFromDepth(vec2 uv, float depth) {
+    float fov    = CameraParams.x;
+    float aspect = CameraParams.y;
+    float near   = CameraParams.z;
+    float far    = CameraParams.w;
+    float ndcX = uv.x * 2.0 - 1.0;
+    float ndcY = uv.y * 2.0 - 1.0;
+    float ndcZ = depth * 2.0 - 1.0;
+    float viewZ = 2.0 * far * near / ((far + near) - ndcZ * (far - near));
+    float halfFovTan = tan(fov * 0.5);
+    float viewX = ndcX * viewZ * aspect * halfFovTan;
+    float viewY = ndcY * viewZ * halfFovTan;
+    return vec3(viewX, viewY, viewZ);
+}
+
+// Project view-space position → screen-space UV + expected depth
+// Returns false if the point is behind the camera or off-screen
+bool projectToScreen(vec3 pos, out vec2 screenUV, out float expectedDepth) {
+    float fov    = CameraParams.x;
+    float aspect = CameraParams.y;
+    float near   = CameraParams.z;
+    float far    = CameraParams.w;
+
+    float viewZ = pos.z;
+    if (viewZ < near) return false;
+
+    float halfFovTan = tan(fov * 0.5);
+    float ndcX = pos.x / (viewZ * aspect * halfFovTan);
+    float ndcY = pos.y / (viewZ * halfFovTan);
+
+    screenUV = vec2(ndcX * 0.5 + 0.5, ndcY * 0.5 + 0.5);
+    if (screenUV.x < 0.0 || screenUV.x > 1.0 || screenUV.y < 0.0 || screenUV.y > 1.0) {
+        return false;
+    }
+
+    // Expected NDC depth at this position
+    float ndcZ = (far + near - 2.0 * far * near / viewZ) / (far - near);
+    expectedDepth = ndcZ * 0.5 + 0.5;
+    return true;
+}
+
+void main() {
+    float ssrIntensity = MiscParams.x;
+    vec3 scene = texture(SceneSampler, vUv).rgb;
+    float depth = texture(DepthSampler, vUv).r;
+
+    // Skip sky (infinite depth) and when intensity is off
+    if (depth >= 0.999 || ssrIntensity < 0.02) {
+        fragColor = vec4(scene, 1.0);
+        return;
+    }
+
+    // ── Reconstruct ──────────────────────────────────────────────
+    vec3 viewPos = ssrtViewPosFromDepth(vUv, depth);
+
+    // Only trace near the light source
+    vec3 toLight = LightViewPos.xyz - viewPos;
+    float distToLight = length(toLight);
+    if (distToLight > LightViewPos.w * 2.5) {
+        fragColor = vec4(scene, 1.0);
+        return;
+    }
+
+    // ── Screen-space normal ──────────────────────────────────────
+    vec2 ts = vec2(1.0 / Params.x, 1.0 / Params.y);
+    vec3 posR = ssrtViewPosFromDepth(vUv + vec2(ts.x, 0.0),
+                   texture(DepthSampler, vUv + vec2(ts.x, 0.0)).r);
+    vec3 posL = ssrtViewPosFromDepth(vUv - vec2(ts.x, 0.0),
+                   texture(DepthSampler, vUv - vec2(ts.x, 0.0)).r);
+    vec3 posU = ssrtViewPosFromDepth(vUv + vec2(0.0, ts.y),
+                   texture(DepthSampler, vUv + vec2(0.0, ts.y)).r);
+    vec3 posD = ssrtViewPosFromDepth(vUv - vec2(0.0, ts.y),
+                   texture(DepthSampler, vUv - vec2(0.0, ts.y)).r);
+
+    float maxDz = max(max(abs(posR.z-viewPos.z), abs(posL.z-viewPos.z)),
+                      max(abs(posU.z-viewPos.z), abs(posD.z-viewPos.z)));
+    vec3 N;
+    if (maxDz > 8.0) {
+        N = vec3(0.0, 0.0, -1.0); // camera-facing
+    } else {
+        vec3 dx = normalize(posR - posL);
+        vec3 dy = normalize(posU - posD);
+        N = normalize(cross(dx, dy));
+        if (dot(N, vec3(0.0, 0.0, -1.0)) < 0.0) N = -N;
+    }
+
+    // ── View direction ───────────────────────────────────────────
+    vec3 V = normalize(vec3(0.0, 0.0, 1.0)); // toward camera (+Z in camera-basis)
+
+    // Fresnel at this pixel
+    float fresnel = pow(1.0 - abs(dot(N, V)), 5.0);
+    fresnel = mix(0.04, 1.0, fresnel);
+
+    // Only trace surfaces that can reflect (skip glancing angles for sky)
+    if (fresnel < 0.05) {
+        fragColor = vec4(scene, 1.0);
+        return;
+    }
+
+    // ── Reflect view direction ───────────────────────────────────
+    vec3 R = reflect(-V, N);
+
+    // ── Ray march ────────────────────────────────────────────────
+    float rayDist = 0.0;
+    float maxDist = distToLight * 1.3;
+    int maxSteps = 32;
+    float stepSize = maxDist / float(maxSteps);
+
+    // Jitter
+    rayDist += postHash(vUv + fract(TimePack.x * 100.0)) * stepSize * 0.5;
+
+    vec3 hitColor = vec3(0.0);
+    float hitWeight = 0.0;
+
+    for (int i = 0; i < 32; i++) {
+        if (i >= maxSteps || rayDist > maxDist) break;
+
+        vec3 rayPos = viewPos + R * rayDist;
+        vec2 screenUV;
+        float expectedDepth;
+
+        if (!projectToScreen(rayPos, screenUV, expectedDepth)) {
+            rayDist += stepSize;
+            continue;
+        }
+
+        float actualDepth = texture(DepthSampler, screenUV).r;
+        float depthDiff = actualDepth - expectedDepth;
+
+        // Collision: surface is in front of the ray point
+        if (depthDiff > -stepSize * 0.8 && depthDiff < stepSize * 3.0) {
+            vec3 reflectedColor = texture(SceneSampler, screenUV).rgb;
+
+            // Distance falloff along the ray
+            float distAtten = 1.0 / (1.0 + rayDist * rayDist * 0.005);
+
+            // Proximity to light source (closer = brighter reflection)
+            vec3 hitViewPos = ssrtViewPosFromDepth(screenUV, actualDepth);
+            float hitDistToLight = length(LightViewPos.xyz - hitViewPos);
+            float lightProximity = exp(-hitDistToLight / LightViewPos.w);
+
+            hitColor = reflectedColor * fresnel * distAtten * lightProximity;
+            hitWeight = 1.0;
+            break;
+        }
+
+        // Adaptive step (larger steps further from camera)
+        float adaptiveStep = stepSize * (0.5 + abs(rayPos.z) * 0.015);
+        rayDist += max(adaptiveStep, stepSize * 0.25);
+    }
+
+    // ── Composite ────────────────────────────────────────────────
+    float blend = ssrIntensity * 0.55;
+
+    // Edge fade (reflections tend to disappear at screen edges)
+    float edgeFade = 1.0 - smoothstep(0.7, 1.0, length(vUv - 0.5) * 2.0);
+    blend *= edgeFade;
+
+    // Stronger blend for rough surfaces (low fresnel = rough)
+    blend *= mix(0.4, 1.0, fresnel);
+
+    vec3 result = scene + hitColor * blend;
+
+    fragColor = vec4(result, 1.0);
 }
 
 #endif
@@ -833,8 +1390,10 @@ void main() {
 
 // ── Fallback ──────────────────────────────────────────────────────
 
-#if !defined(BRIGHT_PASS) && !defined(BLUR_H) && !defined(BLUR_V) \
-    && !defined(DISTORTION) && !defined(GODRAY) && !defined(CHROMATIC) \
+#if !defined(BRIGHT_PASS) && !defined(BRIGHT_PASS_EDGE) \
+    && !defined(BLUR_H) && !defined(BLUR_V) \
+    && !defined(DISTORTION) && !defined(GODRAY) && !defined(VOLUMETRIC_GODRAY) \
+    && !defined(CHROMATIC) && !defined(SCREEN_LIGHTING) && !defined(SSRT) \
     && !defined(BLACK_HOLE) && !defined(GLOW_FLASH) && !defined(SHOCKWAVE) \
     && !defined(FLASH_SCREEN) && !defined(AFTERIMAGE) \
     && !defined(ACES) && !defined(COMPOSITE)

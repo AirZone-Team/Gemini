@@ -2,8 +2,11 @@ package geminiclient.gemini.modules.impl.visual.clickgui;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.MinecraftInstance;
+import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.customRenderer.glsl.GlowRenderer;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.utils.animation.SpringAnimation;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import java.util.ArrayList;
@@ -19,21 +22,35 @@ public class CategoryPanel implements MinecraftInstance {
     private boolean isExpanded = true;
     private final List<ModuleComponent> moduleComponents = new ArrayList<>();
 
-    // 现代化颜色主题 - 使用黑灰色调
-    private static final int HEADER_COLOR = new Color(30, 33, 45, 240).getRGB();
-    private static final int HEADER_HOVER_COLOR = new Color(40, 43, 55, 240).getRGB();
-    private static final int ACCENT_COLOR = new Color(220, 220, 220).getRGB(); // 亮灰色作为强调色
-    private static final int BACKGROUND_COLOR = new Color(25, 28, 38, 220).getRGB();
-    private static final int BORDER_COLOR = new Color(60, 65, 75).getRGB();
-    private static final int TEXT_COLOR = new Color(240, 240, 245).getRGB();
-    private static final int TEXT_SHADOW = new Color(15, 18, 25, 120).getRGB();
-    private static final int MODULE_HIGHLIGHT = new Color(255, 255, 255, 20).getRGB();
+    // ── Modern material palette ─────────────────────────
+    private static final int PANEL_BG      = new Color(13, 14, 20, 200).getRGB();
+    private static final int HEADER_BG     = new Color(20, 22, 32, 220).getRGB();
+    private static final int HEADER_HOVER  = new Color(28, 30, 42, 230).getRGB();
+    private static final int ACCENT_COLOR  = new Color(139, 92, 246).getRGB();
+    private static final int TEXT_COLOR    = new Color(235, 235, 245).getRGB();
+    private static final int TEXT_DIM      = new Color(155, 160, 175).getRGB();
+    private static final int BORDER_BASE   = new Color(255, 255, 255, 15).getRGB();
+    private static final int BORDER_HOVER  = new Color(255, 255, 255, 30).getRGB();
 
-    // 尺寸常量
-    private static final int HEADER_HEIGHT = 20;
-    private static final int MODULE_SPACING = 1;
-    private static final int BORDER_WIDTH = 1;
-    private static final int PADDING = 2;
+    // ── Multi-layer shadow ─────────────────────────────
+    private static final int AMBIENT_SHADOW = new Color(0, 0, 0, 16).getRGB();
+    private static final int CONTACT_SHADOW = new Color(0, 0, 0, 38).getRGB();
+
+    // ── Layout ──────────────────────────────────────────
+    private static final int HEADER_HEIGHT  = 24;
+    private static final int MODULE_SPACING = 2;
+    private static final int PADDING        = 5;
+    private static final int CORNER_RADIUS  = 8;
+
+    // ── Filter text (set by SearchWidget) ──────────────
+    private String filterText = "";
+
+    public void setFilter(String filter) {
+        this.filterText = filter == null ? "" : filter.toLowerCase();
+    }
+
+    // ── Animation ──────────────────────────────────────
+    private final SpringAnimation expandSpring = SpringAnimation.bouncy();
 
     public CategoryPanel(ModuleEnum category, int x, int y, int width, int headerHeight) {
         this.category = category;
@@ -42,6 +59,7 @@ public class CategoryPanel implements MinecraftInstance {
         this.renderY = y;
         this.width = width;
         this.height = headerHeight;
+        expandSpring.snap(1.0f);
         initializeModuleComponents();
     }
 
@@ -50,9 +68,9 @@ public class CategoryPanel implements MinecraftInstance {
         for (Module module : Gemini.moduleManager.getModules()) {
             if (module.getModuleEnum() == category) {
                 ModuleComponent component = new ModuleComponent(module, this.x + PADDING, currentY,
-                        this.width - PADDING * 2, 16);
+                        this.width - PADDING * 2, 18);
                 moduleComponents.add(component);
-                currentY += 16 + MODULE_SPACING;
+                currentY += 18 + MODULE_SPACING;
             }
         }
     }
@@ -62,10 +80,24 @@ public class CategoryPanel implements MinecraftInstance {
         this.renderY = renderY;
     }
 
-    public void render(GuiGraphicsExtractor GuiGraphicsExtractor, int mouseX, int mouseY, float partialTicks, float scrollOffset) {
+    public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY,
+                       float partialTicks, float scrollOffset) {
         handleDragging(mouseX, mouseY, scrollOffset);
         this.renderY = this.y + (int) scrollOffset;
-        renderPanel(GuiGraphicsExtractor, mouseX, mouseY, partialTicks);
+
+        // ── Step 1: Advance ALL animation springs BEFORE any layout math ──
+        expandSpring.setTarget(isExpanded ? 1.0f : 0.0f);
+        expandSpring.update(partialTicks);
+        float rawProgress = expandSpring.getValue();
+        float easedProgress = SpringAnimation.easeOutCubic(rawProgress);
+
+        for (ModuleComponent comp : moduleComponents) {
+            comp.advanceAnimation(partialTicks);
+            comp.advanceHover(partialTicks, mouseX, mouseY);
+        }
+
+        // ── Step 2: Layout and render using animated heights ──
+        renderPanel(guiGraphics, mouseX, mouseY, partialTicks, easedProgress, rawProgress);
     }
 
     private void handleDragging(double mouseX, double mouseY, float scrollOffset) {
@@ -75,82 +107,128 @@ public class CategoryPanel implements MinecraftInstance {
         }
     }
 
-    private void renderPanel(GuiGraphicsExtractor GuiGraphicsExtractor, int mouseX, int mouseY, float partialTicks) {
-        renderMainBackground(GuiGraphicsExtractor);
-        renderPanelHeader(GuiGraphicsExtractor, mouseX, mouseY);
-        if (isExpanded && !moduleComponents.isEmpty()) {
-            renderModuleContent(GuiGraphicsExtractor, mouseX, mouseY, partialTicks);
+    private void renderPanel(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY,
+                              float partialTicks, float easedProgress, float rawProgress) {
+        int fullPanelHeight = getFullPanelHeight();
+        int animatedHeight = HEADER_HEIGHT + (int) ((fullPanelHeight - HEADER_HEIGHT) * easedProgress);
+
+        // ── Multi-layer shadow ──────────────────────────
+        GlowRenderer.drawDropShadow(guiGraphics, x, renderY, width, animatedHeight,
+                2, 24, AMBIENT_SHADOW);
+        GlowRenderer.drawDropShadow(guiGraphics, x, renderY, width, animatedHeight,
+                1, 8, CONTACT_SHADOW);
+
+        // ── Panel background ────────────────────────────
+        CustomRoundedRectRenderer.drawRoundedRect(
+                guiGraphics, x, renderY, width, animatedHeight,
+                CORNER_RADIUS, PANEL_BG);
+
+        // ── Dynamic border ──────────────────────────────
+        boolean headerHovered = isMouseOverHeader(mouseX, mouseY);
+        int borderColor = headerHovered ? BORDER_HOVER : BORDER_BASE;
+        CustomRoundedRectRenderer.drawRoundedOutline(
+                guiGraphics, x, renderY, width, animatedHeight,
+                CORNER_RADIUS, borderColor, 1);
+
+        // ── Top glass highlight ─────────────────────────
+        int topHighlight = new Color(255, 255, 255, 14).getRGB();
+        guiGraphics.fill(x + CORNER_RADIUS, renderY + 1,
+                x + width - CORNER_RADIUS, renderY + 2, topHighlight);
+
+        // ── Header ──────────────────────────────────────
+        renderPanelHeader(guiGraphics, mouseX, mouseY, headerHovered, rawProgress);
+
+        // ── Module content (scissor-clipped) ────────────
+        if (rawProgress > 0.01f && !moduleComponents.isEmpty()) {
+            int contentY = renderY + HEADER_HEIGHT;
+            int contentAnimatedHeight = (int) (getContentHeight() * easedProgress);
+
+            // ── CRITICAL: scissor clips content during expand/collapse ──
+            guiGraphics.enableScissor(x, contentY, x + width, contentY + contentAnimatedHeight);
+            renderModuleContent(guiGraphics, mouseX, mouseY, partialTicks, rawProgress);
+            guiGraphics.disableScissor();
         }
     }
 
-    private void renderMainBackground(GuiGraphicsExtractor GuiGraphicsExtractor) {
-        int panelHeight = getPanelHeight();
-        GuiGraphicsExtractor.fill(x, renderY, x + width, renderY + panelHeight, BACKGROUND_COLOR);
-        GuiGraphicsExtractor.fill(x, renderY, x + width, renderY + BORDER_WIDTH, BORDER_COLOR);
-        GuiGraphicsExtractor.fill(x, renderY + panelHeight - BORDER_WIDTH, x + width, renderY + panelHeight, BORDER_COLOR);
-        GuiGraphicsExtractor.fill(x, renderY, x + BORDER_WIDTH, renderY + panelHeight, BORDER_COLOR);
-        GuiGraphicsExtractor.fill(x + width - BORDER_WIDTH, renderY, x + width, renderY + panelHeight, BORDER_COLOR);
+    private void renderPanelHeader(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY,
+                                    boolean isHovering, float expandProgress) {
+        int headerColor = isHovering ? HEADER_HOVER : HEADER_BG;
+
+        CustomRoundedRectRenderer.drawRoundedRect(
+                guiGraphics, x, renderY, width, HEADER_HEIGHT,
+                CORNER_RADIUS, headerColor);
+
+        // Separator
+        int sepY = renderY + HEADER_HEIGHT;
+        guiGraphics.fill(x + CORNER_RADIUS, sepY - 1,
+                x + width - CORNER_RADIUS, sepY,
+                new Color(255, 255, 255, 10).getRGB());
+
+        renderCategoryText(guiGraphics);
+
+        // Arrow — plain character, no alpha crossfade
+        String arrow = isExpanded ? "▼" : "▶";
+        int arrowColor = isHovering ? TEXT_COLOR : TEXT_DIM;
+        guiGraphics.text(mc.font, arrow, x + 9, renderY + 8, arrowColor, true);
     }
 
-    private void renderPanelHeader(GuiGraphicsExtractor GuiGraphicsExtractor, int mouseX, int mouseY) {
-        boolean isHoveringHeader = isMouseOverHeader(mouseX, mouseY);
-        int headerColor = isHoveringHeader ? HEADER_HOVER_COLOR : HEADER_COLOR;
-        GuiGraphicsExtractor.fill(x, renderY, x + width, renderY + HEADER_HEIGHT, headerColor);
-        // 头部底部细线，使用强调色
-        GuiGraphicsExtractor.fill(x, renderY + HEADER_HEIGHT - 1, x + width, renderY + HEADER_HEIGHT, ACCENT_COLOR);
-        renderExpandIcon(GuiGraphicsExtractor);
-        renderCategoryText(GuiGraphicsExtractor);
-    }
-
-    private void renderExpandIcon(GuiGraphicsExtractor GuiGraphicsExtractor) {
-        int iconX = x + 6;
-        int iconY = renderY + 7;
-        int iconSize = 6;
-        int iconColor = ACCENT_COLOR;
-
-        if (isExpanded) {
-            GuiGraphicsExtractor.fill(iconX, iconY + 2, iconX + iconSize, iconY + 2, iconColor);
-            GuiGraphicsExtractor.fill(iconX + 2, iconY + 4, iconX + iconSize - 2, iconY + 4, iconColor);
-            GuiGraphicsExtractor.fill(iconX + 1, iconY + 3, iconX + iconSize - 1, iconY + 3, iconColor);
-        } else {
-            GuiGraphicsExtractor.fill(iconX + 2, iconY, iconX + 2, iconY + iconSize, iconColor);
-            GuiGraphicsExtractor.fill(iconX + 4, iconY + 2, iconX + 4, iconY + iconSize - 2, iconColor);
-            GuiGraphicsExtractor.fill(iconX + 3, iconY + 1, iconX + 3, iconY + iconSize - 1, iconColor);
-        }
-    }
-
-    private void renderCategoryText(GuiGraphicsExtractor GuiGraphicsExtractor) {
+    private void renderCategoryText(GuiGraphicsExtractor guiGraphics) {
         String displayName = getFormattedCategoryName();
         int textWidth = mc.font.width(displayName);
         int textX = x + (width - textWidth) / 2;
-        int textY = renderY + 6;
-        GuiGraphicsExtractor.text(mc.font, displayName, textX + 1, textY + 1, TEXT_SHADOW, false);
-        GuiGraphicsExtractor.text(mc.font, displayName, textX, textY, TEXT_COLOR, false);
+        int textY = renderY + 8;
+        guiGraphics.text(mc.font, displayName, textX, textY, TEXT_COLOR, true);
     }
 
-    private void renderModuleContent(GuiGraphicsExtractor GuiGraphicsExtractor, int mouseX, int mouseY, float partialTicks) {
+    private void renderModuleContent(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY,
+                                      float partialTicks, float alpha) {
         int contentY = renderY + HEADER_HEIGHT;
-        int contentHeight = getContentHeight();
+        // Float-up offset: 16px → modules slide up from below as panel opens
+        float floatOffset = (1.0f - alpha) * 16.0f;
 
-        if (contentHeight > 0) {
-            GuiGraphicsExtractor.fill(x, contentY, x + width, contentY + 1, BORDER_COLOR);
+        int currentY = contentY + PADDING;
+        for (ModuleComponent component : moduleComponents) {
+            if (!matchesFilter(component)) continue;
 
-            int currentY = contentY + PADDING;
-            for (ModuleComponent component : moduleComponents) {
-                component.x = x + PADDING;
-                component.y = currentY;
-                component.width = width - PADDING * 2;
+            int moduleHeight = component.getTotalHeight();
 
-                if (isMouseOverModule(component, mouseX, mouseY)) {
-                    GuiGraphicsExtractor.fill(component.x, component.y, component.x + component.width,
-                            component.y + component.height, MODULE_HIGHLIGHT);
-                }
+            component.x = x + PADDING;
+            component.y = currentY + (int) floatOffset;
+            component.width = width - PADDING * 2;
 
-                component.render(GuiGraphicsExtractor, mouseX, mouseY, partialTicks);
-                currentY += component.getTotalHeight() + MODULE_SPACING;
-            }
+            component.render(guiGraphics, mouseX, mouseY, partialTicks, alpha);
+            currentY += moduleHeight + MODULE_SPACING;
         }
     }
+
+    // ── Layout helpers ──────────────────────────────────
+
+    private int getFullPanelHeight() {
+        return HEADER_HEIGHT + getContentHeight();
+    }
+
+    /**
+     * Returns the FULL content height (no animation scaling).
+     * Animation scaling is applied in renderPanel() to get animatedHeight.
+     */
+    private boolean matchesFilter(ModuleComponent comp) {
+        return filterText.isEmpty()
+                || comp.module.getName().toLowerCase().contains(filterText);
+    }
+
+    private int getContentHeight() {
+        if (!isExpanded || moduleComponents.isEmpty())
+            return 0;
+
+        int height = 0;
+        for (ModuleComponent component : moduleComponents) {
+            if (matchesFilter(component))
+                height += component.getTotalHeight() + MODULE_SPACING;
+        }
+        return height + PADDING * 2 - MODULE_SPACING;
+    }
+
+    // ── Input handling ──────────────────────────────────
 
     public boolean mouseClicked(double mouseX, double mouseY, int button, float scrollOffset) {
         double adjustedMouseY = mouseY - scrollOffset;
@@ -217,30 +295,9 @@ public class CategoryPanel implements MinecraftInstance {
                 mouseY >= y && mouseY <= y + HEADER_HEIGHT;
     }
 
-    private boolean isMouseOverModule(ModuleComponent component, double mouseX, double mouseY) {
-        return mouseX >= component.x && mouseX <= component.x + component.width &&
-                mouseY >= component.y && mouseY <= component.y + component.height;
-    }
-
-    private int getContentHeight() {
-        if (!isExpanded || moduleComponents.isEmpty())
-            return 0;
-
-        int height = 0;
-        for (ModuleComponent component : moduleComponents) {
-            height += component.getTotalHeight() + MODULE_SPACING;
-        }
-        return height + PADDING * 2 - MODULE_SPACING;
-    }
-
-    private int getPanelHeight() {
-        return HEADER_HEIGHT + (isExpanded ? getContentHeight() : 0);
-    }
-
     private String getFormattedCategoryName() {
         String name = category.name();
-        if (name.length() <= 1)
-            return name;
+        if (name.length() <= 1) return name;
         return name.charAt(0) + name.substring(1).toLowerCase();
     }
 }

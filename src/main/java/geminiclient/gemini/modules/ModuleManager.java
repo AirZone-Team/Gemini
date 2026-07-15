@@ -50,7 +50,12 @@ public class ModuleManager {
                 new Radar(),
                 new Trajectories(),
                 new TargetDisplay(),
-                new KillEffect()
+                new KillEffect(),
+                new MagicHalo(),
+                new Trail(),
+                new GhostAfterImage(),
+                new InstancedParticle(),
+                new SweepingAttackVFX()
         );
     }
 

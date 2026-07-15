@@ -68,6 +68,9 @@ public class CustomFontRenderer {
     private static final int COL_STRIDE = 4;
     private static final String FALLBACK_FONT_NAME = "SansSerif";
 
+    // SDF generation parameters
+    private static final int SDF_PADDING = 16;  // extra pixels around each glyph for distance field
+
     // ========================
     //  Custom pipeline
     // ========================
@@ -92,6 +95,7 @@ public class CustomFontRenderer {
 
     public static final class Glyph {
         public float u0, v0, u1, v1;
+        /** Glyph quad dimensions (includes SDF padding) — used for both screen quad and UV mapping. */
         public final float width, height;
         public final float bearingX, bearingY;
         public final float advanceX;
@@ -146,10 +150,11 @@ public class CustomFontRenderer {
         final List<AtlasPage> pages = new ArrayList<>();
         int currentPageIdx = -1;
 
-        BufferedImage atlasImage;
-        java.awt.Graphics2D atlasG2d;
         int cursorX, cursorY, rowHeight;
         final Map<Integer, AtlasSlot> pendingSlots = new HashMap<>();
+        final Map<Integer, byte[]> pendingSdfData = new HashMap<>();
+        /** SDF normalization spread derived from font size (pixels). */
+        final float sdfSpread;
 
         private java.awt.Font fallbackFont;
 
@@ -164,6 +169,9 @@ public class CustomFontRenderer {
             this.ascent = metrics.getAscent();
             this.descent = metrics.getDescent();
             this.lineHeight = ascent + descent;
+            // SDF spread = 1/3 of font size — enough to cover the distance field
+            // while keeping the gradient visible in the atlas.
+            this.sdfSpread = Math.max(awtFont.getSize() / 6.0f, 8.0f);
             g2d.dispose();
             dummy.flush();
 
@@ -172,7 +180,7 @@ public class CustomFontRenderer {
 
         private void applyRenderingHints(java.awt.Graphics2D g2d) {
             g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                    RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             g2d.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
                     RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
@@ -188,10 +196,6 @@ public class CustomFontRenderer {
         }
 
         private void newCpuPage() {
-            atlasImage = new BufferedImage(ATLAS_SIZE, ATLAS_SIZE, BufferedImage.TYPE_INT_ARGB);
-            atlasG2d = atlasImage.createGraphics();
-            applyRenderingHints(atlasG2d);
-            atlasG2d.setColor(Color.WHITE);
             cursorX = 0;
             cursorY = 0;
             rowHeight = 0;
@@ -216,12 +220,11 @@ public class CustomFontRenderer {
                 return glyph;
             }
             glyph = rasterize(codePoint);
-            glyphs.put(codePoint, glyph);
             return glyph;
         }
 
         private Glyph rasterize(int codePoint) {
-            if (atlasImage == null) {
+            if (pages.isEmpty()) {
                 newCpuPage();
             }
 
@@ -245,22 +248,20 @@ public class CustomFontRenderer {
                 return new Glyph(0, 0, 0, 0, advance, false, -1);
             }
 
-            int padding = 1;
-            int glyphWidth = (int) Math.ceil(visualW) + padding * 2;
-            int glyphHeight = (int) Math.ceil(visualH) + padding * 2;
+            int padding = SDF_PADDING;
+            int realWidth = (int) Math.ceil(visualW);
+            int realHeight = (int) Math.ceil(visualH);
+            int atlasWidth = realWidth + padding * 2;
+            int atlasHeight = realHeight + padding * 2;
 
-            if (cursorX + glyphWidth > ATLAS_SIZE) {
+            if (cursorX + atlasWidth > ATLAS_SIZE) {
                 cursorX = 0;
                 cursorY += rowHeight;
                 rowHeight = 0;
             }
 
-            if (cursorY + glyphHeight > ATLAS_SIZE) {
+            if (cursorY + atlasHeight > ATLAS_SIZE) {
                 flushCurrentPage();
-                if (atlasImage != null) {
-                    atlasImage.flush();
-                    atlasG2d.dispose();
-                }
                 newCpuPage();
             }
 
@@ -270,20 +271,62 @@ public class CustomFontRenderer {
             int drawX = padding - Math.round((float) visualBounds.getX());
             int drawY = padding - Math.round((float) visualBounds.getY());
 
-            atlasG2d.setFont(fontToUse);
-            atlasG2d.drawString(charStr, cellX + drawX, cellY + drawY);
+            // --- SDF generation: render glyph mask → distance transform → write to atlas ---
 
-            pendingSlots.put(codePoint, new AtlasSlot(cellX, cellY, glyphWidth, glyphHeight));
+            // 1. Render glyph to a temporary mask image (cleared to transparent)
+            BufferedImage maskImage = new BufferedImage(atlasWidth, atlasHeight,
+                    BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D maskG2d = maskImage.createGraphics();
+            maskG2d.setComposite(java.awt.AlphaComposite.Clear);
+            maskG2d.fillRect(0, 0, atlasWidth, atlasHeight);
+            maskG2d.setComposite(java.awt.AlphaComposite.SrcOver);
+            applyRenderingHints(maskG2d);
+            maskG2d.setFont(fontToUse);
+            maskG2d.setColor(Color.WHITE);
+            maskG2d.drawString(charStr, drawX, drawY);
+            maskG2d.dispose();
 
-            cursorX += glyphWidth;
-            if (glyphHeight > rowHeight) {
-                rowHeight = glyphHeight;
+            // 2. Extract boolean mask from alpha channel
+            boolean[][] mask = new boolean[atlasHeight][atlasWidth];
+            for (int y = 0; y < atlasHeight; y++) {
+                for (int x = 0; x < atlasWidth; x++) {
+                    int alpha = (maskImage.getRGB(x, y) >> 24) & 0xFF;
+                    mask[y][x] = alpha > 0;
+                }
+            }
+            maskImage.flush();
+
+            // 3. Generate SDF bytes (spread derived from font size)
+            byte[] sdfPixels = generateSDF(mask, atlasWidth, atlasHeight, sdfSpread);
+
+            // Debug: log SDF value range
+            if (LOGGER.isDebugEnabled()) {
+                int sdfMin = 255, sdfMax = 0;
+                for (byte b : sdfPixels) {
+                    int v = b & 0xFF;
+                    if (v < sdfMin) sdfMin = v;
+                    if (v > sdfMax) sdfMax = v;
+                }
+                LOGGER.debug("[SDF] codepoint={} atlas={}x{} sdfRange=[{}, {}]",
+                        codePoint, atlasWidth, atlasHeight, sdfMin, sdfMax);
             }
 
-            return new Glyph(glyphWidth, glyphHeight,
+            // 4. Build the Glyph and register in maps BEFORE flushCurrentPage
+            //    (flushCurrentPage needs glyphs.get() to succeed)
+            Glyph glyph = new Glyph(atlasWidth, atlasHeight,
                     (float) visualBounds.getX() - padding,
                     (float) visualBounds.getY() - padding,
                     advance, true, -1);
+            glyphs.put(codePoint, glyph);
+            pendingSdfData.put(codePoint, sdfPixels);
+            pendingSlots.put(codePoint, new AtlasSlot(cellX, cellY, atlasWidth, atlasHeight));
+
+            cursorX += atlasWidth;
+            if (atlasHeight > rowHeight) {
+                rowHeight = atlasHeight;
+            }
+
+            return glyph;
         }
 
         private void flushCurrentPage() {
@@ -297,8 +340,10 @@ public class CustomFontRenderer {
             float invH = page.invH;
 
             for (Map.Entry<Integer, AtlasSlot> entry : pendingSlots.entrySet()) {
-                Glyph glyph = glyphs.get(entry.getKey());
+                int codePoint = entry.getKey();
+                Glyph glyph = glyphs.get(codePoint);
                 if (glyph == null) {
+                    LOGGER.warn("[SDF] flushCurrentPage: glyph NULL for codepoint {}, UVs will NOT be set!", codePoint);
                     continue;
                 }
                 AtlasSlot slot = entry.getValue();
@@ -309,42 +354,47 @@ public class CustomFontRenderer {
                 glyph.v1 = (slot.py + slot.ph) * invH;
                 glyph.pageIndex = currentPageIdx;
 
-                int[] pixels = atlasImage.getRGB(slot.px, slot.py, slot.pw, slot.ph,
-                        null, 0, slot.pw);
-                for (int y = 0; y < slot.ph; y++) {
-                    int rowBase = y * slot.pw;
-                    int dstX = slot.px;
-                    int dstY = slot.py + y;
-                    for (int x = 0; x < slot.pw; x++) {
-                        int argb = pixels[rowBase + x];
-                        int alpha = (argb >> 24) & 0xFF;
-                        int red = (argb >> 16) & 0xFF;
-                        int green = (argb >> 8) & 0xFF;
-                        int blue = argb & 0xFF;
-                        nativeImage.setPixel(dstX + x, dstY,
-                                (alpha << 24) | (blue << 16) | (green << 8) | red);
+                // Upload SDF bytes to NativeImage.
+                // Write the same value to R, G, B so the shader can read it
+                // regardless of whether NativeImage uses ARGB or ABGR internally.
+                byte[] sdfPixels = pendingSdfData.get(codePoint);
+                if (sdfPixels != null) {
+                    for (int y = 0; y < slot.ph; y++) {
+                        int rowBase = y * slot.pw;
+                        int dstY = slot.py + y;
+                        for (int x = 0; x < slot.pw; x++) {
+                            int v = sdfPixels[rowBase + x] & 0xFF;
+                            nativeImage.setPixel(slot.px + x, dstY,
+                                    (0xFF << 24) | (v << 16) | (v << 8) | v);
+                        }
                     }
+                } else {
+                    LOGGER.warn("[SDF] flushCurrentPage: sdfPixels NULL for codepoint {}", codePoint);
                 }
             }
             pendingSlots.clear();
+            pendingSdfData.clear();
             page.texture.upload();
-            setNearestFilter(page.texture);
+            setLinearFilter(page.texture);
+
+            // Debug: dump atlas to file (uncomment to inspect)
+            // dumpAtlasToPng(this, new File("atlas_debug.png"));
         }
 
-        private static void setNearestFilter(DynamicTexture texture) {
+        private static void setLinearFilter(DynamicTexture texture) {
             try {
                 java.lang.reflect.Field field = texture.getClass().getSuperclass()
                         .getDeclaredField("sampler");
                 field.setAccessible(true);
                 field.set(texture, com.mojang.blaze3d.systems.RenderSystem.getSamplerCache()
-                        .getRepeat(FilterMode.NEAREST));
+                        .getRepeat(FilterMode.LINEAR));
             } catch (Exception e) {
-                LOGGER.warn("Failed to set NEAREST filter on font atlas texture", e);
+                LOGGER.warn("Failed to set LINEAR filter on font atlas texture", e);
             }
         }
 
         void ensureReady() {
-            if (atlasImage != null && !pendingSlots.isEmpty()) {
+            if (!pendingSlots.isEmpty()) {
                 flushCurrentPage();
             }
         }
@@ -746,8 +796,8 @@ public class CustomFontRenderer {
                 Glyph glyph = run.glyph;
                 float x0 = snapToPixel(run.x + glyph.bearingX);
                 float y0 = snapToPixel(baselineY + glyph.bearingY);
-                float x1 = x0 + glyph.width;
-                float y1 = y0 + glyph.height;
+                float x1 = x0 + glyph.width;   // includes SDF padding
+                float y1 = y0 + glyph.height;   // includes SDF padding
 
                 emitter.emit(run.charIndex, glyph, colors, colorIdx);
 
@@ -872,6 +922,180 @@ public class CustomFontRenderer {
     }
 
     // ========================
+    //  SDF generation (Euclidean Distance Transform)
+    // ========================
+
+    /**
+     * Dump the SDF bytes to a PNG file for debugging.
+     * Shows: black background, gray edges, white glyph interior.
+     *
+     * @param sdfPixels SDF byte array
+     * @param w width
+     * @param h height
+     * @param file output file path
+     */
+    public static void dumpSdfToPng(byte[] sdfPixels, int w, int h, File file) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_BYTE_GRAY);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int v = sdfPixels[y * w + x] & 0xFF;
+                img.getRaster().setSample(x, y, 0, v);
+            }
+        }
+        try {
+            javax.imageio.ImageIO.write(img, "png", file);
+            LOGGER.info("[SDF] Dumped SDF debug image to {}", file.getAbsolutePath());
+        } catch (Exception e) {
+            LOGGER.warn("[SDF] Failed to dump SDF debug image", e);
+        }
+        img.flush();
+    }
+
+    /**
+     * Dump the current atlas NativeImage to a PNG file for debugging.
+     */
+    public static void dumpAtlasToPng(GlyphFont font, File file) {
+        if (font.pages.isEmpty()) return;
+        AtlasPage page = font.pages.get(font.pages.size() - 1);
+        NativeImage ni = page.nativeImage;
+        if (ni == null) return;
+        int size = ATLAS_SIZE;
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                // NativeImage stores ABGR: A=bits31..24, B=23..16, G=15..8, R=7..0
+                int abgr = ni.getPixel(x, y);
+                int r = abgr & 0xFF;
+                // For SDF debug: show R channel as grayscale
+                img.setRGB(x, y, 0xFF000000 | (r << 16) | (r << 8) | r);
+            }
+        }
+        try {
+            javax.imageio.ImageIO.write(img, "png", file);
+            LOGGER.info("[SDF] Dumped atlas debug image to {}", file.getAbsolutePath());
+        } catch (Exception e) {
+            LOGGER.warn("[SDF] Failed to dump atlas debug image", e);
+        }
+        img.flush();
+    }
+
+    /**
+     * Generate a signed distance field from a binary glyph mask.
+     *
+     * <p>Uses the Felzenszwalb &amp; Huttenlocher algorithm for O(n) EDT.
+     * Output is a byte array where 128 = edge, 255 = center, 0 = far outside.</p>
+     *
+     * @param mask  true = inside glyph, false = outside
+     * @param w     mask width
+     * @param h     mask height
+     * @return SDF bytes, one per pixel (row-major)
+     */
+    private static byte[] generateSDF(boolean[][] mask, int w, int h, float spread) {
+        // Use a large but finite value — Float.MAX_VALUE overflows to INF
+        // in the EDT parabola formula (data[i] + i*i), breaking the algorithm.
+        final float INF = 1e20f;
+
+        float[] inside = new float[w * h];
+        float[] outside = new float[w * h];
+
+        // Initialize: inside[i]=0 if mask[i], else INF; outside[i]=INF if mask[i], else 0
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int i = y * w + x;
+                if (mask[y][x]) {
+                    inside[i] = 0f;
+                    outside[i] = INF;
+                } else {
+                    inside[i] = INF;
+                    outside[i] = 0f;
+                }
+            }
+        }
+
+        // Compute EDT for both fields (squared distances)
+        edt(inside, w, h);
+        edt(outside, w, h);
+
+        // Normalize and encode to bytes: edge=128, center=255, far outside=0
+        byte[] sdf = new byte[w * h];
+        for (int i = 0; i < sdf.length; i++) {
+            // Signed distance: positive inside, negative outside
+            float dist = (float) (Math.sqrt(outside[i]) - Math.sqrt(inside[i]));
+            float normalized = dist / spread;
+            int value = (int) (127.5f + normalized * 127.5f);
+            sdf[i] = (byte) Math.max(0, Math.min(255, value));
+        }
+        return sdf;
+    }
+
+    /**
+     * 2D Euclidean Distance Transform (separable, Felzenszwalb algorithm).
+     * Operates on squared distances in-place.
+     */
+    private static void edt(float[] data, int w, int h) {
+        // Transform rows
+        for (int y = 0; y < h; y++) {
+            edt1d(data, y * w, w);
+        }
+        // Transform columns
+        float[] column = new float[h];
+        for (int x = 0; x < w; x++) {
+            for (int y = 0; y < h; y++) {
+                column[y] = data[y * w + x];
+            }
+            edt1d(column, 0, h);
+            for (int y = 0; y < h; y++) {
+                data[y * w + x] = column[y];
+            }
+        }
+    }
+
+    /**
+     * 1D squared-distance transform (lower envelope of parabolas).
+     *
+     * @param data array containing input values (modified in-place)
+     * @param offset start index in data
+     * @param n number of elements
+     */
+    private static void edt1d(float[] data, int offset, int n) {
+        float[] d = new float[n];
+        int[] v = new int[n];
+        float[] z = new float[n + 1];
+
+        int k = 0;
+        v[0] = 0;
+        z[0] = Float.NEGATIVE_INFINITY;
+        z[1] = Float.POSITIVE_INFINITY;
+
+        // Build lower envelope
+        for (int q = 1; q < n; q++) {
+            float s = ((data[offset + q] + q * q) - (data[offset + v[k]] + v[k] * v[k]))
+                    / (2f * q - 2f * v[k]);
+            while (s <= z[k]) {
+                k--;
+                s = ((data[offset + q] + q * q) - (data[offset + v[k]] + v[k] * v[k]))
+                        / (2f * q - 2f * v[k]);
+            }
+            k++;
+            v[k] = q;
+            z[k] = s;
+            z[k + 1] = Float.POSITIVE_INFINITY;
+        }
+
+        // Fill distances from envelope
+        k = 0;
+        for (int q = 0; q < n; q++) {
+            while (z[k + 1] < q) {
+                k++;
+            }
+            float dx = q - v[k];
+            d[q] = dx * dx + data[offset + v[k]];
+        }
+
+        System.arraycopy(d, 0, data, offset, n);
+    }
+
+    // ========================
     //  Cleanup
     // ========================
 
@@ -883,14 +1107,8 @@ public class CustomFontRenderer {
             }
         }
         font.pages.clear();
-        if (font.atlasImage != null) {
-            font.atlasImage.flush();
-            font.atlasImage = null;
-        }
-        if (font.atlasG2d != null) {
-            font.atlasG2d.dispose();
-            font.atlasG2d = null;
-        }
+        font.pendingSlots.clear();
+        font.pendingSdfData.clear();
         font.glyphs.clear();
     }
 
