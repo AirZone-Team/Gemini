@@ -15,6 +15,7 @@ import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.state.gui.GuiElementRenderState;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Player;
 import org.joml.Matrix3x2f;
@@ -30,7 +31,9 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
  * GLSL-accelerated TargetDisplay renderer.
  * <p>
  * Draws a rounded rectangle background via a custom fragment shader (SDF-based),
- * then composites the target player's face, name, and health bar on top.
+ * then composites the target player's face, name, and an animated wave (liquid)
+ * health bar on top. All text uses the bundled Google Sans font through
+ * {@link CustomFontRenderer} (vanilla font fallback if the TTF fails to load).
  * Fully supports fade-in/out alpha animations.
  */
 public final class TargetDisplayRenderer {
@@ -80,6 +83,80 @@ public final class TargetDisplayRenderer {
 
     public static void registerPipeline(Consumer<RenderPipeline> registry) {
         registry.accept(TARGET_BG_PIPELINE);
+    }
+
+    // ── Google Sans font (replaces the vanilla font) ─────────────
+
+    private static final Identifier GOOGLE_SANS_FONT = getIdentifier("font/googlesans-regular.ttf");
+    private static final float TEXT_SIZE = 8f;
+    private static final float NAME_SIZE = 9f;
+
+    private static volatile CustomFontRenderer.GlyphFont googleSans;
+    private static volatile CustomFontRenderer.GlyphFont googleSansBold;
+    private static volatile boolean googleSansFailed;
+
+    /** Regular Google Sans, or {@code null} if the bundled TTF failed to load. */
+    public static CustomFontRenderer.@Nullable GlyphFont googleSans() {
+        if (googleSansFailed) return null;
+        CustomFontRenderer.GlyphFont f = googleSans;
+        if (f == null) {
+            try {
+                f = googleSans = CustomFontRenderer.loadFont(GOOGLE_SANS_FONT, TEXT_SIZE);
+            } catch (Exception e) {
+                googleSansFailed = true;
+                return null;
+            }
+        }
+        return f;
+    }
+
+    /** Bold Google Sans for emphasis text such as the target name. */
+    public static CustomFontRenderer.@Nullable GlyphFont googleSansBold() {
+        if (googleSansFailed) return null;
+        CustomFontRenderer.GlyphFont f = googleSansBold;
+        if (f == null) {
+            try {
+                f = googleSansBold = CustomFontRenderer.loadFont(
+                        GOOGLE_SANS_FONT, NAME_SIZE, java.awt.Font.BOLD);
+            } catch (Exception e) {
+                googleSansFailed = true;
+                return null;
+            }
+        }
+        return f;
+    }
+
+    /** Draws text with Google Sans, falling back to the vanilla font if unavailable. */
+    public static void drawText(GuiGraphicsExtractor gui, String text, float x, float y, int color) {
+        if (text == null || text.isEmpty() || (color >>> 24) == 0) return;
+        CustomFontRenderer.GlyphFont f = googleSans();
+        if (f != null) {
+            CustomFontRenderer.drawString(gui, f, text, x, y, color);
+        } else {
+            gui.text(mc.font, text, (int) x, (int) y, color, false);
+        }
+    }
+
+    /** Bold variant of {@link #drawText} used for the target name. */
+    public static void drawBoldText(GuiGraphicsExtractor gui, String text, float x, float y, int color) {
+        if (text == null || text.isEmpty() || (color >>> 24) == 0) return;
+        CustomFontRenderer.GlyphFont f = googleSansBold();
+        if (f != null) {
+            CustomFontRenderer.drawString(gui, f, text, x, y, color);
+        } else {
+            gui.text(mc.font, Component.literal(text).withStyle(s -> s.withBold(true)),
+                    (int) x, (int) y, color, false);
+        }
+    }
+
+    public static float textWidth(String text) {
+        CustomFontRenderer.GlyphFont f = googleSans();
+        return f != null ? CustomFontRenderer.stringWidth(f, text) : mc.font.width(text);
+    }
+
+    public static float textLineHeight() {
+        CustomFontRenderer.GlyphFont f = googleSans();
+        return f != null ? f.lineHeight : mc.font.lineHeight;
     }
 
     // ── Background render state ──────────────────────────────────
@@ -197,7 +274,7 @@ public final class TargetDisplayRenderer {
     }
 
     @Nullable
-    private static Identifier getPlayerSkinTexture(Player player) {
+    public static Identifier getPlayerSkinTexture(Player player) {
         try {
             var lookup = mc.getSkinManager().createLookup(player.getGameProfile(), false);
             var skin = lookup.get();
@@ -212,44 +289,139 @@ public final class TargetDisplayRenderer {
         }
     }
 
-    // ── Health bar rendering ─────────────────────────────────────
+    // ── Wave (liquid) health bar render state ────────────────────
+
+    /**
+     * Quad list with per-vertex colours. Each consecutive group of four
+     * vertices (TL, BL, BR, TR) forms one tessellation slice of the wave.
+     */
+    private record WaveRenderState(
+            Matrix3x2f pose,
+            float[] positions,
+            int[] colors,
+            @Nullable ScreenRectangle scissor,
+            @Nullable ScreenRectangle bounds
+    ) implements GuiElementRenderState {
+
+        static WaveRenderState of(Matrix3x2f pose, float[] positions, int[] colors,
+                                  @Nullable ScreenRectangle scissor) {
+            float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE;
+            float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+            for (int i = 0; i < positions.length; i += 2) {
+                minX = Math.min(minX, positions[i]);
+                minY = Math.min(minY, positions[i + 1]);
+                maxX = Math.max(maxX, positions[i]);
+                maxY = Math.max(maxY, positions[i + 1]);
+            }
+            int bx = (int) Math.floor(minX), by = (int) Math.floor(minY);
+            ScreenRectangle b = new ScreenRectangle(
+                    bx, by,
+                    Math.max(1, (int) Math.ceil(maxX) - bx),
+                    Math.max(1, (int) Math.ceil(maxY) - by)).transformMaxBounds(pose);
+            return new WaveRenderState(pose, positions, colors, scissor,
+                    scissor != null ? scissor.intersection(b) : b);
+        }
+
+        @Override
+        public void buildVertices(@NonNull VertexConsumer vc) {
+            for (int i = 0; i < colors.length; i++) {
+                vc.addVertexWith2DPose(pose, positions[i * 2], positions[i * 2 + 1])
+                        .setColor(colors[i]);
+            }
+        }
+
+        @Override public @NonNull RenderPipeline pipeline() { return RenderPipelines.GUI; }
+        @Override public @NonNull TextureSetup textureSetup() { return TextureSetup.noTexture(); }
+        @Override @Nullable public ScreenRectangle scissorArea() { return scissor; }
+        @Override @Nullable public ScreenRectangle bounds() { return bounds; }
+    }
+
+    // ── Health bar rendering (wave) ──────────────────────────────
+
+    /** Liquid-wave fill tuning. */
+    private static final float WAVE_AMPLITUDE = 1.6f;  // px — top-edge undulation height
+    private static final float WAVE_LENGTH    = 16f;   // px per full sine period
+    private static final float WAVE_STEP      = 2f;    // horizontal tessellation step
+    private static final long  WAVE_PERIOD_MS = 1600;  // wave travel speed
 
     public static void drawHealthBar(GuiGraphicsExtractor gui, int x, int y, int width, int height, float healthPercent, float alpha) {
         if (width <= 0 || height <= 0 || alpha <= 0f) return;
 
         float hp = Math.max(0f, Math.min(1f, healthPercent));
 
-        // Background (dark) with dynamic alpha
-        int bgColor = applyAlpha(0x66000000, alpha);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, width, height, 2, bgColor);
+        // Track (dark) with dynamic alpha
+        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, width, height, 2,
+                applyAlpha(0x66000000, alpha));
 
-        // Filled portion
-        if (hp > 0f) {
-            int fillWidth = Math.max(1, Math.round(width * hp));
+        if (hp <= 0f) return;
 
-            // Colour: green → yellow → red based on HP
-            int color;
-            if (hp > 0.6f) {
-                float t = (hp - 0.6f) / 0.4f;
-                color = lerpColor(0xFFFFAA00, 0xFF44DD44, t);
-            } else if (hp > 0.3f) {
-                float t = (hp - 0.3f) / 0.3f;
-                color = lerpColor(0xFFFF5500, 0xFFFFAA00, t);
-            } else {
-                float t = hp / 0.3f;
-                color = lerpColor(0xFFFF2222, 0xFFFF5500, t);
-            }
-
-            int fillColor = applyAlpha(color, alpha);
-            CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, fillWidth, height, 2, fillColor);
+        // Colour: green → yellow → red based on HP
+        int color;
+        if (hp > 0.6f) {
+            color = lerpColor(0xFFFFAA00, 0xFF44DD44, (hp - 0.6f) / 0.4f);
+        } else if (hp > 0.3f) {
+            color = lerpColor(0xFFFF5500, 0xFFFFAA00, (hp - 0.3f) / 0.3f);
+        } else {
+            color = lerpColor(0xFFFF2222, 0xFFFF5500, hp / 0.3f);
         }
+
+        int fillColor  = applyAlpha(color, alpha);
+        int crestColor = applyAlpha(brighten(color, 0.35f), alpha);
+
+        // Liquid fill: straight bottom edge, animated sine-wave surface.
+        // Inset by 1px so the fill respects the track's rounded corners.
+        float fillLeft  = x + 1f;
+        float fillRight = x + Math.max(2f, width * hp) - 1f;
+        if (fillRight <= fillLeft) fillRight = fillLeft + 1f;
+        float bottom = y + height - 1f;
+        float phase  = (float) ((System.currentTimeMillis() % WAVE_PERIOD_MS)
+                / (double) WAVE_PERIOD_MS * Math.PI * 2.0);
+
+        int segments = Math.max(1, (int) Math.ceil((fillRight - fillLeft) / WAVE_STEP));
+        float[] pos = new float[segments * 8];
+        int[]   col = new int[segments * 4];
+
+        for (int i = 0; i < segments; i++) {
+            float x0 = Math.min(fillLeft + i * WAVE_STEP, fillRight);
+            float x1 = Math.min(fillLeft + (i + 1) * WAVE_STEP, fillRight);
+            float t0 = waveTop(y, x0 - fillLeft, phase);
+            float t1 = waveTop(y, x1 - fillLeft, phase);
+
+            int o = i * 8;
+            pos[o]     = x0; pos[o + 1] = t0;     // TL
+            pos[o + 2] = x0; pos[o + 3] = bottom; // BL
+            pos[o + 4] = x1; pos[o + 5] = bottom; // BR
+            pos[o + 6] = x1; pos[o + 7] = t1;     // TR
+
+            int c = i * 4;
+            col[c] = crestColor; col[c + 1] = fillColor;
+            col[c + 2] = fillColor; col[c + 3] = crestColor;
+        }
+
+        gui.submitGuiElementRenderState(WaveRenderState.of(
+                new Matrix3x2f(gui.pose()), pos, col, gui.peekScissorStack()));
+    }
+
+    /** Y of the liquid surface at horizontal offset {@code dx}; only the top edge undulates. */
+    private static float waveTop(float barTop, float dx, float phase) {
+        return barTop + WAVE_AMPLITUDE
+                + WAVE_AMPLITUDE * (float) Math.sin(dx / WAVE_LENGTH * Math.PI * 2.0 + phase);
+    }
+
+    /** Lerps an ARGB colour towards white; the alpha channel is preserved. */
+    private static int brighten(int color, float amount) {
+        amount = Math.max(0f, Math.min(1f, amount));
+        int r = clamp8((int) (((color >> 16) & 0xFF) + (255 - ((color >> 16) & 0xFF)) * amount));
+        int g = clamp8((int) (((color >> 8) & 0xFF) + (255 - ((color >> 8) & 0xFF)) * amount));
+        int b = clamp8((int) ((color & 0xFF) + (255 - (color & 0xFF)) * amount));
+        return (color & 0xFF000000) | (r << 16) | (g << 8) | b;
     }
 
     // ── Name rendering ───────────────────────────────────────────
 
     public static void drawName(GuiGraphicsExtractor gui, String name, int x, int y, int color, float alpha) {
         if (name == null || name.isEmpty() || alpha <= 0f) return;
-        CustomFontRenderer.drawString(gui, mc.font, name, x, y, applyAlpha(color, alpha));
+        drawText(gui, name, x, y, applyAlpha(color, alpha));
     }
 
     // ── Composite draw ───────────────────────────────────────────
@@ -280,12 +452,12 @@ public final class TargetDisplayRenderer {
         float hpPercent = maxHealth > 0f ? health / maxHealth : 0f;
         String hpText = String.format("%.0f/%d", health, (int) maxHealth);
         int hpColorBase = hpPercent > 0.6f ? 0xFF88DD88 : (hpPercent > 0.3f ? 0xFFDDDD88 : 0xFFDD8888);
-        int hpTextY = headY + mc.font.lineHeight + SPACING;
-        int hpTextColor = applyAlpha(hpColorBase, alpha);
-        CustomFontRenderer.drawString(gui, mc.font, hpText, nameX, hpTextY, hpTextColor);
+        float lineHeight = textLineHeight();
+        float hpTextY = headY + lineHeight + SPACING;
+        drawText(gui, hpText, nameX, hpTextY, applyAlpha(hpColorBase, alpha));
 
-        // 5. Health bar — spaced equally below the HP text
-        int hpBarY = hpTextY + mc.font.lineHeight + SPACING;
+        // 5. Wave health bar — spaced equally below the HP text
+        int hpBarY = Math.round(hpTextY + lineHeight + SPACING);
         drawHealthBar(gui, nameX, hpBarY, HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT, hpPercent, alpha);
     }
 
@@ -307,11 +479,11 @@ public final class TargetDisplayRenderer {
         float hpPercent = maxHealth > 0f ? health / maxHealth : 0f;
         String hpText = String.format("%.0f/%d", health, (int) maxHealth);
         int hpColorBase = hpPercent > 0.6f ? 0xFF88DD88 : (hpPercent > 0.3f ? 0xFFDDDD88 : 0xFFDD8888);
-        int hpTextY = textY + mc.font.lineHeight + SPACING;
-        int hpTextColor = applyAlpha(hpColorBase, alpha);
-        CustomFontRenderer.drawString(gui, mc.font, hpText, textX, hpTextY, hpTextColor);
+        float lineHeight = textLineHeight();
+        float hpTextY = textY + lineHeight + SPACING;
+        drawText(gui, hpText, textX, hpTextY, applyAlpha(hpColorBase, alpha));
 
-        int hpBarY = hpTextY + mc.font.lineHeight + SPACING;
+        int hpBarY = Math.round(hpTextY + lineHeight + SPACING);
         drawHealthBar(gui, textX, hpBarY, w - PADDING * 2, HEALTH_BAR_HEIGHT, hpPercent, alpha);
     }
 

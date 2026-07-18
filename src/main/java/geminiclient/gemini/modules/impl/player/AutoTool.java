@@ -12,8 +12,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.AxeItem;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
@@ -45,6 +45,7 @@ public final class AutoTool extends Module {
     private final TimerUtils switchTimer = new TimerUtils();
     private ActionState currentState = ActionState.IDLE;
     private int previousSlot = -1;
+    private float lastBestToolScore = 0f;
 
     public AutoTool() {
         super("AutoTool", ModuleEnum.Player);
@@ -146,21 +147,16 @@ public final class AutoTool extends Module {
 
         int bestToolSlot = findBestTool(blockState);
         if (bestToolSlot == -1 || bestToolSlot == getCurrentSlot()) {
-            // 已经是最好的工具或找不到更好的，维持当前状态
             currentState = ActionState.MINING;
             return;
         }
 
-        // SMART 模式下的检查
+        // SMART 模式：只在新工具评分显著高于当前工具时才切换 (15% 提升)
         if (switchMode.is(SMART_MODE)) {
             ItemStack currentTool = mc.player.getMainHandItem();
             if (!currentTool.isEmpty()) {
-                ItemStack newTool = mc.player.getInventory().getItem(bestToolSlot);
                 float currentScore = calculateToolScore(currentTool, blockState);
-                float newScore = calculateToolScore(newTool, blockState);
-
-                // 只有新工具的评分显著高于当前工具时才切换 (15% 提升)
-                if (newScore <= currentScore * 1.15f) {
+                if (lastBestToolScore <= currentScore * 1.15f) {
                     currentState = ActionState.MINING;
                     return;
                 }
@@ -190,12 +186,12 @@ public final class AutoTool extends Module {
 
     /**
      * 查找热键栏中最佳的武器（剑 > 斧 > 其他）。
+     * 使用标签和 instanceof 检查（NeoForge 1.21+ 无 SwordItem 类）。
      */
     private int findBestWeapon() {
         if (mc.player == null)
             return -1;
 
-        // 暂时的最佳槽位，优先考虑伤害/速度
         int bestSlot = -1;
         float bestWeaponDamage = 0.0f;
 
@@ -204,33 +200,26 @@ public final class AutoTool extends Module {
             if (stack.isEmpty())
                 continue;
 
-            // 保护工具检查
             if (protectTool.enabled && hasLowDurability(stack))
                 continue;
 
-            // 简化：仅检查剑或斧
-            Item item = stack.getItem();
-            String itemName = item.toString().toLowerCase();
+            // 剑基础分 2.0，斧 1.0，其他跳过
+            float baseDamage;
+            if (stack.is(ItemTags.SWORDS)) {
+                baseDamage = 2.0f;
+            } else if (stack.getItem() instanceof AxeItem) {
+                baseDamage = 1.0f;
+            } else {
+                continue;
+            }
 
-            // 确定是否为潜在武器
-            boolean isWeapon = itemName.contains("sword") || item instanceof AxeItem;
-
-            if (isWeapon) {
-                // 简化的武器评分：基于攻击伤害（Minecraft客户端可能需要Access Transformer访问伤害属性）
-                // 默认使用 getDestroySpeed 作为基础分，此处简化为：剑的优先级高于斧
-                float currentWeaponDamage = itemName.contains("sword") ? 2.0f : (item instanceof AxeItem ? 1.0f : 0.0f);
-
-                // 进一步优化：添加材质加成
-                currentWeaponDamage += getToolMaterialBonus(stack) / 2.0f; // 材质加成作为权重
-
-                if (currentWeaponDamage > bestWeaponDamage) {
-                    bestWeaponDamage = currentWeaponDamage;
-                    bestSlot = i;
-                }
+            float score = baseDamage + getToolMaterialBonus(stack) * 0.5f;
+            if (score > bestWeaponDamage) {
+                bestWeaponDamage = score;
+                bestSlot = i;
             }
         }
 
-        // 避免找不到任何武器的情况
         return bestSlot;
     }
 
@@ -256,6 +245,7 @@ public final class AutoTool extends Module {
                 }
             }
         }
+        lastBestToolScore = bestScore;
         return bestSlot;
     }
 
@@ -286,28 +276,21 @@ public final class AutoTool extends Module {
     }
 
     /**
-     * 计算工具材质加成权重 (浮点数)
+     * 计算工具材质加成权重，基于耐久度判断材质等级。
+     * NeoForge 1.21+ 移除了 TieredItem，直接使用 maxDamage 判断。
      */
     private float getToolMaterialBonus(ItemStack tool) {
-        String itemName = tool.getItem().toString().toLowerCase();
+        if (!tool.isDamageableItem())
+            return 1.0f;
 
-        // 使用更平滑的权重，使高材质工具的优势更明显
-        if (itemName.contains("netherite"))
-            return 1.5f;
-        if (itemName.contains("diamond"))
-            return 1.3f;
-        if (itemName.contains("iron"))
-            return 1.1f;
-
-        // 黄金、石制、木制工具的权重可以设置为接近 1.0f 或更低，因为它们通常不如铁制工具。
-        if (itemName.contains("golden"))
-            return 0.9f;
-        if (itemName.contains("stone"))
-            return 0.8f;
-        if (itemName.contains("wooden"))
-            return 0.7f;
-
-        return 1.0f; // 非特定材质的工具（如剪刀、水桶等）
+        int maxDamage = tool.getMaxDamage();
+        // 按耐久度区间判断材质等级（对应 ToolMaterial 常量）
+        if (maxDamage >= 2031) return 1.5f; // netherite
+        if (maxDamage >= 1561) return 1.3f; // diamond
+        if (maxDamage >= 250)  return 1.1f; // iron / copper
+        if (maxDamage >= 131)  return 1.0f; // stone
+        if (maxDamage >= 59)   return 0.7f; // wood
+        return 0.9f;                       // gold (32, 高攻速但低耐久)
     }
 
     private boolean hasLowDurability(ItemStack stack) {

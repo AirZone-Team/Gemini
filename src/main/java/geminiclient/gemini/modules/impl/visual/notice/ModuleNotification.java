@@ -10,16 +10,23 @@ import net.minecraft.util.Mth;
 public class ModuleNotification {
 
     public enum NotificationLevel {
-        INFO(0x22C55E, Identifier.fromNamespaceAndPath("gemini", "icon/notice/check.png")),
-        WARN(0xF59E0B, Identifier.fromNamespaceAndPath("gemini", "icon/notice/priority_high.png")),
-        ERROR(0xEF4444, Identifier.fromNamespaceAndPath("gemini", "icon/notice/close.png"));
+        INFO("Info", 0x22C55E, Identifier.fromNamespaceAndPath("gemini", "icon/notice/check.png")),
+        WARN("Warning", 0xF59E0B, Identifier.fromNamespaceAndPath("gemini", "icon/notice/priority_high.png")),
+        ERROR("Error", 0xEF4444, Identifier.fromNamespaceAndPath("gemini", "icon/notice/close.png"));
 
+        private final String displayName;
         private final int color;
         private final Identifier texture;
 
-        NotificationLevel(int color, Identifier texture) {
+        NotificationLevel(String displayName, int color, Identifier texture) {
+            this.displayName = displayName;
             this.color = color;
             this.texture = texture;
+        }
+
+        /** 未显式指定标题时的回退标题（Mellow 卡片标题行使用）。 */
+        public String getDisplayName() {
+            return displayName;
         }
 
         public int getColorInt() {
@@ -47,15 +54,23 @@ public class ModuleNotification {
     private static final int TEXT_COLOR_BASE = 0xFAFAFA;
 
     private final NotificationLevel level;
+    private final String title;
     private final String message;
     private final long maxAge;
     private final long createTime = System.currentTimeMillis();
 
     private float currentWidth;
     private float renderXOffset = 0f;
+    // 文本不可变 → 宽度只计算一次，避免渲染循环里重复测量
+    private float cachedMessageWidth = -1f;
 
     public ModuleNotification(NotificationLevel level, String message, long age) {
+        this(level, null, message, age);
+    }
+
+    public ModuleNotification(NotificationLevel level, String title, String message, long age) {
         this.level = level;
+        this.title = (title == null || title.isEmpty()) ? level.getDisplayName() : title;
         this.message = message;
         this.maxAge = Math.max(age, MIN_LIFE_MS);
         this.currentWidth = calculateTargetWidth();
@@ -63,6 +78,22 @@ public class ModuleNotification {
 
     public void setRenderXOffset(float offset) {
         this.renderXOffset = offset;
+    }
+
+    public float getRenderXOffset() {
+        return renderXOffset;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public NotificationLevel getLevel() {
+        return level;
     }
 
     // 【新增】带回弹效果的进场缓动 (Ease Out Back)
@@ -77,7 +108,23 @@ public class ModuleNotification {
         return x < 0.5f ? 4 * x * x * x : 1 - (float) Math.pow(-2 * x + 2, 3) / 2;
     }
 
-    private float getAlphaFactor(long timeElapsed, long remainingTime) {
+    public long timeElapsed() {
+        return System.currentTimeMillis() - createTime;
+    }
+
+    public long remainingTime() {
+        return maxAge - timeElapsed();
+    }
+
+    /**
+     * 生命周期进度 0→1（Mellow 卡片右侧的圆点进度环使用）。
+     * 退场阶段 remaining 转负后进度钳制在 1（满环）。
+     */
+    public float lifeProgress() {
+        return Math.min(1f, Math.max(0f, (float) timeElapsed() / maxAge));
+    }
+
+    public float getAlphaFactor(long timeElapsed, long remainingTime) {
         // 让透明度渐变比位移快一点，显得更自然
         if (timeElapsed < INTRO_DURATION_MS - 100) {
             return Math.min(1.0f, (float) timeElapsed / (INTRO_DURATION_MS - 100));
@@ -86,6 +133,25 @@ public class ModuleNotification {
         } else {
             return 1.0F;
         }
+    }
+
+    /**
+     * 进场回弹滑入 / 退场平滑滑出的 X 坐标计算，供 Classic 与 Mellow
+     * 两种样式共用，保证生命周期表现一致。
+     */
+    public float slideX(float targetX, float width, long timeElapsed, long remainingTime) {
+        float initialOffset = width + 40f;
+
+        if (timeElapsed < INTRO_DURATION_MS) {
+            float progress = (float) timeElapsed / INTRO_DURATION_MS;
+            // 进场使用回弹效果
+            return Mth.lerp(easeOutBack(progress), targetX + initialOffset, targetX);
+        } else if (remainingTime <= OUTRO_DURATION_MS) {
+            float progress = 1.0F - (float) remainingTime / OUTRO_DURATION_MS;
+            // 退场平滑滑出
+            return Mth.lerp(easeInOutCubic(progress), targetX, targetX + initialOffset);
+        }
+        return targetX;
     }
 
     private int applyAlpha(int baseRgb, float alphaFactor) {
@@ -100,20 +166,7 @@ public class ModuleNotification {
         if (remainingTime < -OUTRO_DURATION_MS) return;
 
         float notificationWidth = calculateTargetWidth();
-        float initialOffset = notificationWidth + 40f;
-
-        float currentX;
-        if (timeElapsed < INTRO_DURATION_MS) {
-            float progress = (float) timeElapsed / INTRO_DURATION_MS;
-            // 进场使用回弹效果
-            currentX = Mth.lerp(easeOutBack(progress), targetX + initialOffset, targetX);
-        } else if (remainingTime <= OUTRO_DURATION_MS) {
-            float progress = 1.0F - (float) remainingTime / OUTRO_DURATION_MS;
-            // 退场平滑滑出
-            currentX = Mth.lerp(easeInOutCubic(progress), targetX, targetX + initialOffset);
-        } else {
-            currentX = targetX;
-        }
+        float currentX = slideX(targetX, notificationWidth, timeElapsed, remainingTime);
 
         this.currentWidth = notificationWidth;
         currentX += renderXOffset;
@@ -168,8 +221,10 @@ public class ModuleNotification {
     }
 
     public float calculateTargetWidth() {
-        int stringWidth = Minecraft.getInstance().font.width(message);
-        return stringWidth + CIRCLE_SIZE + 2.0F * PADDING_X + 8;
+        if (cachedMessageWidth < 0f) {
+            cachedMessageWidth = Minecraft.getInstance().font.width(message);
+        }
+        return cachedMessageWidth + CIRCLE_SIZE + 2.0F * PADDING_X + 8;
     }
 
     public boolean isInOutro() {

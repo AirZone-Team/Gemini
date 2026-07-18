@@ -59,8 +59,13 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
  * vec4 CameraParams: fovRad, aspect, near, far
  * vec4 LightViewPos: viewX, viewY, viewZ, radius
  * vec4 LightColor:   r, g, b, intensity
- * vec4 MiscParams:   ssrIntensity, volumetricSteps, 0, 0
+ * vec4 MiscParams:   ssrIntensity, volumetricSteps, chainFade, 0
  * </pre>
+ *
+ * <p><b>chainFade</b> (MiscParams.z): 0→1 smoothstep ramp driven by effect
+ * age. The ACES pass crossfades between the raw scene and the tone-mapped
+ * output by this value, so the global tone/vignette shift eases in rather
+ * than popping the moment the chain activates (flash fix).</p>
  */
 public final class KillEffectPostProcessor {
 
@@ -314,6 +319,8 @@ public final class KillEffectPostProcessor {
      * @param lightColor        light color {r, g, b, intensity} (or null)
      * @param ssrIntensity      screen-space reflection strength (0=none)
      * @param volumetricSteps   ray-march step count for volumetric god rays (8-32)
+     * @param chainFade         global chain fade-in 0→1 (smoothstep); crossfades
+     *                          the ACES output with the raw scene to avoid pops
      */
     public static void processFrame(float bloomStrength, float threshold,
                                      float distortionStr, float godRayStr,
@@ -321,10 +328,13 @@ public final class KillEffectPostProcessor {
                                      double[] center1World, double[] center2World,
                                      int bhStage, float bhProgress, float bhIntensity,
                                      float[] lightWorldPos, float[] lightColor,
-                                     float ssrIntensity, int volumetricSteps) {
+                                     float ssrIntensity, int volumetricSteps,
+                                     float chainFade) {
+        boolean lightActive = lightWorldPos != null && lightColor != null
+                && lightColor.length >= 4 && lightColor[3] > 0.01f;
         if (bloomStrength <= 0f && distortionStr <= 0f
                 && godRayStr <= 0f && chromaticStr <= 0f
-                && bhStage <= 0 && ssrIntensity <= 0f) return;
+                && bhStage <= 0 && ssrIntensity <= 0f && !lightActive) return;
 
         ensureInit();
         RenderTarget fb = mc.getMainRenderTarget();
@@ -445,7 +455,7 @@ public final class KillEffectPostProcessor {
             b.putVec4(fovRad, aspect, zNear, zFar);                    // CameraParams
             b.putVec4(lvX, lvY, lvZ, lvRadius);                       // LightViewPos
             b.putVec4(lcR, lcG, lcB, lcI);                            // LightColor
-            b.putVec4(ssrIntensity, (float)steps, 0f, 0f);            // MiscParams
+            b.putVec4(ssrIntensity, (float)steps, chainFade, 0f);     // MiscParams
         }
 
         // ══════════════════════════════════════════════════════════
@@ -487,9 +497,9 @@ public final class KillEffectPostProcessor {
         GpuTextureView composited = pongView;
 
         // ── Pass 3b: Screen-Space Lighting ────────────────────────
-        // Active during hypernova + afterglow (stages 7-9)
-        if (hasDepth && lightWorldPos != null && lcI > 0.01f
-                && bhStage >= 7 && bhStage <= 9) {
+        // Pseudo ray-traced residual light: active whenever the light
+        // source is alive (flash → hypernova → afterglow → fade-out).
+        if (hasDepth && lightWorldPos != null && lcI > 0.01f) {
             GpuTextureView slDest = (composited == pingView) ? pongView : pingView;
             runPassWithDepth(encoder, screenLightingPipe, composited, dummyBloom,
                     depthView, slDest, "Kill ScreenLight");
@@ -511,9 +521,11 @@ public final class KillEffectPostProcessor {
         }
 
         // ── Pass 5b: Volumetric God Rays (ray-marched) ────────────
-        // Active during BH + hypernova stages (3-8)
+        // Active during BH + hypernova stages (3-8), and during
+        // afterglow/fade-out whenever the residual glow ball is alive —
+        // the final glow ball becomes the ray-marched light source.
         if (hasDepth && lightWorldPos != null && godRayStr > 0.01f
-                && bhStage >= 3 && bhStage <= 8) {
+                && ((bhStage >= 3 && bhStage <= 8) || lcI > 0.01f)) {
             GpuTextureView vgrDest = (composited == pingView) ? pongView : pingView;
             runPassWithDepth(encoder, volumetricGodRayPipe, composited, dummyBloom,
                     depthView, vgrDest, "Kill VolGodRay");

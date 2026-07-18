@@ -252,6 +252,7 @@ public class FileSystem {
         moduleObject.put("name", module.getName());
         moduleObject.put("category", module.getModuleEnum().name());
         moduleObject.put("enabled", module.enabled);
+        moduleObject.put("favorite", module.favorite);
         moduleObject.put("key", module.key);
         moduleObject.put("hudX", module.hudX);
         moduleObject.put("hudY", module.hudY);
@@ -417,6 +418,7 @@ public class FileSystem {
         if (moduleJson.has("key")) {
             module.key = moduleJson.getInt("key");
         }
+        module.favorite = moduleJson.optBoolean("favorite", false);
         module.hudX = moduleJson.optInt("hudX", 6);
         module.hudY = moduleJson.optInt("hudY", 6);
 

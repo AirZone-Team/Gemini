@@ -186,8 +186,8 @@ vec2 accretionDisk(vec2 uvLensed, float rs, float angle, float time, float stage
 
 void main() {
     float time      = vertexColor.r;
-    float stage     = vertexColor.g;
-    float brightness = vertexColor.b;
+    float stage     = vertexColor.g * 8.0;    // stage packed normalized (stage/8)
+    float brightness = vertexColor.b * 4.0;   // intensity packed normalized (x/4)
     float alpha     = vertexColor.a;
 
     // ════════════════════════════════════════════════════════════

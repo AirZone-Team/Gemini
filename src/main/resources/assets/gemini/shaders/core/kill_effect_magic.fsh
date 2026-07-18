@@ -82,7 +82,7 @@ float ring(vec2 uv, float outer, float inner, float blur) {
 
 void main() {
     float time    = vertexColor.r;
-    float stage   = vertexColor.g;
+    float stage   = vertexColor.g * 8.0;   // stage packed normalized (stage/8)
     float intensity = vertexColor.b;
     float alpha   = vertexColor.a;
 

@@ -17,6 +17,7 @@ public class Module implements MinecraftInstance {
     protected String name;
     private final ModuleEnum moduleEnum;
     public boolean enabled = false;
+    public boolean favorite = false;
     public int key = 0;
     private final List<ValueParent> values = new ArrayList<>();
 
@@ -84,12 +85,12 @@ public class Module implements MinecraftInstance {
             Gemini.eventManager.register(this);
             onEnabled();
             Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.INFO,
-                    "Enabled: " + this.name, 2000);
+                    "Module", "Enabled: " + this.name, 2000);
         } else {
             Gemini.eventManager.unregister(this);
             onDisabled();
             Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.ERROR,
-                    "Disabled: " + this.name, 2000);
+                    "Module", "Disabled: " + this.name, 2000);
         }
     }
 

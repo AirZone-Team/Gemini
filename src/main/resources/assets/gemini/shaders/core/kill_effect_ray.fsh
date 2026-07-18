@@ -47,7 +47,7 @@ float hash2(vec2 p) {
 void main() {
     float distAlong  = vertexColor.r;  // 0 at source, 1 at tip
     float rayIndex   = vertexColor.g;  // ray angular index
-    float intensity  = vertexColor.b;
+    float intensity  = vertexColor.b * 4.0;  // intensity packed normalized (x/4)
     float alpha      = vertexColor.a;
 
     if (alpha < 0.001 || intensity < 0.001) { discard; return; }

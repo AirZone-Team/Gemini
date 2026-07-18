@@ -3,6 +3,8 @@
 // Vertex shader for font glyph rendering.
 // Uses POSITION_TEX_COLOR format — UV0 carries glyph atlas coords,
 // Color carries per-vertex RGBA tint.
+//
+// Unchanged from the SDF version — MSDF only affects the fragment stage.
 
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;

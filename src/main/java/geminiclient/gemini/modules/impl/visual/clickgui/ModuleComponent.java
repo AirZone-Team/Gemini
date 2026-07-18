@@ -5,7 +5,6 @@ import geminiclient.gemini.modules.impl.visual.clickgui.component.*;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.utils.animation.SpringAnimation;
 import geminiclient.gemini.values.ValueParent;
-import geminiclient.gemini.values.impl.*;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import org.lwjgl.glfw.GLFW;
@@ -23,17 +22,17 @@ public class ModuleComponent {
     private boolean isExpanded = false;
     private final List<ValueComponent> allValueComponents = new ArrayList<>();
 
-    // ── Modern palette ──────────────────────────────────
-    private static final int ACCENT_PURPLE  = new Color(139, 92, 246).getRGB();
+    // ── Modern palette (accent/borders/text shared via ClassicTheme) ──
+    private static final int ACCENT_PURPLE  = ClassicTheme.ACCENT;
     private static final int BASE_BG        = new Color(18, 18, 25, 195).getRGB();
     private static final int HOVER_BG       = new Color(34, 34, 44, 220).getRGB();
-    private static final int ACTIVE_TINT    = new Color(139, 92, 246, 14).getRGB();
-    private static final int ACTIVE_GLOW    = new Color(139, 92, 246, 25).getRGB();
-    private static final int TEXT_COLOR     = new Color(230, 230, 242).getRGB();
-    private static final int TEXT_DIM       = new Color(150, 155, 170).getRGB();
+    private static final int ACTIVE_TINT    = ClassicTheme.ACCENT_TINT;
+    private static final int ACTIVE_GLOW    = ClassicTheme.ACCENT_GLOW;
+    private static final int TEXT_COLOR     = ClassicTheme.TEXT;
+    private static final int TEXT_DIM       = ClassicTheme.TEXT_DIM;
     private static final int ARROW_COLOR    = new Color(140, 140, 155).getRGB();
-    private static final int BORDER_BASE    = new Color(255, 255, 255, 8).getRGB();
-    private static final int BORDER_HOVER   = new Color(255, 255, 255, 22).getRGB();
+    private static final int BORDER_BASE    = ClassicTheme.BORDER;
+    private static final int BORDER_HOVER   = ClassicTheme.BORDER_HOVER;
     private static final int BORDER_ACTIVE  = new Color(139, 92, 246, 120).getRGB();
     private static final int DOT_COLOR      = new Color(195, 205, 220).getRGB();
     private static final int DOT_GLOW       = new Color(139, 92, 246, 60).getRGB();
@@ -65,26 +64,7 @@ public class ModuleComponent {
 
         int componentHeight = 16;
         for (ValueParent value : module.getValues()) {
-            ValueComponent component = null;
-
-            if (value instanceof BoolValue) {
-                component = new BoolValueComponent((BoolValue) value, 0, 0, width, componentHeight);
-            } else if (value instanceof FloatValue) {
-                component = new FloatValueComponent((FloatValue) value, 0, 0, width, componentHeight);
-            } else if (value instanceof IntValue) {
-                component = new IntValueComponent((IntValue) value, 0, 0, width, componentHeight);
-            } else if (value instanceof ListValue) {
-                component = new ListValueComponent((ListValue) value, 0, 0, width, componentHeight);
-            } else if (value instanceof FloatRangeValue) {
-                component = new FloatRangeValueComponent((FloatRangeValue) value, 0, 0, width, componentHeight);
-            } else if (value instanceof IntRangeValue) {
-                component = new IntRangeValueComponent((IntRangeValue) value, 0, 0, width, componentHeight);
-            } else if (value instanceof CheckboxValue) {
-                component = new CheckboxValueComponent((CheckboxValue) value,0,0,width,componentHeight);
-            } else if (value instanceof ColorValue) {
-                component = new ColorValueComponent((ColorValue) value, 0, 0, width, componentHeight);
-            }
-
+            ValueComponent component = ValueComponentFactory.create(value, 0, 0, width, componentHeight);
             if (component != null) {
                 this.allValueComponents.add(component);
             }
@@ -126,12 +106,7 @@ public class ModuleComponent {
     private int computeContentHeight() {
         int h = 0;
         for (ValueComponent component : getVisibleValueComponents()) {
-            h += component.height;
-            if (component instanceof ListValueComponent listComp) {
-                h += listComp.getExpandedListHeight();
-            } else if (component instanceof CheckboxValueComponent checkboxComp) {
-                h += checkboxComp.getExpandedListHeight();
-            }
+            h += component.getTotalHeight();
         }
         return h;
     }
@@ -239,9 +214,7 @@ public class ModuleComponent {
             int currentY = y + height;
             int drawn = 0;
             for (ValueComponent component : getVisibleValueComponents()) {
-                int compHeight = component.height;
-                if (component instanceof ListValueComponent lc) compHeight += lc.getExpandedListHeight();
-                else if (component instanceof CheckboxValueComponent cc) compHeight += cc.getExpandedListHeight();
+                int compHeight = component.getTotalHeight();
 
                 if (drawn + compHeight <= 0) { drawn += compHeight; currentY += compHeight; continue; }
                 if (drawn >= visibleContentH) break;
@@ -264,28 +237,12 @@ public class ModuleComponent {
     // ── Color helpers ───────────────────────────────────
 
     private int lerpColor(int a, int b, float t) {
-        if (t <= 0) return a;
-        if (t >= 1) return b;
-        int aa = (a >> 24) & 0xFF, ra = (a >> 16) & 0xFF,
-            ga = (a >> 8) & 0xFF,  ba = a & 0xFF;
-        int ab = (b >> 24) & 0xFF, rb = (b >> 16) & 0xFF,
-            gb = (b >> 8) & 0xFF,  bb = b & 0xFF;
-        return (clamp8((int)(aa + (ab - aa) * t)) << 24)
-             | (clamp8((int)(ra + (rb - ra) * t)) << 16)
-             | (clamp8((int)(ga + (gb - ga) * t)) << 8)
-             |  clamp8((int)(ba + (bb - ba) * t));
+        return ClassicTheme.lerpColor(a, b, t);
     }
 
     /** Multiply alpha channel by a factor 0..1 */
     private int modulateAlpha(int color, float factor) {
-        if (factor >= 1.0f) return color;
-        int a = (color >> 24) & 0xFF;
-        int newA = clamp8((int) (a * factor));
-        return (newA << 24) | (color & 0x00FFFFFF);
-    }
-
-    private static int clamp8(int v) {
-        return Math.max(0, Math.min(255, v));
+        return ClassicTheme.modulateAlpha(color, factor);
     }
 
     /**
@@ -330,10 +287,7 @@ public class ModuleComponent {
             for (ValueComponent component : getVisibleValueComponents()) {
                 component.x = x; component.y = currentY; component.width = width;
                 if (component.mouseClicked(mouseX, mouseY, button)) return true;
-                int h = component.height;
-                if (component instanceof ListValueComponent lc) h += lc.getExpandedListHeight();
-                if (component instanceof CheckboxValueComponent cc) h += cc.getExpandedListHeight();
-                currentY += h;
+                currentY += component.getTotalHeight();
             }
         }
         return false;
@@ -345,10 +299,7 @@ public class ModuleComponent {
             for (ValueComponent component : getVisibleValueComponents()) {
                 component.x = x; component.y = currentY; component.width = width;
                 if (component.mouseReleased(mouseX, mouseY, button)) return true;
-                int h = component.height;
-                if (component instanceof ListValueComponent lc) h += lc.getExpandedListHeight();
-                if (component instanceof CheckboxValueComponent cc) h += cc.getExpandedListHeight();
-                currentY += h;
+                currentY += component.getTotalHeight();
             }
         }
         return false;

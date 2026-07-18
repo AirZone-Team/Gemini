@@ -4,6 +4,7 @@ import geminiclient.gemini.Gemini;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomAcrylicRenderer;
 import geminiclient.gemini.modules.Module;
+import geminiclient.gemini.modules.impl.visual.Notification;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.util.Mth;
 import java.util.List;
@@ -19,6 +20,8 @@ public class NotificationManager {
     private static final int BLUR_EXIT_DURATION_MS = 320;
     private static final float BG_PADDING_X = 6f;
     private static final float BG_PADDING_Y = 6f;
+    // 队列上限：超出时丢弃最旧的通知，避免刷屏时无界堆积
+    private static final int MAX_NOTIFICATIONS = 8;
 
     private float lastTargetYOffset = 0f;
     private float smoothYOffset = 0f;
@@ -35,7 +38,26 @@ public class NotificationManager {
 
     public void addNotification(ModuleNotification.NotificationLevel level, String message,
                                 long duration) {
-        notifications.add(new ModuleNotification(level, message, duration));
+        addNotification(level, null, message, duration);
+    }
+
+    /**
+     * 带标题的入队重载：Mellow 卡片显示标题行，Classic 样式忽略标题。
+     * 队列满时移除最旧的一条，保证渲染开销有上界。
+     */
+    public void addNotification(ModuleNotification.NotificationLevel level, String title,
+                                String message, long duration) {
+        while (notifications.size() >= MAX_NOTIFICATIONS) {
+            notifications.remove(0);
+        }
+        notifications.add(new ModuleNotification(level, title, message, duration));
+    }
+
+    /** 清空队列（模式切换 / 配置重载时使用）。 */
+    public void clear() {
+        notifications.clear();
+        exitBlurActive = false;
+        exitBlurProgress = 0f;
     }
 
     private float easeOutCubic(float x) {
@@ -55,12 +77,20 @@ public class NotificationManager {
         float originX = module.hudX;
         float originY = module.hudY;
 
-        String dummyMessage = "Module Notification";
-        float textWidth = mc.font.width(dummyMessage) + 20 + 2 * 14 + 8 + 8;
-        float width = textWidth + MARGIN * 2;
-        float height = 32 + PADDING_Y;
+        float contentWidth;
+        float height;
+        if (module instanceof Notification notif && notif.isMellow()) {
+            // Mellow 卡片占位尺寸：与真实卡片布局一致
+            contentWidth = MellowNotificationRenderer.cardWidth("Module", "Enabled: Notification");
+            height = MellowNotificationRenderer.CARD_HEIGHT + PADDING_Y;
+        } else {
+            String dummyMessage = "Module Notification";
+            contentWidth = mc.font.width(dummyMessage) + 20 + 2 * 14 + 8 + 8;
+            height = 32 + PADDING_Y;
+        }
 
-        float x = rightAligned ? originX - MARGIN - textWidth : originX;
+        float width = contentWidth + MARGIN * 2;
+        float x = rightAligned ? originX - MARGIN - contentWidth : originX;
         float y = originY - MARGIN;
 
         int ix = (int) x, iy = (int) y, iw = (int) width, ih = (int) height;
@@ -69,10 +99,22 @@ public class NotificationManager {
         CustomRectRenderer.drawRect(guiGraphics, ix, iy, bw, ih, color);
         CustomRectRenderer.drawRect(guiGraphics, ix + iw - bw, iy, bw, ih, color);
 
-        Gemini.hudDragManager.registerDragRegion(module, (int) x, (int) y, (int) width, (int) height);
+        Gemini.hudDragManager.registerDragRegion(module, ix, iy, iw, ih);
     }
 
+    /**
+     * 渲染入口：按 Notification 模块的 Mode 配置分发。
+     * Classic —— 深色磨砂共享容器；Mellow —— 浅色独立卡片。
+     */
     public void renderAll(GuiGraphicsExtractor guiGraphics, Module module) {
+        if (module instanceof Notification notif && notif.isMellow()) {
+            renderMellow(guiGraphics, notif);
+            return;
+        }
+        renderClassic(guiGraphics, module);
+    }
+
+    private void renderClassic(GuiGraphicsExtractor guiGraphics, Module module) {
         boolean rightAligned = Gemini.hudDragManager.isOnRightSide(module);
         float originX = module.hudX;
         float originY = module.hudY;
@@ -200,6 +242,76 @@ public class NotificationManager {
             notification.render(guiGraphics, targetX, currentYOffset);
 
             currentYOffset += notificationHeight + PADDING_Y;
+        }
+
+        // Register drag region
+        float totalH = originY - smoothYOffset;
+        if (totalH > 0 && maxWidth > 0) {
+            float regionW = maxWidth + MARGIN * 2;
+            float regionX = rightAligned ? originX - MARGIN - maxWidth : originX;
+            Gemini.hudDragManager.registerDragRegion(module, (int) regionX, (int) smoothYOffset, (int) regionW, (int) totalH);
+        }
+    }
+
+    /**
+     * Mellow 样式布局：每张通知是独立的浅色卡片（自带背景与 GLSL 投影），
+     * 因此不绘制 Classic 的共享磨砂容器；锚点、平滑与对齐逻辑保持一致。
+     */
+    private void renderMellow(GuiGraphicsExtractor guiGraphics, Notification module) {
+        // 卡片样式不使用共享背景，切模式时复位 Classic 的退场模糊状态
+        exitBlurActive = false;
+        exitBlurProgress = 0f;
+
+        boolean rightAligned = Gemini.hudDragManager.isOnRightSide(module);
+        float originX = module.hudX;
+        float originY = module.hudY;
+
+        notifications.removeIf(ModuleNotification::isExpired);
+
+        // --- 计算总高度和最大卡片宽度 ---
+        float totalHeight = 0f;
+        float maxWidth = 0f;
+        for (ModuleNotification n : notifications) {
+            totalHeight += MellowNotificationRenderer.CARD_HEIGHT + PADDING_Y;
+            float w = MellowNotificationRenderer.cardWidth(n);
+            if (w > maxWidth) maxWidth = w;
+        }
+
+        if (notifications.isEmpty()) {
+            smoothYOffset = originY - MARGIN;
+            lastTargetYOffset = smoothYOffset;
+            smoothMaxWidth = 0f;
+            return;
+        }
+
+        float targetY = originY - MARGIN - totalHeight + PADDING_Y;
+        if (lastTargetYOffset == 0f) lastTargetYOffset = targetY;
+
+        // Y 轴平滑（与 Classic 同参数）
+        smoothYOffset = Mth.lerp(0.12f, smoothYOffset, targetY);
+        lastTargetYOffset = targetY;
+
+        // 统一卡片宽度的平滑过渡（扩张快、收缩慢，参考图中各卡同宽）
+        if (maxWidth > smoothMaxWidth) {
+            smoothMaxWidth = Mth.lerp(0.15f, smoothMaxWidth, maxWidth);
+        } else {
+            smoothMaxWidth = Mth.lerp(0.08f, smoothMaxWidth, maxWidth);
+        }
+
+        float currentYOffset = smoothYOffset;
+
+        // --- 自顶向下绘制卡片（最新在最上方），各自做滑入滑出 ---
+        for (int i = notifications.size() - 1; i >= 0; i--) {
+            ModuleNotification notification = notifications.get(i);
+
+            float targetX = rightAligned
+                    ? originX - MARGIN - smoothMaxWidth
+                    : originX + MARGIN;
+
+            MellowNotificationRenderer.render(guiGraphics, notification, module,
+                    targetX, currentYOffset, smoothMaxWidth);
+
+            currentYOffset += MellowNotificationRenderer.CARD_HEIGHT + PADDING_Y;
         }
 
         // Register drag region

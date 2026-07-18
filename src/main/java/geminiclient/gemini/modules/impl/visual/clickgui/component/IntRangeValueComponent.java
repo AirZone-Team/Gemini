@@ -1,9 +1,10 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
+import geminiclient.gemini.modules.impl.visual.clickgui.ClassicTheme;
+import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.utils.animation.SpringAnimation;
 import geminiclient.gemini.values.impl.IntRangeValue;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-
-import java.awt.Color;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 
@@ -12,11 +13,7 @@ public class IntRangeValueComponent extends ValueComponent {
     private boolean isDraggingMin = false;
     private boolean isDraggingMax = false;
 
-    // 统一的颜色主题 - 使用黑灰色调
-    private static final int ACCENT_COLOR = new Color(220, 220, 220).getRGB();
-    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB();
-    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB();
-    private static final int TEXT_COLOR = Color.WHITE.getRGB();
+    private final SpringAnimation hoverSpring = SpringAnimation.smooth();
 
     private static final int TRACK_HEIGHT = 2;
     private static final int HANDLE_SIZE = 6;
@@ -33,8 +30,12 @@ public class IntRangeValueComponent extends ValueComponent {
             updateValueFromMouse(mouseX);
         }
 
-        int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
-        guiGraphics.fill(x, y, x + width, y + height, bgColor);
+        boolean hovered = isHovered(mouseX, mouseY);
+        hoverSpring.setTarget(hovered ? 1.0f : 0.0f);
+        hoverSpring.update(partialTicks);
+        float hoverT = hoverSpring.getValue();
+
+        ClassicTheme.drawRow(guiGraphics, x, y, width, height, hoverT);
 
         float absMin = rangeValue.getMin();
         float absMax = rangeValue.getMax();
@@ -44,31 +45,27 @@ public class IntRangeValueComponent extends ValueComponent {
         int trackX = x + 4;
         int trackWidth = width - 8;
 
-        float minPercent = (rangeValue.getMinValue() - absMin) / range;
-        float maxPercent = (rangeValue.getMaxValue() - absMin) / range;
+        float minPercent = range == 0 ? 0 : (rangeValue.getMinValue() - absMin) / range;
+        float maxPercent = range == 0 ? 0 : (rangeValue.getMaxValue() - absMin) / range;
 
         int minHandleX = (int) (trackX + trackWidth * minPercent);
         int maxHandleX = (int) (trackX + trackWidth * maxPercent);
+        int cy = trackY + TRACK_HEIGHT / 2;
 
-        guiGraphics.fill(trackX, trackY, trackX + trackWidth, trackY + TRACK_HEIGHT,
-                new Color(50, 50, 50, 200).getRGB());
+        // Inactive track + accent segment between the thumbs
+        CustomRoundedRectRenderer.drawRoundedRect(guiGraphics, trackX, trackY, trackWidth,
+                TRACK_HEIGHT, 1, ClassicTheme.TRACK);
+        CustomRoundedRectRenderer.drawRoundedRect(guiGraphics, minHandleX, trackY,
+                Math.max(TRACK_HEIGHT, maxHandleX - minHandleX), TRACK_HEIGHT, 1, ClassicTheme.ACCENT);
 
-        guiGraphics.fill(minHandleX, trackY, maxHandleX, trackY + TRACK_HEIGHT, ACCENT_COLOR);
+        ClassicTheme.drawRangeThumb(guiGraphics, minHandleX, cy, isDraggingMin || hovered);
+        ClassicTheme.drawRangeThumb(guiGraphics, maxHandleX, cy, isDraggingMax || hovered);
 
-        int handleY = trackY - (HANDLE_SIZE - TRACK_HEIGHT) / 2;
-
-        guiGraphics.fill(minHandleX - HANDLE_SIZE / 2, handleY, minHandleX + HANDLE_SIZE / 2, handleY + HANDLE_SIZE,
-                isDraggingMin ? ACCENT_COLOR : TEXT_COLOR);
-
-        guiGraphics.fill(maxHandleX - HANDLE_SIZE / 2, handleY, maxHandleX + HANDLE_SIZE / 2, handleY + HANDLE_SIZE,
-                isDraggingMax ? ACCENT_COLOR : TEXT_COLOR);
-
-        String minVal = String.valueOf(rangeValue.getMinValue());
-        String maxVal = String.valueOf(rangeValue.getMaxValue());
-
-        String displayString = String.format("%s: %s/%s", this.value.getName(), minVal, maxVal);
-
-        guiGraphics.text(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
+        // Label (left) + current range (right)
+        guiGraphics.text(mc.font, this.value.getName(), x + 7, y + 3, ClassicTheme.TEXT, true);
+        String rangeText = rangeValue.getMinValue() + " / " + rangeValue.getMaxValue();
+        guiGraphics.text(mc.font, rangeText, x + width - 7 - mc.font.width(rangeText), y + 3,
+                ClassicTheme.TEXT_DIM, true);
     }
 
     private void updateValueFromMouse(double mouseX) {

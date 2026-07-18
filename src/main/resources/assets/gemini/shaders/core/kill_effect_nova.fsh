@@ -152,7 +152,7 @@ float edgeMask(float d) {
 void main() {
     float time      = vertexColor.r;
     float modeFlag  = vertexColor.g;    // 0.0=flash, 0.5=nova
-    float intensity = vertexColor.b;
+    float intensity = vertexColor.b * 4.0;  // intensity packed normalized (x/4)
     float alpha     = vertexColor.a;
 
     // Early-out: skip all computation if master alpha is negligible

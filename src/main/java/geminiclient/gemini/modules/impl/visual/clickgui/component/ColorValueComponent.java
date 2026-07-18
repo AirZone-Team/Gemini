@@ -1,17 +1,14 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
+import geminiclient.gemini.modules.impl.visual.clickgui.ClassicTheme;
+import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.utils.animation.SpringAnimation;
 import geminiclient.gemini.values.impl.ColorValue;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-
-import java.awt.Color;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 
 public class ColorValueComponent extends ValueComponent {
-
-    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB();
-    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB();
-    private static final int TEXT_COLOR = Color.WHITE.getRGB();
 
     private static final int[] PRESET_COLORS = {
         0xFFF5F5F5, // White
@@ -29,6 +26,8 @@ public class ColorValueComponent extends ValueComponent {
     };
 
     private int presetIndex = -1;
+
+    private final SpringAnimation hoverSpring = SpringAnimation.smooth();
 
     public ColorValueComponent(ColorValue value, int x, int y, int width, int height) {
         super(value, x, y, width, 16);
@@ -49,21 +48,28 @@ public class ColorValueComponent extends ValueComponent {
     public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         ColorValue colorValue = (ColorValue) this.value;
 
-        int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
-        guiGraphics.fill(x, y, x + width, y + height, bgColor);
+        boolean hovered = isHovered(mouseX, mouseY);
+        hoverSpring.setTarget(hovered ? 1.0f : 0.0f);
+        hoverSpring.update(partialTicks);
+        float hoverT = hoverSpring.getValue();
 
-        guiGraphics.text(mc.font, colorValue.getName(), x + 3, y + 3, TEXT_COLOR, true);
+        ClassicTheme.drawRow(guiGraphics, x, y, width, height, hoverT);
 
+        guiGraphics.text(mc.font, colorValue.getName(), x + 7, y + 4, ClassicTheme.TEXT, true);
+
+        // Rounded swatch with a hairline border
         int swatchSize = height - 6;
-        int swatchX = x + width - swatchSize - 3;
+        int swatchX = x + width - swatchSize - 6;
         int swatchY = y + 3;
-
-        guiGraphics.fill(swatchX, swatchY, swatchX + swatchSize, swatchY + swatchSize, colorValue.getColor());
+        CustomRoundedRectRenderer.drawRoundedRect(guiGraphics, swatchX, swatchY,
+                swatchSize, swatchSize, 3, colorValue.getColor());
+        CustomRoundedRectRenderer.drawRoundedOutline(guiGraphics, swatchX, swatchY,
+                swatchSize, swatchSize, 3, ClassicTheme.BORDER, 1);
 
         // Hex text between name and swatch
         String hex = String.format("#%06X", colorValue.getRGB());
         int hexWidth = mc.font.width(hex);
-        guiGraphics.text(mc.font, hex, swatchX - hexWidth - 4, y + 3, TEXT_COLOR, true);
+        guiGraphics.text(mc.font, hex, swatchX - hexWidth - 5, y + 4, ClassicTheme.TEXT_DIM, true);
     }
 
     @Override

@@ -68,6 +68,15 @@ public class KillEffectInstance {
     private final boolean[] particleIsSky = new boolean[MAX_PARTICLES];
     private int particleCount;
 
+    // ── Burst particle system (hypernova explosion debris) ─────────
+
+    private static final int MAX_BURST = 1200;
+
+    /** [x, y, z, vx, vy, vz, life, maxLife] × MAX_BURST */
+    private final float[] burstData = new float[MAX_BURST * 8];
+    private int burstCount;
+    private boolean burstSpawned;
+
     // ── Construction ───────────────────────────────────────────────
 
     public KillEffectInstance(Vec3 position, long startTimeMs) {
@@ -551,5 +560,128 @@ public class KillEffectInstance {
     /** Reset particle system for reuse. */
     public void resetParticles() {
         particleCount = 0;
+    }
+
+    // ── Burst particles (explosion debris) ─────────────────────────
+
+    /** Get the number of spawned burst particles. */
+    public int getBurstCount() {
+        return burstCount;
+    }
+
+    /**
+     * Update explosion burst debris. The burst is spawned once, at the
+     * flash peak (30% into STAGE_FLASH), so the debris is already flying
+     * outward when the hypernova detonates.
+     *
+     * <p>Integration: exponential drag + gentle gravity; particles never
+     * respawn — they dissipate (alpha → 0, size grows as they cool).</p>
+     *
+     * @param dt         delta time in seconds (~0.05 per tick)
+     * @param stage      current effect stage
+     * @param nowMs      current system time
+     * @param mergeScale AoE merge multiplier (scales count + speed)
+     */
+    public void updateBurstParticles(float dt, int stage, long nowMs, float mergeScale) {
+        if (!burstSpawned && stage == STAGE_FLASH && stageProgress(nowMs) >= 0.30f) {
+            spawnBurst(mergeScale);
+        }
+        if (burstCount == 0) return;
+
+        float drag = (float) Math.exp(-1.9 * dt);
+        float grav = 2.2f * dt; // gentle pull-down for ember arcs
+
+        for (int i = 0; i < burstCount; i++) {
+            int off = i * 8;
+            float life = burstData[off + 6] + dt;
+            burstData[off + 6] = life;
+            if (life >= burstData[off + 7]) continue; // dead — fill skips it
+
+            burstData[off + 3] *= drag;
+            burstData[off + 4] = burstData[off + 4] * drag - grav;
+            burstData[off + 5] *= drag;
+
+            burstData[off]     += burstData[off + 3] * dt;
+            burstData[off + 1] += burstData[off + 4] * dt;
+            burstData[off + 2] += burstData[off + 5] * dt;
+        }
+    }
+
+    /**
+     * Spawn the explosion burst: uniform sphere directions with a slight
+     * upward bias, quadratic speed distribution (many slow embers, a few
+     * fast streaks).
+     */
+    private void spawnBurst(float mergeScale) {
+        burstSpawned = true;
+        float clampedScale = Math.min(mergeScale, 3f);
+        int count = Math.min(MAX_BURST, 650 + (int)(clampedScale * 120f));
+        float speedScale = (float) Math.sqrt(clampedScale);
+
+        float cx = (float) position.x;
+        float cy = (float) position.y + 1.6f;
+        float cz = (float) position.z;
+
+        for (int i = 0; i < count; i++) {
+            int off = i * 8;
+
+            // Uniform random direction on the sphere, slight upward bias
+            double theta = RNG.nextDouble() * Math.PI * 2.0;
+            double cosPhi = RNG.nextDouble() * 2.0 - 1.0;
+            double sinPhi = Math.sqrt(1.0 - cosPhi * cosPhi);
+            float dx = (float)(sinPhi * Math.cos(theta));
+            float dy = (float)(cosPhi * 0.75 + 0.30);
+            float dz = (float)(sinPhi * Math.sin(theta));
+
+            // Quadratic distribution: r² speeds → many slow, few fast
+            float speed = (5.0f + RNG.nextFloat() * RNG.nextFloat() * 24.0f) * speedScale;
+
+            burstData[off]     = cx + dx * 0.3f;
+            burstData[off + 1] = cy + dy * 0.3f;
+            burstData[off + 2] = cz + dz * 0.3f;
+            burstData[off + 3] = dx * speed;
+            burstData[off + 4] = dy * speed;
+            burstData[off + 5] = dz * speed;
+            burstData[off + 6] = 0f;
+            burstData[off + 7] = 1.3f + RNG.nextFloat() * 1.9f; // 1.3–3.2s
+        }
+        burstCount = count;
+    }
+
+    /**
+     * Fill the shared batch with burst debris: [x,y,z,size,r,g,b,a] × count.
+     * Encoded as mode G=0.5 (burst) — the particle shader applies the HDR
+     * hot→ember ramp. Alpha decays quadratically (dissipation); size grows
+     * slightly as the debris cools and scatters.
+     */
+    public int fillBurstBatch(float[] batch, int maxCount, long nowMs, float alpha) {
+        if (burstCount == 0) return 0;
+
+        int count = 0;
+        for (int i = 0; i < burstCount && count < maxCount; i++) {
+            int off = i * 8;
+            float life = burstData[off + 6];
+            float maxLife = burstData[off + 7];
+            if (life >= maxLife) continue;
+
+            float lifeRatio = life / maxLife;
+            float decay = 1f - lifeRatio;
+            float pAlpha = Math.min(alpha * decay * decay, 1f);
+            if (pAlpha < 0.004f) continue;
+
+            float size = 0.045f * (1f + lifeRatio * 1.4f);
+
+            int bo = count * 8;
+            batch[bo]     = burstData[off];
+            batch[bo + 1] = burstData[off + 1];
+            batch[bo + 2] = burstData[off + 2];
+            batch[bo + 3] = size;
+            batch[bo + 4] = lifeRatio;  // R → color ramp
+            batch[bo + 5] = 0.5f;       // G → burst mode
+            batch[bo + 6] = 0f;         // B → reserved
+            batch[bo + 7] = pAlpha;     // A → master alpha
+            count++;
+        }
+        return count;
     }
 }

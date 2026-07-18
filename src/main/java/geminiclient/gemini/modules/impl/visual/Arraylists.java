@@ -1,11 +1,9 @@
 package geminiclient.gemini.modules.impl.visual;
 
-import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.vertex.VertexConsumer;
 import geminiclient.gemini.Gemini;
-import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
-
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.Module;
@@ -17,64 +15,74 @@ import geminiclient.gemini.values.impl.FloatValue;
 import geminiclient.gemini.values.impl.IntValue;
 import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.navigation.ScreenRectangle;
-import net.minecraft.client.gui.render.TextureSetup;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.state.gui.GuiElementRenderState;
-import org.joml.Matrix3x2f;
-import org.jspecify.annotations.NonNull;
-import org.jspecify.annotations.Nullable;
 
 import java.awt.Color;
 import java.io.File;
 import java.util.*;
-import java.util.function.IntFunction;
 
 /**
- * Modern HUD module list with full FDPClient-inspired configuration.
- * Supports multiple color modes, tag display, rect indicators,
- * slide animations, and fine-grained rainbow / hue-range control.
+ * Arraylists — modern HUD module list.
+ *
+ * Two switchable styles ("Style" option):
+ *  - "Minimal": one frosted-glass container for the whole list (single tinted
+ *    blur pass instead of N per-card blurs), hairline separators, 2px accent
+ *    bars anchored to the container edge, name/tag opacity hierarchy
+ *  - "Cards": per-module glassmorphism cards
+ *    · Smooth 5-layer ambient bloom behind every active card (quadratic falloff)
+ *    · Soft multi-layer drop shadow instead of a single hard offset
+ *    · True glassmorphism body: vertical gradient fill + top sheen + hairline rim
+ *    · Gradient accent indicators (Left/Right/Top/Special) with a soft halo
+ *    · Subtle vertical text gradient and a "breathing" accent icon
+ *    · Spring-like entry animation (easeOutBack scale + slide-in from list edge)
+ *    · Master animation-speed control
+ *    · "Random" color mode; TextAlpha is actually applied
  */
 public class Arraylists extends Module {
 
     // ==================== CONFIGURATION VALUES ====================
 
-    // Display toggles
-    public final BoolValue mainBackground   = new BoolValue("Background",    true);
+    // ---- Display ----
     public final BoolValue moduleBackground = new BoolValue("Module BG",    true);
     public final BoolValue compactMode      = new BoolValue("Compact",      false);
     public final BoolValue textShadow       = new BoolValue("Text Shadow",  true);
     public final ListValue sortMode         = new ListValue("Sort",
             "Length", new String[]{"Length", "Alphabetical", "Category"});
 
-    // Color modes
-    public final ListValue colorMode        = new ListValue("Text-Color",
-            "Sync", new String[]{"Custom", "Sync", "Wave", "Gradient", "SkyRainbow", "Slowly", "Static", "Fade"});
-    public final ListValue tagColorMode     = new ListValue("Tag-Color",
-            "Custom", new String[]{"Custom", "Sync", "Wave", "Gradient", "SkyRainbow", "Slowly", "Static", "Fade"});
-    public final ListValue rectColorMode    = new ListValue("Rect-Color",
-            "Sync", new String[]{"Custom", "Sync", "Wave", "Gradient", "SkyRainbow", "Slowly", "Static", "Fade"});
+    // ---- Style ----
+    public final ListValue styleMode        = new ListValue("Style",
+            "Minimal", new String[]{"Minimal", "Cards"});
+    public final BoolValue showSeparators   = new BoolValue("Separators",   true);
+    public final BoolValue showIcons        = new BoolValue("Icons",        false);
 
-    // Static colors
+    // ---- Color modes ----
+    public final ListValue colorMode        = new ListValue("Text-Color",
+            "Sync", new String[]{"Custom", "Sync", "Wave", "Gradient", "SkyRainbow", "Slowly", "Static", "Fade", "Random"});
+    public final ListValue tagColorMode     = new ListValue("Tag-Color",
+            "Custom", new String[]{"Custom", "Sync", "Wave", "Gradient", "SkyRainbow", "Slowly", "Static", "Fade", "Random"});
+    public final ListValue rectColorMode    = new ListValue("Rect-Color",
+            "Sync", new String[]{"Custom", "Sync", "Wave", "Gradient", "SkyRainbow", "Slowly", "Static", "Fade", "Random"});
+
+    // ---- Static colors ----
     public final ColorValue fontColor       = new ColorValue("Font Color",   0xFFFAFAFA);
-    public final ColorValue tagColor        = new ColorValue("Tag Color",    0xFFC3C3C3);
+    public final ColorValue tagColor        = new ColorValue("Tag Color",    0xFF8A8A8A);
     public final ColorValue rectCustomColor = new ColorValue("Rect Color",   0xFF43E096);
     public final ColorValue backgroundColor = new ColorValue("BG Tint",      0xC0121212);
 
-    // Rainbow control
+    // ---- Rainbow control ----
     public final FloatValue rainbowSpeed      = new FloatValue("Speed",       3500f, 500f, 10000f);
     public final FloatValue rainbowSaturation = new FloatValue("Saturation", 0.8f,  0.1f, 1.0f);
     public final FloatValue rainbowBrightness = new FloatValue("Brightness", 1.0f,  0.1f, 1.0f);
     public final FloatRangeValue rainbowHueRange = new FloatRangeValue("Hue Range", 0.0f, 1.0f, 0.0f, 1.0f);
-    // Rect indicator style
+
+    // ---- Rect indicator style ----
     public final ListValue rectMode          = new ListValue("Rect",
             "Left", new String[]{"None", "Left", "Right", "Outline", "Special", "Top"});
 
-    // Background
-    public final IntValue backgroundAlpha    = new IntValue("BG-Alpha",   0, 0, 255);
+    // ---- Background ----
+    public final IntValue backgroundAlpha    = new IntValue("BG-Alpha",   180, 0, 255);
     public final IntValue backgroundExpand   = new IntValue("BG-Expand",  2, 0, 10);
 
-    // Layout
+    // ---- Layout ----
     public final ListValue caseMode          = new ListValue("Case",
             "Normal", new String[]{"Upper", "Normal", "Lower"});
     public final FloatValue spaceValue        = new FloatValue("Space",      0f,   0f, 5f);
@@ -83,31 +91,65 @@ public class Arraylists extends Module {
     public final ListValue ttfFont           = new ListValue("Font",
             "Default", new String[]{"Default"});
 
-    // Misc
+    // ---- Effects (new) ----
+    public final FloatValue glowIntensity  = new FloatValue("Glow",          1.0f, 0f,   2f);
+    public final IntValue   cornerRadius   = new IntValue("Radius",          6, 0, 12);
+    public final BoolValue  bgGradient     = new BoolValue("BG Gradient",    true);
+    public final BoolValue  textGradient   = new BoolValue("Text Gradient",  true);
+    public final BoolValue  iconPulse      = new BoolValue("Icon Pulse",     true);
+    public final FloatValue animSpeed      = new FloatValue("Anim Speed",    1.0f, 0.25f, 3f);
+
+    // ---- Misc ----
     public final BoolValue noRenderModules   = new BoolValue("NoRenderModules",  false);
 
     // ==================== VISUAL THEME CONSTANTS ====================
 
-    private static final int   RADIUS_MAIN          = 8;
-    private static final int   RADIUS_MODULE        = 4;
-    private static final int   STATUS_BAR_W         = 3;
-    private static final int   PADDING_X            = 7;
-    private static final int   PADDING_Y            = 5;
-    private static final int   LINE_GAP             = 3;
+    private static final int   PADDING_X            = 8;
+    private static final int   PADDING_Y            = 6;
+    private static final int   LINE_GAP             = 6;
+    private static final float BLUR_STRENGTH        = 7f;
 
     // Compact overrides
-    private static final int   C_RADIUS_MAIN        = 5;
-    private static final int   C_RADIUS_MODULE      = 2;
-    private static final int   C_STATUS_BAR_W       = 2;
-    private static final int   C_PADDING_X          = 4;
-    private static final int   C_PADDING_Y          = 2;
-    private static final int   C_LINE_GAP           = 1;
+    private static final int   C_PADDING_X          = 6;
+    private static final int   C_PADDING_Y          = 3;
+    private static final int   C_LINE_GAP           = 3;
+    private static final float C_BLUR_STRENGTH      = 5f;
+
+    // Glass treatment
+    private static final float GLASS_TOP_MIX        = 0.06f;  // white mixed into the top of the card
+    private static final float GLASS_BOTTOM_MIX     = 0.12f;  // black mixed into the bottom of the card
+    private static final int   GLASS_SHEEN_ALPHA    = 0x14;   // top sheen alpha
+    private static final int   GLASS_HAIRLINE_ALPHA = 0x10;   // 1px inner rim alpha
+
+    // Glow / shadow shaping
+    private static final int   GLOW_LAYERS          = 5;
+    private static final float GLOW_SPREAD          = 6f;     // px of outward bloom
+    private static final int   GLOW_BASE_ALPHA      = 0x34;
+    private static final int   SHADOW_LAYERS        = 3;
+    private static final int   SHADOW_BASE_ALPHA    = 0x12;
+
+    // Text treatment
+    private static final float TEXT_TOP_MIX         = 0.18f;  // white mixed into the top of glyphs
+    private static final float ICON_PULSE_MIN       = 0.70f;
 
     // Animation tuning
     private static final float LERP_SPEED           = 0.14f;
     private static final float LERP_SPEED_FAST      = 0.22f;
-    private static final float STAGGER_DELAY_MS     = 40f;
-    private static final float ENTRY_DURATION_MS    = 360f;
+    private static final float STAGGER_DELAY_MS     = 35f;
+    private static final float ENTRY_DURATION_MS    = 350f;
+    private static final float FADE_LERP            = 0.12f;
+    private static final float SCALE_LERP           = 0.14f;
+    private static final float ENTRY_SLIDE_PX       = 26f;
+
+    // Minimalist container (4px grid)
+    private static final int   M_PAD_X            = 9;
+    private static final int   M_PAD_Y            = 6;
+    private static final int   M_RADIUS           = 8;
+    private static final float M_BLUR             = 9f;
+    private static final int   M_TINT             = 0x3D0A0C10; // frosted dark-glass tint
+    private static final int   M_SEP_ALPHA        = 0x0F;       // hairline separators
+    private static final int   M_RIM_ALPHA        = 0x14;       // 1px container rim
+    private static final float TAG_DIM            = 0.62f;      // tag opacity vs name
 
     // ==================== COLOR UTILITY ====================
 
@@ -115,41 +157,36 @@ public class Arraylists extends Module {
         return (rgb & 0xFFFFFF) | (alpha << 24);
     }
 
-    private static int brighten(int c, float amount) {
-        int r = Math.min(255, (int)(((c >> 16) & 0xFF) + (255 - ((c >> 16) & 0xFF)) * amount));
-        int g = Math.min(255, (int)(((c >> 8)  & 0xFF) + (255 - ((c >> 8)  & 0xFF)) * amount));
-        int b = Math.min(255, (int)(( c        & 0xFF) + (255 - ( c        & 0xFF)) * amount));
-        return (c & 0xFF000000) | (r << 16) | (g << 8) | b;
+    private static int scaleAlpha(int argb, float mul) {
+        int a = Math.max(0, Math.min(255, (int) (((argb >>> 24) & 0xFF) * mul)));
+        return (argb & 0xFFFFFF) | (a << 24);
     }
 
-    private static int darken(int c, float amount) {
-        int r = (int)(((c >> 16) & 0xFF) * (1f - amount));
-        int g = (int)(((c >> 8)  & 0xFF) * (1f - amount));
-        int b = (int)(( c        & 0xFF) * (1f - amount));
-        return (c & 0xFF000000) | (r << 16) | (g << 8) | b;
+    private static int mixRgb(int rgbA, int rgbB, float t) {
+        t = Math.max(0f, Math.min(1f, t));
+        int r = (int) (((rgbA >> 16) & 0xFF) * (1f - t) + ((rgbB >> 16) & 0xFF) * t);
+        int g = (int) (((rgbA >> 8)  & 0xFF) * (1f - t) + ((rgbB >> 8)  & 0xFF) * t);
+        int b = (int) (( rgbA        & 0xFF) * (1f - t) + ( rgbB        & 0xFF) * t);
+        return (r << 16) | (g << 8) | b;
     }
 
-    /** Maps a 0-1 hue into the configured [rainbowHueMin, rainbowHueMax] range. */
     private float mapHue(float hue) {
         float min = rainbowHueRange.getMinValue();
         float max = rainbowHueRange.getMaxValue();
         return min + (hue % 1f) * (max - min);
     }
 
-    /** Compute a rainbow hue from a time-based index (per-module offset). */
     private float baseHue(long speedMs, int offset, int divisor) {
         return ((System.currentTimeMillis() % speedMs) / (float) speedMs
                 + (float) offset / Math.max(1, divisor)) % 1f;
     }
 
-    /** Wave: smooth sine oscillation — hue peaks then decays smoothly, no sawtooth jump. */
     private float waveHue(long speedMs, int offset, int divisor) {
         float t = ((System.currentTimeMillis() % speedMs) / (float) speedMs
                 + (float) offset / Math.max(1, divisor)) % 1f;
         return (float) (Math.sin(t * Math.PI * 2) * 0.5 + 0.5);
     }
 
-    /** SkyRainbow: smooth sine-wave oscillation instead of abrupt fold back. */
     private float skyRainbowHue(long speedMs, int offset) {
         double v = Math.ceil(System.currentTimeMillis() / (double) speedMs + offset * 109L) / 5.0;
         v %= 360.0;
@@ -157,19 +194,16 @@ public class Arraylists extends Module {
         return (float) (Math.sin(t * Math.PI * 2) * 0.5 + 0.5);
     }
 
-    /** Slowly: very slow nanoTime-based cycling with per-module offset. */
     private static float slowlyHue(int offset) {
         return (System.nanoTime() / 1.0E9f + offset * -3000000f) / 2f % 1f;
     }
 
-    /** Static: smooth sine-wave oscillation instead of abrupt fold back. */
     private static float staticHue(long speedMs, int offset) {
         float t = ((System.currentTimeMillis() % speedMs) / (float) speedMs
                 + (float) offset * 0.05f) % 1f;
         return (float) (Math.sin(t * Math.PI * 2) * 0.5 + 0.5);
     }
 
-    /** Fade: oscillates brightness of a base color, returns a Color. */
     private static int fadeColor(int baseRgb, int index, int total) {
         float[] hsb = new float[3];
         Color.RGBtoHSB((baseRgb >> 16) & 0xFF, (baseRgb >> 8) & 0xFF, baseRgb & 0xFF, hsb);
@@ -185,89 +219,62 @@ public class Arraylists extends Module {
         return t >= 1f ? 1f : 1f - (float) Math.pow(2, -10 * t);
     }
 
-    private static float easeOutBack(float t) {
-        final float c1 = 1.70158f;
-        final float c3 = c1 + 1f;
-        return 1f + c3 * (float) Math.pow(t - 1, 3) + c1 * (float) Math.pow(t - 1, 2);
+    private static float easeOutCubic(float t) {
+        float u = 1f - t;
+        return 1f - u * u * u;
     }
 
-    // ==================== CACHED STATUS BAR RENDER STATE ====================
+    private static float easeOutBack(float t) {
+        float c1 = 1.70158f;
+        float c3 = c1 + 1f;
+        float u  = t - 1f;
+        return 1f + c3 * u * u * u + c1 * u * u;
+    }
 
-    private static class StatusBarState implements GuiElementRenderState {
-        private static final RenderPipeline PIPELINE   = RenderPipelines.GUI;
-        private static final TextureSetup   NO_TEXTURE = TextureSetup.noTexture();
-
-        private Matrix3x2f pose;
-        private int x, y, w, h;
-        private int topColor, bottomColor;
-        @Nullable private ScreenRectangle scissor;
-        @Nullable private ScreenRectangle bounds;
-
-        void configure(Matrix3x2f pose, int x, int y, int w, int h,
-                       int topColor, int bottomColor,
-                       @Nullable ScreenRectangle scissor) {
-            this.pose = pose;
-            this.x = x; this.y = y;
-            this.w = w; this.h = h;
-            this.topColor = topColor;
-            this.bottomColor = bottomColor;
-            this.scissor = scissor;
-            if (w > 0 && h > 0) {
-                ScreenRectangle b = new ScreenRectangle(x, y, w, h)
-                        .transformMaxBounds(pose);
-                this.bounds = scissor != null ? scissor.intersection(b) : b;
-            } else {
-                this.bounds = null;
-            }
-        }
-
-        @Override
-        public void buildVertices(@NonNull VertexConsumer vc) {
-            vc.addVertexWith2DPose(pose, x, y).setColor(topColor);
-            vc.addVertexWith2DPose(pose, x, y + h).setColor(bottomColor);
-            vc.addVertexWith2DPose(pose, x + w, y + h).setColor(bottomColor);
-            vc.addVertexWith2DPose(pose, x + w, y).setColor(topColor);
-        }
-
-        @Override public @NonNull RenderPipeline pipeline()     { return PIPELINE; }
-        @Override public @NonNull TextureSetup textureSetup()   { return NO_TEXTURE; }
-        @Override @Nullable public ScreenRectangle scissorArea() { return scissor; }
-        @Override @Nullable public ScreenRectangle bounds()      { return bounds; }
+    /** Frame-rate independent scaling of a lerp factor by a speed multiplier. */
+    private static float lerpScale(float base, float mul) {
+        return 1f - (float) Math.pow(1f - base, mul);
     }
 
     // ==================== PER-MODULE ANIMATION STATE ====================
 
     private static class ModuleAnimation {
-        float displayX    = 150f;
+        float alpha       = 0f;
+        float scale       = 0.85f;
+        float blurAlpha   = 0f;
+        float glowAlpha   = 0f;
         float currentY    = 0f;
         float targetY     = 0f;
+        float currentX    = 0f;
+        float targetX     = 0f;
         long  entryStart  = -1L;
         int   sortIndex   = -1;
-        /** Random hue for "Random" color mode, -1 = not assigned. */
         float randomHue   = -1f;
         boolean wasEnabled = false;
-        StatusBarState barState;
     }
 
     // ==================== INSTANCE STATE ====================
 
     private final Map<Module, ModuleAnimation> animMap = new LinkedHashMap<>();
-    private float containerHeight = 0f;
     private CustomFontRenderer.GlyphFont customFont;
     private String lastSelectedFont = null;
-    private final float lastFontSize = 8f;
+
+    // Container-level animation state (Minimal style)
+    private float containerW = 0f, containerH = 0f, containerAlpha = 0f;
 
     // ==================== CONSTRUCTOR ====================
 
     public Arraylists() {
         super("Arraylists", ModuleEnum.Visual);
-        addValue(mainBackground, moduleBackground, compactMode, textShadow,
-                sortMode, colorMode, tagColorMode, rectColorMode,
+        addValue(moduleBackground, compactMode, textShadow,
+                sortMode, styleMode, showSeparators, showIcons,
+                colorMode, tagColorMode, rectColorMode,
                 fontColor, tagColor, rectCustomColor, backgroundColor,
                 rainbowSpeed, rainbowSaturation, rainbowBrightness, rainbowHueRange,
                 rectMode,
                 backgroundAlpha, backgroundExpand, caseMode, spaceValue,
                 textYOffset, fontAlphaValue, ttfFont,
+                glowIntensity, cornerRadius, bgGradient, textGradient, iconPulse, animSpeed,
                 noRenderModules);
     }
 
@@ -314,12 +321,28 @@ public class Arraylists extends Module {
 
     private float textWidth(String text) {
         return customFont != null
-            ? CustomFontRenderer.stringWidth(customFont, text)
-            : CustomFontRenderer.stringWidth(mc.font, text);
+                ? CustomFontRenderer.stringWidth(customFont, text)
+                : CustomFontRenderer.stringWidth(mc.font, text);
     }
 
     private int textLineHeight(int lineGap) {
         return (int) (customFont != null ? customFont.lineHeight : mc.font.lineHeight) + lineGap;
+    }
+
+    private boolean isMinimal() {
+        return "Minimal".equals(styleMode.get());
+    }
+
+    /** Single source of truth for row text — used by sorting, measuring and drawing. */
+    private String displayText(Module m) {
+        String base = changeCase(m.getName()) + getModuleTag(m);
+        return showIcons.enabled ? getModuleIcon(m.getName()) + " " + base : base;
+    }
+
+    /** Font-path agnostic single-color text draw. */
+    private void drawText(GuiGraphicsExtractor g, String s, float x, float y, int color) {
+        if (customFont != null) CustomFontRenderer.drawString(g, customFont, s, x, y, color);
+        else                    CustomFontRenderer.drawString(g, mc.font, s, x, y, color);
     }
 
     // ==================== TEXT TRANSFORMATION ====================
@@ -333,7 +356,33 @@ public class Arraylists extends Module {
     }
 
     private String getModuleTag(Module module) {
-        return ""; // Reserved — Module.tag not yet available
+        // Fallback or placeholder for tags until module system provides them fully.
+        // Return example: " §7" + module.getSuffix() if available.
+        return "";
+    }
+
+    private static String getModuleIcon(String name) {
+        String n = name.toLowerCase();
+        if (n.contains("killaura") || n.contains("aura")) return "⚡";
+        if (n.contains("velocity") || n.contains("antiknockback")) return "✦";
+        if (n.contains("fly") || n.contains("flight")) return "◆";
+        if (n.contains("esp") || n.contains("tracer")) return "◈";
+        if (n.contains("speed") || n.contains("bhop")) return "▶";
+        if (n.contains("scaffold") || n.contains("tower")) return "▣";
+        if (n.contains("reach") || n.contains("click")) return "◎";
+        if (n.contains("tp") || n.contains("teleport")) return "↗";
+        if (n.contains("steal") || n.contains("chest")) return "♢";
+        if (n.contains("antibot") || n.contains("antiv")) return "☖";
+        if (n.contains("blink") || n.contains("disabler")) return "⚠";
+        if (n.contains("health") || n.contains("heal")) return "❤";
+        if (n.contains("timer") || n.contains("tick")) return "⧖";
+        if (n.contains("block") || n.contains("safewalk")) return "▧";
+        if (n.contains("target") || n.contains("aim")) return "◉";
+        if (n.contains("render") || n.contains("visual") || n.contains("arraylist")) return "◇";
+        if (n.contains("hud") || n.contains("overlay")) return "▢";
+        if (n.contains("world") || n.contains("time")) return "◷";
+        if (n.contains("misc") || n.contains("fun")) return "☆";
+        return "▪";
     }
 
     private boolean shouldSkipModule(Module m) {
@@ -344,19 +393,28 @@ public class Arraylists extends Module {
 
     private List<Module> processAnimationsAndLayout(List<Module> modules) {
         long now = System.currentTimeMillis();
-
         boolean compact  = compactMode.enabled;
-        int paddingY     = compact ? C_PADDING_Y     : PADDING_Y;
+        int paddingY     = isMinimal() ? M_PAD_Y : (compact ? C_PADDING_Y : PADDING_Y);
         int lineGap      = compact ? C_LINE_GAP      : LINE_GAP;
         float extraSpace = spaceValue.getValue();
         int lineHeight   = textLineHeight(lineGap) + (int) extraSpace;
+        boolean rightAligned = Gemini.hudDragManager.isOnRightSide(this);
+
+        // Master animation-speed control (frame-rate independent scaling)
+        float speedMul  = Math.max(0.05f, animSpeed.getValue());
+        float fadeLerp  = lerpScale(FADE_LERP, speedMul);
+        float scaleLerp = lerpScale(SCALE_LERP, speedMul);
+        float posLerp   = lerpScale(LERP_SPEED, speedMul);
+        float fastLerp  = lerpScale(LERP_SPEED_FAST, speedMul);
+        float staggerMs = STAGGER_DELAY_MS / speedMul;
+        float entryMs   = ENTRY_DURATION_MS / speedMul;
 
         List<Module> sorted = new ArrayList<>();
         for (Module m : modules) {
             if (shouldSkipModule(m)) continue;
             animMap.computeIfAbsent(m, k -> new ModuleAnimation());
             ModuleAnimation a = animMap.get(m);
-            if (m.enabled || a.displayX < 149f) {
+            if (m.enabled || a.alpha > 0.01f) {
                 sorted.add(m);
             }
         }
@@ -364,456 +422,615 @@ public class Arraylists extends Module {
 
         if (sorted.isEmpty()) return sorted;
 
-        // Sort
-        String sm = sortMode.get();
-        switch (sm) {
+        // ---- Sorting ----
+        switch (sortMode.get()) {
             case "Alphabetical" ->
-                sorted.sort(Comparator.comparing(Module::getName, String.CASE_INSENSITIVE_ORDER));
+                    sorted.sort(Comparator.comparing(Module::getName, String.CASE_INSENSITIVE_ORDER));
             case "Category" ->
-                sorted.sort(Comparator
-                        .comparingInt((Module m) -> m.getModuleEnum().ordinal())
-                        .thenComparing(Module::getName, String.CASE_INSENSITIVE_ORDER));
+                    sorted.sort(Comparator
+                            .comparingInt((Module m) -> m.getModuleEnum().ordinal())
+                            .thenComparing(Module::getName, String.CASE_INSENSITIVE_ORDER));
             default ->
-                sorted.sort(Comparator.comparingInt(
-                        (Module m) -> -(int) textWidth(m.getName())));
+                    sorted.sort(Comparator.comparingDouble((Module m) -> -textWidth(displayText(m))));
         }
 
-        // Animate per-module positions
+        // ---- Per-module animation: fade + spring scale + slide ----
         float yCursor = paddingY;
         for (int i = 0; i < sorted.size(); i++) {
             Module m = sorted.get(i);
             ModuleAnimation a = animMap.get(m);
-
             boolean toggled = a.wasEnabled != m.enabled;
 
-            // Only trigger entry animation when the module itself was just toggled
             if (a.sortIndex != i) {
                 a.sortIndex = i;
                 if (m.enabled && toggled && a.entryStart < 0) {
-                    a.entryStart = now + (long) (i * STAGGER_DELAY_MS);
+                    a.entryStart = now + (long) (i * staggerMs);
+                    a.currentX = rightAligned ? ENTRY_SLIDE_PX : -ENTRY_SLIDE_PX;
                 }
             }
 
-            // Random hue: assign once when module enables
-            if (m.enabled && a.randomHue < 0) {
-                a.randomHue = (float) Math.random();
-            } else if (!m.enabled) {
-                a.randomHue = -1f;
-            }
+            if (m.enabled && a.randomHue < 0) a.randomHue = (float) Math.random();
+            else if (!m.enabled) a.randomHue = -1f;
 
-            float entryProgress = 1f;
-            if (m.enabled && a.entryStart >= 0) {
-                long elapsed = now - a.entryStart;
-                if (elapsed <= 0) {
-                    entryProgress = 0f;
-                } else {
-                    entryProgress = easeOutBack(Math.min(1f, elapsed / ENTRY_DURATION_MS));
+            float targetAlpha, targetScale, targetBlur, targetGlow;
+            if (m.enabled) {
+                float entryProgress = 1f;
+                if (a.entryStart >= 0) {
+                    long elapsed = now - a.entryStart;
+                    entryProgress = elapsed <= 0 ? 0f : Math.min(1f, elapsed / entryMs);
                 }
-            } else if (!m.enabled) {
-                a.entryStart = -1L;
-            }
-
-            float targetX = m.enabled ? 0f : 150f;
-            float animTargetX;
-            float lerpRate;
-            if (m.enabled && entryProgress < 1f) {
-                animTargetX = 150f * (1f - entryProgress);
-                lerpRate    = LERP_SPEED;
+                targetAlpha = easeOutExpo(entryProgress);
+                targetScale = 0.92f + 0.08f * easeOutBack(entryProgress); // gentle spring pop
+                targetBlur  = easeOutCubic(entryProgress);
+                targetGlow  = easeOutCubic(entryProgress);
+                a.targetX   = 0f;
             } else {
-                animTargetX = targetX;
-                lerpRate    = m.enabled ? LERP_SPEED : LERP_SPEED_FAST;
+                a.entryStart = -1L;
+                targetAlpha = 0f;
+                targetScale = 0.92f;
+                targetBlur  = 0f;
+                targetGlow  = 0f;
+                a.targetX   = rightAligned ? 30f : -30f; // slide out to the edge
             }
-            a.displayX += (animTargetX - a.displayX) * lerpRate;
-            if (Math.abs(animTargetX - a.displayX) < 0.05f) a.displayX = animTargetX;
+
+            a.alpha     += (targetAlpha - a.alpha)     * fadeLerp;
+            a.scale     += (targetScale - a.scale)     * scaleLerp;
+            a.blurAlpha += (targetBlur  - a.blurAlpha) * fadeLerp;
+            a.glowAlpha += (targetGlow  - a.glowAlpha) * fadeLerp;
+            a.currentX  += (a.targetX   - a.currentX)  * fastLerp;
+
+            if (Math.abs(targetAlpha - a.alpha) < 0.005f) a.alpha = targetAlpha;
+            if (Math.abs(targetScale - a.scale) < 0.002f) a.scale = targetScale;
+            if (Math.abs(a.targetX - a.currentX) < 0.5f)  a.currentX = a.targetX;
 
             a.targetY = yCursor;
-            a.currentY += (a.targetY - a.currentY) * LERP_SPEED;
-            if (Math.abs(a.targetY - a.currentY) < 0.05f) a.currentY = a.targetY;
-            // Mark toggle complete once Y has settled, so next toggle is detected
+            a.currentY += (a.targetY - a.currentY) * posLerp;
             if (Math.abs(a.targetY - a.currentY) < 0.05f) {
+                a.currentY = a.targetY;
                 a.wasEnabled = m.enabled;
             }
 
             yCursor += lineHeight;
         }
 
-        float targetH = paddingY * 2 + sorted.size() * lineHeight;
-        containerHeight += (targetH - containerHeight) * LERP_SPEED;
-
         return sorted;
     }
 
     // ==================== COLOR RESOLUTION ====================
 
-    /**
-     * Resolves a single ARGB color for a module from the given color mode.
-     * For "Gradient" mode this returns the Wave-equivalent (single pass);
-     * per-char colors are handled separately in text rendering.
-     */
     private int resolveColor(String mode, int baseColor, ModuleAnimation anim,
                              int idx, int total, float sat, float bri, int alpha) {
         long speed = (long) rainbowSpeed.getValue();
 
         int rgb = switch (mode) {
-            case "Sync" -> Color.HSBtoRGB(mapHue(baseHue(speed, 0, 1)), sat, bri);
-            case "Wave" -> Color.HSBtoRGB(mapHue(waveHue(speed, idx, total)), sat, bri);
-            case "Gradient" -> Color.HSBtoRGB(mapHue(baseHue(speed, idx, total)), sat, bri);
-            case "SkyRainbow" -> {
-                float hue = skyRainbowHue(speed, idx);
-                yield Color.HSBtoRGB(hue, sat, bri);
+            case "Sync"       -> Color.HSBtoRGB(mapHue(baseHue(speed, 0, 1)), sat, bri);
+            case "Wave"       -> Color.HSBtoRGB(mapHue(waveHue(speed, idx, total)), sat, bri);
+            case "Gradient"   -> Color.HSBtoRGB(mapHue(baseHue(speed, idx, total)), sat, bri);
+            case "SkyRainbow" -> Color.HSBtoRGB(skyRainbowHue(speed, idx), sat, bri);
+            case "Slowly"     -> Color.HSBtoRGB(slowlyHue(idx), sat, bri);
+            case "Static"     -> Color.HSBtoRGB(staticHue(speed, idx), sat, bri);
+            case "Fade"       -> fadeColor(baseColor, idx, total);
+            case "Random"     -> {
+                float h = (anim != null && anim.randomHue >= 0f)
+                        ? anim.randomHue
+                        : (idx * 0.6180339887f) % 1f; // golden-ratio fallback spread
+                yield Color.HSBtoRGB(mapHue(h), sat, bri);
             }
-            case "Slowly" -> {
-                float hue = slowlyHue(idx);
-                yield Color.HSBtoRGB(hue, sat, bri);
-            }
-            case "Static" -> {
-                float hue = staticHue(speed, idx);
-                yield Color.HSBtoRGB(hue, sat, bri);
-            }
-            case "Fade" -> fadeColor(baseColor, idx, total);
-            default -> baseColor; // Custom / Off
+            default           -> baseColor;
         };
         return withAlpha(rgb, alpha);
     }
 
-    /** Resolves per-character hue for "Gradient" text mode. */
-    private float charHue(int charIdx, int charTotal, int moduleIdx, int moduleTotal) {
-        long speed = (long) rainbowSpeed.getValue();
-        return mapHue(baseHue(speed, moduleIdx, moduleTotal)
-                + (float) charIdx / Math.max(1, charTotal));
-    }
-
-    /** Resolves per-character hue with offset for gradient bottom half. */
-    private float charHueOffset(int charIdx, int charTotal, int moduleIdx, int moduleTotal, float offset) {
-        long speed = (long) rainbowSpeed.getValue();
-        return mapHue((baseHue(speed, moduleIdx, moduleTotal)
-                + (float) charIdx / Math.max(1, charTotal) + offset) % 1f);
-    }
-
     // ==================== RENDER PIPELINE ====================
 
+    private int currentRadius(boolean compact) {
+        return Math.max(0, cornerRadius.getValue() - (compact ? 2 : 0));
+    }
+
     private void drawUserInterface(GuiGraphicsExtractor g, List<Module> modules) {
+        boolean minimal  = isMinimal();
         boolean compact  = compactMode.enabled;
-        int paddingX     = compact ? C_PADDING_X     : PADDING_X;
-        int barW         = compact ? C_STATUS_BAR_W  : STATUS_BAR_W;
-        int bgExpand     = backgroundExpand.getValue();
+        int paddingX     = minimal ? M_PAD_X : (compact ? C_PADDING_X : PADDING_X);
+        int radius       = currentRadius(compact);
+        float blurStr    = compact ? C_BLUR_STRENGTH : BLUR_STRENGTH;
+        int lineGap      = compact ? C_LINE_GAP      : LINE_GAP;
+        int lineHeight   = textLineHeight(lineGap);
+        float extraSpace = spaceValue.getValue();
+        int fullLineH    = lineHeight + (int) extraSpace;
 
         int originX = hudX;
         int originY = hudY;
+
+        int maxItemW = 0;
+        for (Module m : modules) {
+            int w = (int) textWidth(displayText(m)) + paddingX * 2 + backgroundExpand.getValue();
+            if (w > maxItemW) maxItemW = w;
+        }
+        int totalH = paddingY() * 2 + modules.size() * fullLineH;
         boolean rightAligned = Gemini.hudDragManager.isOnRightSide(this);
 
-        // Measure all modules
-        int maxTextW = 0;
-        for (Module m : modules) {
-            String displayName = changeCase(m.getName());
-            int w = (int) textWidth(displayName + getModuleTag(m));
-            if (w > maxTextW) maxTextW = w;
+        if (minimal) {
+            drawMinimalContainer(g, modules, originX, originY, maxItemW, totalH, fullLineH, rightAligned);
+        } else {
+            for (int i = 0; i < modules.size(); i++) {
+                renderModuleCard(g, modules.get(i), originX, originY, maxItemW, i, modules.size(),
+                        compact, paddingX, radius, blurStr, fullLineH, rightAligned);
+            }
         }
 
-        int containerW = barW + maxTextW + paddingX * 3 + bgExpand * 2;
-        int containerH = (int) containerHeight;
-
-        // ---- Main acrylic glass background ----
-        if (mainBackground.enabled) {
-            renderAcrylicBackground(g, originX, originY, containerW, containerH, compact);
-        }
-
-        // ---- Module items ----
-        for (int i = 0; i < modules.size(); i++) {
-            renderModuleItem(g, modules.get(i), originX, originY, i, modules.size(),
-                    compact, containerW, rightAligned, bgExpand, barW, paddingX);
-        }
-
-        Gemini.hudDragManager.registerDragRegion(this, originX, originY, containerW, containerH);
+        Gemini.hudDragManager.registerDragRegion(this, originX, originY, maxItemW, totalH);
     }
 
     @Override
     public void renderEditorPlaceholder(GuiGraphicsExtractor g) {
         boolean compact = compactMode.enabled;
         int paddingX    = compact ? C_PADDING_X     : PADDING_X;
-        int barW        = compact ? C_STATUS_BAR_W  : STATUS_BAR_W;
         int lineGap     = compact ? C_LINE_GAP      : LINE_GAP;
         int lineHeight  = textLineHeight(lineGap);
-        int radius      = compact ? C_RADIUS_MAIN   : RADIUS_MAIN;
-        int bgExpand    = backgroundExpand.getValue();
-
+        int radius      = currentRadius(compact);
         boolean rightAligned = Gemini.hudDragManager.isOnRightSide(this);
         List<Module> allMods = Gemini.moduleManager.getModules();
 
         int count = 0;
-        int maxTextW = 0;
+        int maxItemW = 0;
         for (Module m : allMods) {
             if (shouldSkipModule(m)) continue;
             count++;
-            int tw = (int) textWidth(m.getName());
-            if (tw > maxTextW) maxTextW = tw;
+            String fullText = displayText(m);
+            int tw = (int) textWidth(fullText) + paddingX * 2 + backgroundExpand.getValue();
+            if (tw > maxItemW) maxItemW = tw;
         }
 
-        int containerW = barW + maxTextW + paddingX * 3 + bgExpand * 2;
-        int containerH = paddingY() * 2 + count * lineHeight;
+        int totalH = paddingY() * 2 + count * lineHeight;
         int originX = hudX;
         int originY = hudY;
-
-        CustomRoundedRectRenderer.drawRoundedOutline(g, originX, originY,
-                containerW, containerH, radius, 0xAAFFD700, 2);
 
         if (!enabled) {
             int i = 0;
             for (Module m : allMods) {
                 if (shouldSkipModule(m)) continue;
-                String name = changeCase(m.getName());
-                int textW = (int) textWidth(name);
-                float textX = rightAligned
-                        ? originX + containerW - paddingX - textW
-                        : originX + barW + paddingX;
-                float textY = originY + paddingY() + i * lineHeight + lineGap / 2f;
+                int cardY = originY + paddingY() + i * lineHeight;
+                String fullText = displayText(m);
+                int itemW = (int) textWidth(fullText) + paddingX * 2 + backgroundExpand.getValue();
+                int cardX = rightAligned ? originX + maxItemW - itemW : originX;
 
+                // Faint body so the placeholder reads as a real card
+                CustomRoundedRectRenderer.drawRoundedRect(g,
+                        cardX, cardY, itemW, lineHeight, radius, 0x1A000000);
+                CustomRoundedRectRenderer.drawRoundedOutline(g,
+                        cardX, cardY, itemW, lineHeight, radius, 0xAAFFD700, 1);
+
+                float textX = cardX + paddingX;
+                float textY = cardY + lineGap / 2f;
                 if (customFont != null) {
-                    CustomFontRenderer.drawString(g, customFont, name, textX, textY, 0x88FFD700);
+                    CustomFontRenderer.drawString(g, customFont, fullText, textX, textY, 0x88FFD700);
                 } else {
-                    CustomFontRenderer.drawString(g, mc.font, name, textX, textY, 0x88FFD700);
+                    CustomFontRenderer.drawString(g, mc.font, fullText, textX, textY, 0x88FFD700);
                 }
                 i++;
             }
         }
-
-        Gemini.hudDragManager.registerDragRegion(this, originX, originY, containerW, containerH);
+        Gemini.hudDragManager.registerDragRegion(this, originX, originY, maxItemW, totalH);
     }
 
     private int paddingY() {
-        return compactMode.enabled ? C_PADDING_Y : PADDING_Y;
+        return isMinimal() ? M_PAD_Y : (compactMode.enabled ? C_PADDING_Y : PADDING_Y);
     }
 
-    // ---- Acrylic glass container background ----
-
-    private void renderAcrylicBackground(GuiGraphicsExtractor g,
-                                          int x, int y, int w, int h, boolean compact) {
-        int r = compact ? C_RADIUS_MAIN : RADIUS_MAIN;
-
-        int tint = backgroundColor.getColor();
-        int tintAlpha  = (tint >> 24) & 0xFF;
-        int topTint    = darken(tint, 0.10f);
-        int bottomTint = darken(tint, 0.40f);
-        CustomRoundedRectRenderer.drawRoundedRectVertGrad(g, x, y, w, h, r,
-                withAlpha(topTint, tintAlpha), withAlpha(bottomTint, tintAlpha));
-
-        CustomRoundedRectRenderer.drawRoundedRect(g,
-                x + 1, y, w - 2, 1, r, 0x14FFFFFF);
-        CustomRoundedRectRenderer.drawRoundedOutline(g,
-                x, y, w, h, r, 0x0CFFFFFF, 1);
-    }
-
-    // ---- Single module entry ----
-
-    private void renderModuleItem(GuiGraphicsExtractor g, Module m,
-                                   int baseX, int baseY, int idx, int total,
-                                   boolean compact, int containerW,
-                                   boolean rightAligned, int bgExpand,
-                                   int barW, int paddingX) {
+    // ---- Single module card ----
+    private void renderModuleCard(GuiGraphicsExtractor g, Module m,
+                                  int baseX, int baseY, int maxW, int idx, int total,
+                                  boolean compact, int paddingX, int radius,
+                                  float blurStr, int fullLineH, boolean rightAligned) {
         ModuleAnimation a = animMap.get(m);
-        if (a == null) return;
+        if (a == null || a.alpha < 0.01f) return;
 
-        int lineGap    = compact ? C_LINE_GAP      : LINE_GAP;
-        int lineHeight = textLineHeight(lineGap);
-        int modRadius  = compact ? C_RADIUS_MODULE : RADIUS_MODULE;
+        int lineHeight = fullLineH;
+        int modAlpha   = (int) (a.alpha * 255);
 
+        String icon = showIcons.enabled ? getModuleIcon(m.getName()) : "";
         String name = changeCase(m.getName());
         String tag  = getModuleTag(m);
-        String fullText = name + tag;
-        int textW   = (int) textWidth(fullText);
-        int itemW   = barW + textW + paddingX * 2;
+        String fullText = icon.isEmpty() ? name + tag : icon + " " + name + tag;
 
-        float modX;
-        if (rightAligned) {
-            modX = baseX + containerW - paddingX - itemW - a.displayX;
-        } else {
-            modX = baseX + paddingX - a.displayX;
-        }
+        int extraW = backgroundExpand.getValue();
+        int itemW = (int) textWidth(fullText) + paddingX * 2 + extraW;
+
+        // Slide-in animation on the X coordinate
+        float modX = rightAligned ? (baseX + maxW - itemW) + a.currentX : baseX + a.currentX;
         float modY = baseY + a.currentY;
 
-        // Module background — flush with container edges when main BG is shown
-        if (moduleBackground.enabled && !compact) {
-            int bgColor = backgroundColor.getColor();
-            int bgAlpha = backgroundAlpha.getValue();
-            if (bgAlpha > 0) {
-                bgColor = withAlpha(bgColor, bgAlpha);
-            }
-            if (mainBackground.enabled) {
-                CustomRoundedRectRenderer.drawRoundedRect(g,
-                        baseX, (int) modY,
-                        containerW, lineHeight, 0,
-                        bgColor);
-            } else {
-                int bgExpandVal = backgroundExpand.getValue();
-                CustomRoundedRectRenderer.drawRoundedRect(g,
-                        (int) modX - bgExpandVal, (int) modY,
-                        itemW + bgExpandVal * 2, lineHeight, modRadius,
-                        bgColor);
-            }
-        }
+        // Scale transform: shrink/grow around center
+        float centerX = modX + itemW / 2f;
+        float centerY = modY + lineHeight / 2f;
+        float drawX = centerX - (itemW / 2f) * a.scale;
+        float drawY = centerY - (lineHeight / 2f) * a.scale;
+        float drawW = itemW * a.scale;
+        float drawH = lineHeight * a.scale;
+        int scaledRadius = (int) (radius * a.scale);
 
-        // Resolve theme colors
         float sat = rainbowSaturation.getValue();
         float bri = rainbowBrightness.getValue();
-        int alpha = (int) (fontAlphaValue.getValue() * 255);
-        if (!m.enabled) alpha = Math.min(alpha, 0x80);
+        int accent = resolveColor(rectColorMode.get(), rectCustomColor.getColor(), a, idx, total, sat, bri, modAlpha);
 
-        // Status bar / rect indicator
-        renderStatusBar(g, a, (int) modX, (int) modY, lineHeight, barW,
-                m, idx, total, sat, bri, alpha);
-
-        // Text position
-        float textX;
-        if (rightAligned) {
-            textX = modX + itemW - paddingX - textW;
-        } else {
-            textX = modX + barW + paddingX;
+        // ---- 1. Ambient bloom (rendered BEHIND everything) ----
+        if (m.enabled && a.glowAlpha > 0.01f && glowIntensity.getValue() > 0.01f) {
+            drawAmbientGlow(g, drawX, drawY, drawW, drawH, scaledRadius,
+                    accent & 0xFFFFFF, a.glowAlpha * glowIntensity.getValue());
         }
-        float textY = modY + textYOffset.getValue();
 
-        // Draw module name + tag
-        renderModuleText(g, name, tag, textX, textY, m, a, idx, total, sat, bri, alpha);
+        // ---- 2. Soft drop shadow ----
+        drawSoftShadow(g, drawX, drawY, drawW, drawH, scaledRadius, a.alpha);
+
+        // ---- 3. Blur background ----
+        if (moduleBackground.enabled && a.blurAlpha > 0.01f) {
+            CustomBlurRenderer.render(drawX, drawY, drawW, drawH, scaledRadius, blurStr * a.blurAlpha);
+        }
+
+        // ---- 4-6. Glassmorphism body ----
+        if (moduleBackground.enabled) {
+            int bgColor = backgroundColor.getColor();
+            int baseBgAlpha = (bgColor >>> 24) & 0xFF;
+            int customBgAlpha = backgroundAlpha.getValue();
+            int bodyAlpha = (int) ((customBgAlpha > 0 ? customBgAlpha : baseBgAlpha) * a.alpha);
+
+            // 4. Gradient or flat body fill
+            if (bodyAlpha > 2) {
+                int bgRgb = bgColor & 0xFFFFFF;
+                if (bgGradient.enabled) {
+                    int topRgb = mixRgb(bgRgb, 0xFFFFFF, GLASS_TOP_MIX);
+                    int botRgb = mixRgb(bgRgb, 0x000000, GLASS_BOTTOM_MIX);
+                    CustomRoundedRectRenderer.drawRoundedRectVertGrad(g,
+                            (int) drawX, (int) drawY, (int) drawW, (int) drawH, scaledRadius,
+                            withAlpha(topRgb, bodyAlpha), withAlpha(botRgb, bodyAlpha));
+                } else {
+                    CustomRoundedRectRenderer.drawRoundedRect(g,
+                            (int) drawX, (int) drawY, (int) drawW, (int) drawH, scaledRadius,
+                            withAlpha(bgRgb, bodyAlpha));
+                }
+            }
+
+            // 5. Top sheen (glass edge light)
+            int sheenAlpha = (int) (GLASS_SHEEN_ALPHA * a.alpha);
+            if (sheenAlpha > 2) {
+                int sheenH = Math.max(1, (int) (drawH * 0.4f));
+                CustomRoundedRectRenderer.drawRoundedRectVertGrad(g,
+                        (int) drawX, (int) drawY, (int) drawW, sheenH, scaledRadius,
+                        withAlpha(0xFFFFFF, sheenAlpha), withAlpha(0xFFFFFF, 0));
+            }
+
+            // 6. Hairline inner rim
+            int hairAlpha = (int) (GLASS_HAIRLINE_ALPHA * a.alpha);
+            if (hairAlpha > 2) {
+                CustomRoundedRectRenderer.drawRoundedOutline(g,
+                        (int) drawX, (int) drawY, (int) drawW, (int) drawH, scaledRadius,
+                        withAlpha(0xFFFFFF, hairAlpha), 1);
+            }
+        }
+
+        // ---- 7. Accent indicator ----
+        if (m.enabled) {
+            drawRectIndicator(g, rectMode.get(), accent,
+                    drawX, drawY, drawW, drawH, scaledRadius, compact, a.alpha);
+        }
+
+        // ---- 8. Text ----
+        float textX = drawX + paddingX + (extraW / 2f);
+        float textY = drawY + (drawH - lineHeight) / 2f + textYOffset.getValue();
+        renderModuleText(g, name, tag, icon, textX, textY, m, a, idx, total, modAlpha, sat, bri);
     }
 
-    // ---- Status bar / rect indicator ----
-
-    private void renderStatusBar(GuiGraphicsExtractor g, ModuleAnimation a,
-                                  int x, int y, int h, int barW,
-                                  Module m, int idx, int total,
-                                  float sat, float bri, int alpha) {
-        String rectModeStr = rectMode.get();
-        if ("None".equals(rectModeStr)) return;
-
-        int color = resolveColor(rectColorMode.get(), rectCustomColor.getColor(),
-                a, idx, total, sat, bri, 0xFF);
-
-        if (!m.enabled) {
-            color = withAlpha(0xFF5B5B, 0x50);
+    // ---- Smooth multi-layer ambient glow (quadratic falloff) ----
+    private void drawAmbientGlow(GuiGraphicsExtractor g, float x, float y, float w, float h,
+                                 int radius, int rgb, float strength) {
+        if (strength <= 0.01f) return;
+        for (int i = 1; i <= GLOW_LAYERS; i++) {
+            float t = i / (float) GLOW_LAYERS;
+            int expand = (int) (t * GLOW_SPREAD);
+            float falloff = (1f - t) * (1f - t);
+            int alpha = (int) (GLOW_BASE_ALPHA * strength * falloff);
+            if (alpha < 3) continue;
+            CustomRoundedRectRenderer.drawRoundedRect(g,
+                    (int) x - expand, (int) y - expand,
+                    (int) w + expand * 2, (int) h + expand * 2,
+                    radius + expand, withAlpha(rgb, alpha));
         }
+    }
 
-        int topColor = withAlpha(brighten(color, 0.30f), 0xFF);
-        int bottomColor = withAlpha(darken(color, 0.18f), 0xFF);
+    // ---- Layered soft drop shadow ----
+    private void drawSoftShadow(GuiGraphicsExtractor g, float x, float y, float w, float h,
+                                int radius, float alphaMul) {
+        if (alphaMul <= 0.01f) return;
+        for (int i = 1; i <= SHADOW_LAYERS; i++) {
+            int alpha = (int) (SHADOW_BASE_ALPHA * alphaMul / i);
+            if (alpha < 3) continue;
+            int expand = i - 1;
+            CustomRoundedRectRenderer.drawRoundedRect(g,
+                    (int) x - expand, (int) y + i,
+                    (int) w + expand * 2, (int) h + expand,
+                    radius + expand, withAlpha(0x000000, alpha));
+        }
+    }
 
-        switch (rectModeStr) {
+    // ---- Accent indicator with gradient + halo ----
+    private void drawRectIndicator(GuiGraphicsExtractor g, String rMode, int accent,
+                                   float x, float y, float w, float h, int radius,
+                                   boolean compact, float alphaMul) {
+        if ("None".equals(rMode) || alphaMul < 0.1f) return;
+
+        int a   = (accent >>> 24) & 0xFF;
+        int rgb = accent & 0xFFFFFF;
+        int barT = compact ? 2 : 3;
+        int fadeEnd = (int) (a * 0.55f);
+        int haloA   = (int) (a * 0.30f);
+
+        switch (rMode) {
             case "Left" -> {
-                StatusBarState state = a.barState;
-                if (state == null) {
-                    state = new StatusBarState();
-                    a.barState = state;
+                if (haloA > 2) {
+                    CustomRoundedRectRenderer.drawRoundedRect(g,
+                            (int) x - 1, (int) y + 1, barT + 2, (int) h - 2, 2,
+                            withAlpha(rgb, haloA));
                 }
-                state.configure(
-                        new Matrix3x2f(g.pose()),
-                        x, y, barW, h,
-                        topColor, bottomColor,
-                        g.peekScissorStack());
-                g.submitGuiElementRenderState(state);
+                CustomRoundedRectRenderer.drawRoundedRectVertGrad(g,
+                        (int) x, (int) y, barT, (int) h, 1,
+                        accent, withAlpha(rgb, fadeEnd));
             }
             case "Right" -> {
-                StatusBarState state = a.barState;
-                if (state == null) {
-                    state = new StatusBarState();
-                    a.barState = state;
+                int rx = (int) (x + w - barT);
+                if (haloA > 2) {
+                    CustomRoundedRectRenderer.drawRoundedRect(g,
+                            rx - 1, (int) y + 1, barT + 2, (int) h - 2, 2,
+                            withAlpha(rgb, haloA));
                 }
-                state.configure(
-                        new Matrix3x2f(g.pose()),
-                        x + barW + 50, y, barW, h,
-                        topColor, bottomColor,
-                        g.peekScissorStack());
-                g.submitGuiElementRenderState(state);
+                CustomRoundedRectRenderer.drawRoundedRectVertGrad(g,
+                        rx, (int) y, barT, (int) h, 1,
+                        accent, withAlpha(rgb, fadeEnd));
+            }
+            case "Top" -> {
+                CustomRoundedRectRenderer.drawRoundedRectHorizGrad(g,
+                        (int) x, (int) y, (int) w, barT, 1,
+                        accent, withAlpha(rgb, (int) (a * 0.45f)));
             }
             case "Outline" -> {
-                int thick = 1;
+                int outlineHalo = (int) (a * 0.20f);
+                if (outlineHalo > 2) {
+                    CustomRoundedRectRenderer.drawRoundedOutline(g,
+                            (int) x - 1, (int) y - 1, (int) w + 2, (int) h + 2,
+                            radius + 1, withAlpha(rgb, outlineHalo), 1);
+                }
                 CustomRoundedRectRenderer.drawRoundedOutline(g,
-                        x - thick, y - thick,
-                        barW + 52 + thick * 2, h + thick * 2,
-                        2, color, thick);
+                        (int) x, (int) y, (int) w, (int) h, radius,
+                        accent, compact ? 1 : 2);
             }
-            case "Top", "Special" -> {
-                if (idx == 0) {
+            case "Special" -> {
+                // Centered capsule with a soft halo
+                int pillH = (int) (h * 0.62f);
+                int pillW = compact ? 2 : 3;
+                int px = (int) x + 3;
+                int py = (int) y + ((int) h - pillH) / 2;
+                if (haloA > 2) {
                     CustomRoundedRectRenderer.drawRoundedRect(g,
-                            x, y - 1, barW + 52, 2, 1, color);
+                            px - 1, py - 2, pillW + 2, pillH + 4, 2,
+                            withAlpha(rgb, haloA));
+                }
+                CustomRoundedRectRenderer.drawRoundedRectVertGrad(g,
+                        px, py, pillW, pillH, 1,
+                        accent, withAlpha(rgb, fadeEnd));
+            }
+        }
+    }
+
+    // ---- Module icon + name + tag tri-tone rendering ----
+    private void renderModuleText(GuiGraphicsExtractor g, String name, String tag,
+                                  String icon, float x, float y,
+                                  Module m, ModuleAnimation a,
+                                  int idx, int total, int alpha, float sat, float bri) {
+        boolean shadow = textShadow.enabled && m.enabled;
+
+        // TextAlpha is now honored (previously defined but unused)
+        float fontAlpha = fontAlphaValue.getValue();
+        int textAlpha = (int) (alpha * fontAlpha);
+        if (textAlpha < 3) return;
+
+        // Tri-tone palette: accent icon, font-colored name, dimmed tag
+        int nameColor = resolveColor(colorMode.get(), fontColor.getColor(), a, idx, total, sat, bri, textAlpha);
+        int iconColor = resolveColor(rectColorMode.get(), rectCustomColor.getColor(), a, idx, total, sat, bri, textAlpha);
+        int tagColorR = resolveColor(tagColorMode.get(), tagColor.getColor(), a, idx, total, sat, bri, textAlpha);
+
+        if (!m.enabled) {
+            nameColor = withAlpha(0xA0A0A0, textAlpha);
+            iconColor = withAlpha(0x909090, textAlpha);
+            tagColorR = withAlpha(0x707070, textAlpha);
+        } else if (iconPulse.enabled) {
+            // Gentle "breathing" on the accent icon
+            float pulse = ICON_PULSE_MIN + (1f - ICON_PULSE_MIN)
+                    * (float) (Math.sin(System.currentTimeMillis() / 340.0 + idx * 0.9) * 0.5 + 0.5);
+            iconColor = scaleAlpha(iconColor, pulse);
+        }
+
+        // Subtle vertical gradient: brighter at the cap, true color at the baseline
+        boolean gradient = textGradient.enabled;
+        int nameTop = gradient
+                ? withAlpha(mixRgb(nameColor & 0xFFFFFF, 0xFFFFFF, TEXT_TOP_MIX), (nameColor >>> 24) & 0xFF)
+                : nameColor;
+
+        float iconW  = icon.isEmpty() ? 0f : textWidth(icon);
+        float spaceW = icon.isEmpty() ? 0f : textWidth(" ");
+
+        // ---- Shadow pass (single combined draw keeps offsets identical) ----
+        if (shadow) {
+            int shadowCol = withAlpha(0x000000, (int) (0.40f * textAlpha));
+            String combined = icon.isEmpty() ? name + tag : icon + " " + name + tag;
+            if (customFont != null) {
+                CustomFontRenderer.drawString(g, customFont, combined, x + 1f, y + 1f, shadowCol);
+            } else {
+                CustomFontRenderer.drawString(g, mc.font, combined, x + 1f, y + 1f, shadowCol);
+            }
+        }
+
+        // ---- Foreground pass ----
+        float cx = x;
+        if (customFont != null) {
+            CustomFontRenderer.drawString(g, customFont, icon, cx, y, iconColor);
+            cx += iconW + spaceW;
+            if (gradient) CustomFontRenderer.drawGradientString(g, customFont, name, cx, y, nameTop, nameColor);
+            else          CustomFontRenderer.drawString(g, customFont, name, cx, y, nameColor);
+            cx += textWidth(name);
+            if (!tag.isEmpty()) CustomFontRenderer.drawString(g, customFont, tag, cx, y, tagColorR);
+        } else {
+            CustomFontRenderer.drawString(g, mc.font, icon, cx, y, iconColor);
+            cx += iconW + spaceW;
+            if (gradient) CustomFontRenderer.drawGradientString(g, mc.font, name, cx, y, nameTop, nameColor);
+            else          CustomFontRenderer.drawString(g, mc.font, name, cx, y, nameColor);
+            cx += textWidth(name);
+            if (!tag.isEmpty()) CustomFontRenderer.drawString(g, mc.font, tag, cx, y, tagColorR);
+        }
+    }
+
+    // ==================== MINIMAL STYLE ====================
+
+    /**
+     * Single frosted-glass container for the whole list.
+     * One tinted blur pass + one soft shadow replace the per-card pipeline.
+     */
+    private void drawMinimalContainer(GuiGraphicsExtractor g, List<Module> modules,
+                                      int originX, int originY, int maxItemW, int totalH,
+                                      int fullLineH, boolean rightAligned) {
+        // Container spring: size + master visibility (frame-rate independent)
+        float speedMul = Math.max(0.05f, animSpeed.getValue());
+        float sizeLerp = lerpScale(LERP_SPEED, speedMul);
+        float fadeLerp = lerpScale(FADE_LERP, speedMul);
+        containerW     += (maxItemW - containerW)     * sizeLerp;
+        containerH     += (totalH   - containerH)     * sizeLerp;
+        containerAlpha += (1f       - containerAlpha) * fadeLerp;
+        if (containerAlpha < 0.01f) return;
+
+        float cx = originX, cy = originY, cw = containerW, ch = containerH;
+        int radius = (int) Math.min(M_RADIUS, Math.min(cw, ch) / 2f);
+
+        if (cw >= 2f && ch >= 2f) {
+            // 1. Soft shadow — one pass for the whole list
+            drawSoftShadow(g, cx, cy, cw, ch, radius, containerAlpha);
+
+            if (moduleBackground.enabled) {
+                // 2. Frosted glass — ONE tinted blur pass (replaces N per-card blurs)
+                CustomBlurRenderer.render(cx, cy, cw, ch, radius,
+                        scaleAlpha(M_TINT, containerAlpha), M_BLUR * containerAlpha);
+
+                // 3. Low-alpha vertical glass gradient over the blur
+                int bodyA = (int) (backgroundAlpha.getValue() * 0.38f * containerAlpha);
+                int bgRgb = backgroundColor.getColor() & 0xFFFFFF;
+                if (bodyA > 2) {
+                    CustomRoundedRectRenderer.drawRoundedRectVertGrad(g,
+                            (int) cx, (int) cy, (int) cw, (int) ch, radius,
+                            withAlpha(mixRgb(bgRgb, 0xFFFFFF, 0.05f), bodyA),
+                            withAlpha(mixRgb(bgRgb, 0x000000, 0.10f), bodyA));
+                }
+
+                // 4. 1px hairline rim
+                int rimA = (int) (M_RIM_ALPHA * containerAlpha);
+                if (rimA > 2) {
+                    CustomRoundedRectRenderer.drawRoundedOutline(g,
+                            (int) cx, (int) cy, (int) cw, (int) ch, radius,
+                            withAlpha(0xFFFFFF, rimA), 1);
+                }
+            }
+        }
+
+        // 5. Rows + hairline separators (each separator tracks the row above's animated Y)
+        float sat = rainbowSaturation.getValue();
+        float bri = rainbowBrightness.getValue();
+        for (int i = 0; i < modules.size(); i++) {
+            renderMinimalRow(g, modules.get(i), cx, cy, cw, i, modules.size(),
+                    fullLineH, rightAligned, sat, bri);
+
+            if (showSeparators.enabled && i < modules.size() - 1) {
+                ModuleAnimation a = animMap.get(modules.get(i));
+                float rowBottom = originY + (a != null ? a.currentY : 0f) + fullLineH;
+                int sepA = (int) (M_SEP_ALPHA * containerAlpha * (a != null ? a.alpha : 1f));
+                if (sepA > 2) {
+                    CustomRoundedRectRenderer.drawRoundedRect(g,
+                            (int) (cx + M_PAD_X), (int) rowBottom,
+                            (int) (cw - M_PAD_X * 2), 1, 0,
+                            withAlpha(0xFFFFFF, sepA));
                 }
             }
         }
     }
 
-    // ---- Module name + tag text rendering ----
+    /**
+     * Minimal row: optional icon → name (primary) → tag (dimmed),
+     * plus a 2px accent bar anchored to the container's outer edge.
+     */
+    private void renderMinimalRow(GuiGraphicsExtractor g, Module m,
+                                  float cx, float cy, float cw,
+                                  int idx, int total, int fullLineH,
+                                  boolean rightAligned, float sat, float bri) {
+        ModuleAnimation a = animMap.get(m);
+        if (a == null || a.alpha < 0.01f) return;
 
-    private void renderModuleText(GuiGraphicsExtractor g, String name, String tag,
-                                   float x, float y, Module m, ModuleAnimation a,
-                                   int idx, int total, float sat, float bri, int alpha) {
-        String colorModeStr = colorMode.get();
-        String tagModeStr   = tagColorMode.get();
-        boolean shadow      = textShadow.enabled && m.enabled;
+        String icon = showIcons.enabled ? getModuleIcon(m.getName()) : "";
+        String name = changeCase(m.getName());
+        String tag  = getModuleTag(m);
 
-        String fullText = name + tag;
-        int textW = (int) textWidth(fullText);
-        int nameW = (int) textWidth(name);
+        int textA = (int) (a.alpha * fontAlphaValue.getValue() * 255);
+        if (textA < 3) return;
 
-        int tagBaseColor = resolveColor(tagModeStr, tagColor.getColor(),
-                a, idx, total, sat, bri, alpha);
+        float rowY  = cy + a.currentY;
+        float rowCX = cx + a.currentX; // only the text slides; the accent bar stays at the edge
 
-        if ("Gradient".equals(colorModeStr)) {
-            int len = Math.max(1, name.length());
-            int tLen = Math.max(1, fullText.length());
-
-            if (customFont != null) {
-                // Gradient: per-char colors for name
-                CustomFontRenderer.drawGradientString(g, customFont, name, x, y,
-                        ci -> withAlpha(Color.HSBtoRGB(charHue(ci, len, idx, total), sat, bri), alpha),
-                        ci -> withAlpha(Color.HSBtoRGB(charHueOffset(ci, len, idx, total, 0.06f), sat, bri), alpha));
-                // Tag: uniform resolved color
-                CustomFontRenderer.drawString(g, customFont, tag, x + nameW, y, tagBaseColor);
-            } else {
-                IntFunction<Integer> topFunc = ci -> withAlpha(Color.HSBtoRGB(charHue(ci, tLen, idx, total), sat, bri), alpha);
-                IntFunction<Integer> botFunc = ci -> withAlpha(Color.HSBtoRGB(charHueOffset(ci, tLen, idx, total, 0.06f), sat, bri), alpha);
-                CustomFontRenderer.drawGradientString(g, mc.font, fullText, x, y, topFunc, botFunc);
-            }
-            // Shadow (rendered separately for gradient)
-            if (shadow) {
-                if (customFont != null) {
-                    CustomFontRenderer.drawGradientString(g, customFont, name, x + 1f, y + 1f,
-                            ci -> withAlpha(0, 0x44),
-                            ci -> withAlpha(0, 0x44));
-                    CustomFontRenderer.drawString(g, customFont, tag, x + nameW + 1f, y + 1f,
-                            withAlpha(0, 0x44));
-                } else {
-                    CustomFontRenderer.drawString(g, mc.font, fullText, x + 1f, y + 1f, withAlpha(0, 0x44));
-                }
-            }
-        } else {
-            // Non-gradient modes: single resolved color for entire text
-            int textColor = resolveColor(colorModeStr, fontColor.getColor(),
-                    a, idx, total, sat, bri, alpha);
-            if (!m.enabled) {
-                textColor = withAlpha(0xFF5B5B, 0xA0);
-                tagBaseColor = withAlpha(0xFF5B5B, 0xA0);
-            }
-
-            if (shadow) {
-                if (customFont != null) {
-                    CustomFontRenderer.drawString(g, customFont, fullText, x + 1f, y + 1f, withAlpha(0, 0x44));
-                } else {
-                    CustomFontRenderer.drawString(g, mc.font, fullText, x + 1f, y + 1f, withAlpha(0, 0x44));
-                }
-            }
-
-            // Draw name
-            if (customFont != null) {
-                CustomFontRenderer.drawString(g, customFont, name, x, y, textColor);
-                // Draw tag with tag color
-                if (!tag.isEmpty()) {
-                    CustomFontRenderer.drawString(g, customFont, tag, x + nameW, y, tagBaseColor);
-                }
-            } else {
-                if (!tag.isEmpty()) {
-                    // Draw name + tag separately for different colors
-                    CustomFontRenderer.drawString(g, mc.font, name, x, y, textColor);
-                    CustomFontRenderer.drawString(g, mc.font, tag, x + nameW, y, tagBaseColor);
-                } else {
-                    CustomFontRenderer.drawString(g, mc.font, fullText, x, y, textColor);
-                }
-            }
+        // ---- Hierarchy: name (primary) / tag (dimmed) / accent (2px bar) ----
+        int nameColor = resolveColor(colorMode.get(), fontColor.getColor(), a, idx, total, sat, bri, textA);
+        int tagColorR = scaleAlpha(
+                resolveColor(tagColorMode.get(), tagColor.getColor(), a, idx, total, sat, bri, textA), TAG_DIM);
+        int accent    = resolveColor(rectColorMode.get(), rectCustomColor.getColor(), a, idx, total, sat, bri, textA);
+        if (!m.enabled) {
+            nameColor = withAlpha(0xA0A0A0, textA);
+            tagColorR = withAlpha(0x707070, textA);
+            accent    = withAlpha(0x909090, textA);
         }
+
+        // Accent: 2px vertical-gradient bar hugging the container's outer edge
+        if (m.enabled && !"None".equals(rectMode.get()) && cw >= 4f) {
+            float barH = Math.max(4f, fullLineH * 0.52f);
+            float barX = rightAligned ? cx + cw - 3 : cx + 1;
+            CustomRoundedRectRenderer.drawRoundedRectVertGrad(g,
+                    (int) barX, (int) (rowY + (fullLineH - barH) / 2f), 2, (int) barH, 1,
+                    accent, scaleAlpha(accent, 0.55f));
+        }
+
+        // Text position: anchored to the text-side edge
+        float iconPart = icon.isEmpty() ? 0f : textWidth(icon) + textWidth(" ");
+        float fullW    = iconPart + textWidth(name + tag);
+        float textX    = rightAligned ? rowCX + cw - M_PAD_X - fullW : rowCX + M_PAD_X;
+        float fontH    = customFont != null ? customFont.lineHeight : mc.font.lineHeight;
+        float textY    = rowY + (fullLineH - fontH) / 2f + textYOffset.getValue() - 1f;
+
+        // Shadow (MSDF has no native shadow — offset double-draw)
+        if (textShadow.enabled && m.enabled) {
+            String combined = icon.isEmpty() ? name + tag : icon + " " + name + tag;
+            drawText(g, combined, textX + 0.75f, textY + 0.75f,
+                    withAlpha(0x000000, (int) (0.35f * textA)));
+        }
+
+        // Foreground: icon (optional) → name (gradient-able) → tag (dimmed)
+        float x = textX;
+        if (!icon.isEmpty()) {
+            drawText(g, icon, x, textY, scaleAlpha(accent, 0.9f));
+            x += iconPart;
+        }
+        boolean grad = textGradient.enabled;
+        int nameTop = grad
+                ? withAlpha(mixRgb(nameColor & 0xFFFFFF, 0xFFFFFF, TEXT_TOP_MIX), (nameColor >>> 24) & 0xFF)
+                : nameColor;
+        if (customFont != null) {
+            if (grad) CustomFontRenderer.drawGradientString(g, customFont, name, x, textY, nameTop, nameColor);
+            else      CustomFontRenderer.drawString(g, customFont, name, x, textY, nameColor);
+        } else {
+            if (grad) CustomFontRenderer.drawGradientString(g, mc.font, name, x, textY, nameTop, nameColor);
+            else      CustomFontRenderer.drawString(g, mc.font, name, x, textY, nameColor);
+        }
+        x += textWidth(name);
+        if (!tag.isEmpty()) drawText(g, tag, x + 1f, textY, tagColorR);
     }
 }

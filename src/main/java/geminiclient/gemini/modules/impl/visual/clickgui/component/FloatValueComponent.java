@@ -1,9 +1,10 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
+import geminiclient.gemini.modules.impl.visual.clickgui.ClassicTheme;
+import geminiclient.gemini.utils.animation.SpringAnimation;
 import geminiclient.gemini.values.impl.FloatValue;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
-import java.awt.Color;
 import java.text.DecimalFormat;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -13,11 +14,7 @@ public class FloatValueComponent extends ValueComponent {
     private boolean isDragging = false;
     private final DecimalFormat decimalFormat = new DecimalFormat("0.00");
 
-    // 统一的颜色主题 - 使用黑灰色调
-    private static final int ACCENT_COLOR = new Color(220, 220, 220).getRGB();
-    private static final int BASE_BG = new Color(18, 18, 18, 230).getRGB();
-    private static final int HOVER_BG = new Color(30, 30, 30, 230).getRGB();
-    private static final int TEXT_COLOR = Color.WHITE.getRGB();
+    private final SpringAnimation hoverSpring = SpringAnimation.smooth();
 
     public FloatValueComponent(FloatValue value, int x, int y, int width, int height) {
         super(value, x, y, width, 16);
@@ -31,32 +28,25 @@ public class FloatValueComponent extends ValueComponent {
             updateValueFromMouse(mouseX);
         }
 
-        int bgColor = isHovered(mouseX, mouseY) ? HOVER_BG : BASE_BG;
-        guiGraphics.fill(x, y, x + width, y + height, bgColor);
+        boolean hovered = isHovered(mouseX, mouseY);
+        hoverSpring.setTarget(hovered ? 1.0f : 0.0f);
+        hoverSpring.update(partialTicks);
+        float hoverT = hoverSpring.getValue();
 
-        String displayString = String.format("%s: %s", floatValue.getName(),
-                decimalFormat.format(floatValue.getValue()));
-        guiGraphics.text(mc.font, displayString, x + 3, y + 2, TEXT_COLOR, true);
+        ClassicTheme.drawRow(guiGraphics, x, y, width, height, hoverT);
 
+        // Label (left) + current value (right)
+        guiGraphics.text(mc.font, floatValue.getName(), x + 7, y + 3, ClassicTheme.TEXT, true);
+        String valueText = decimalFormat.format(floatValue.getValue());
+        guiGraphics.text(mc.font, valueText, x + width - 7 - mc.font.width(valueText), y + 3,
+                ClassicTheme.TEXT_DIM, true);
+
+        // Slider (drag mapping matches updateValueFromMouse: x+6 .. x+width-6,
+        // inset so the round handle stays inside the row at both extremes)
         float range = floatValue.getMax() - floatValue.getMin();
-        float valuePercent = (floatValue.getValue() - floatValue.getMin()) / range;
-
-        int sliderStart = x + 2;
-        int sliderWidth = width - 4;
-        int filledWidth = (int) (sliderWidth * valuePercent);
-
-        int sliderY = y + height - 3;
-        int sliderThickness = 2;
-        int handleSize = 4;
-
-        guiGraphics.fill(sliderStart, sliderY, sliderStart + sliderWidth, sliderY + sliderThickness,
-                new Color(50, 50, 50).getRGB());
-
-        guiGraphics.fill(sliderStart, sliderY, sliderStart + filledWidth, sliderY + sliderThickness, ACCENT_COLOR);
-
-        guiGraphics.fill(sliderStart + filledWidth - handleSize / 2, sliderY - (handleSize - sliderThickness) / 2,
-                sliderStart + filledWidth + handleSize / 2, sliderY + (handleSize + sliderThickness) / 2,
-                TEXT_COLOR);
+        float fraction = range == 0 ? 0 : (floatValue.getValue() - floatValue.getMin()) / range;
+        ClassicTheme.drawSlider(guiGraphics, x + 6, y + height - 5, width - 12, fraction,
+                isDragging || hovered);
     }
 
     private void updateValueFromMouse(double mouseX) {
@@ -65,9 +55,9 @@ public class FloatValueComponent extends ValueComponent {
         float MIN_VALUE = floatValue.getMin();
         float MAX_VALUE = floatValue.getMax();
 
-        float renderWidth = width - 4;
+        float renderWidth = width - 12;
 
-        float relativeMouseX = (float) (mouseX - (x + 2));
+        float relativeMouseX = (float) (mouseX - (x + 6));
 
         float percent = relativeMouseX / renderWidth;
 

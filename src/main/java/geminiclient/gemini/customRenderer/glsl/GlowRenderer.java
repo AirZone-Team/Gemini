@@ -138,12 +138,22 @@ public class GlowRenderer {
     //  Public: rounded drop shadow
     // ========================
 
+    /**
+     * Drop shadow behind a rounded rectangle.
+     *
+     * <p>Delegated to {@link SdfUIRenderer#drawShadow}: the penumbra is
+     * evaluated against an exact rounded-box SDF, so the shadow hugs the
+     * corner radius. The legacy implementation ignored {@code cornerRadius}
+     * and used a rectangular UV-distance glow, which left dark squared-off
+     * corners visible outside rounded cards.</p>
+     */
     public static void drawDropShadowRoundedRect(GuiGraphicsExtractor gui,
                                                   int x, int y, int width, int height,
                                                   int cornerRadius,
                                                   int offsetX, int offsetY,
                                                   int spread, int color) {
-        drawGlowQuad(gui, x, y, width, height, offsetX, offsetY, spread, color);
+        SdfUIRenderer.drawShadow(gui, x, y, width, height, cornerRadius,
+                offsetX, offsetY, spread, color);
     }
 
     // ========================

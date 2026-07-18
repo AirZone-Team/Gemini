@@ -8,6 +8,7 @@ import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
+import geminiclient.gemini.customRenderer.glsl.msdf.MsdfGenerator;
 import geminiclient.gemini.utils.ResourceLocationUtils;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -26,8 +27,11 @@ import org.slf4j.LoggerFactory;
 import java.awt.Color;
 import java.awt.FontMetrics;
 import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.font.FontRenderContext;
 import java.awt.font.GlyphVector;
+import java.awt.font.TextAttribute;
+import java.awt.font.TextLayout;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -45,13 +49,37 @@ import java.util.function.IntFunction;
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 
 /**
- * GPU-accelerated font renderer with custom GLSL fragment shader.
+ * GPU-accelerated vector font renderer (MTSDF).
  *
- * <p>Glyphs are rasterized on the CPU via AWT and uploaded to a GPU
- * texture atlas. Rendering uses a dedicated {@link RenderPipeline}
- * ({@link #FONT_PIPELINE}) whose fragment shader samples the glyph
- * atlas and applies per-vertex color modulation — enabling gradient,
- * rainbow, and quad-color text effects with minimal CPU overhead.</p>
+ * <p>Glyph outlines are converted to multi-channel signed distance fields on
+ * the CPU by {@link MsdfGenerator} (a faithful msdfgen port) and uploaded to a
+ * GPU texture atlas. The atlas is MTSDF layout: R/G/B hold the per-edge-class
+ * distance fields whose median reconstructs the true edge distance (sharp
+ * corners at any zoom), and the alpha channel holds the true signed distance
+ * which keeps a usable gradient where the median saturates (minification,
+ * soft effects). Rendering uses a dedicated {@link RenderPipeline}
+ * ({@link #FONT_PIPELINE}) whose fragment shader performs every per-fragment
+ * step: atlas sampling, distance reconstruction, derivative-based
+ * anti-aliasing (~1 px AA band at any zoom), and per-vertex color modulation —
+ * enabling gradient, rainbow, and quad-color text with minimal CPU overhead.</p>
+ *
+ * <p><b>Typography.</b> Outlines are extracted from unhinted vector data at a
+ * high raster em (see {@link #TARGET_RASTER_EM}) so stroke contrast and
+ * counters stay faithful to the typeface at small point sizes. Advances come
+ * from {@code GlyphMetrics} (never from visual bounds), and real GPOS pair
+ * kerning is applied between glyphs — extracted lazily through
+ * {@link TextLayout} and cached per pair. Measurement
+ * ({@link #stringWidth(GlyphFont, String)}) and drawing share the same layout
+ * code path, so measured and rendered widths always agree.</p>
+ *
+ * <p><b>No parameter is hardcoded on both sides of the Java/GLSL boundary.</b>
+ * The atlas is self-describing: texel (0,0) of every page stores the field
+ * range ({@link MsdfGenerator#RANGE}, the single source of truth) which the
+ * fragment shader reads back with {@code texelFetch}; the atlas size comes
+ * from {@code textureSize()} and the on-screen scale from {@code fwidth()}.
+ * MC's {@code GuiRenderer} only ever binds the default UBOs (Fog,
+ * DynamicTransforms), so a custom uniform block cannot be populated for GUI
+ * elements — a metadata texel is the robust channel for this value.</p>
  */
 public class CustomFontRenderer {
 
@@ -68,8 +96,33 @@ public class CustomFontRenderer {
     private static final int COL_STRIDE = 4;
     private static final String FALLBACK_FONT_NAME = "SansSerif";
 
-    // SDF generation parameters
-    private static final int SDF_PADDING = 16;  // extra pixels around each glyph for distance field
+    // MSDF generation parameters. MsdfGenerator.RANGE is the single source of
+    // truth for the field range — padding is derived from it (field extent
+    // RANGE/2 + bilinear bleed + clash-detection margin).
+    private static final int SDF_PADDING = (int) MsdfGenerator.RANGE + 8;
+
+    /**
+     * Raster resolution targeted when converting outlines to distance fields,
+     * in pixels per em. Field quality is governed by the <em>raster
+     * resolution of the outline</em>, not the logical font size: below ~60 px
+     * em the per-channel distance fields alias against each other (short edge
+     * vectors trigger false corner splits in edge coloring), and the
+     * reconstructed median wobbles — visible as lumpy contours and uneven
+     * stroke weight at 8–12 pt. 96 px em leaves comfortable headroom for the
+     * smallest HUD fonts. Each {@link GlyphFont} derives its own raster scale
+     * so small fonts are rasterised larger; the fragment shader is
+     * scale-agnostic because {@code screenPxRange()} is derivative-based.
+     * Clamped to [{@link #MIN_RASTER_SCALE}, {@link #MAX_RASTER_SCALE}] to
+     * bound atlas usage and generation cost for large fonts.
+     */
+    private static final float TARGET_RASTER_EM = 96f;
+    private static final float MIN_RASTER_SCALE = 4f;
+    private static final float MAX_RASTER_SCALE = 12f;
+
+    static float rasterScaleFor(float logicalSize) {
+        float scale = TARGET_RASTER_EM / logicalSize;
+        return Math.max(MIN_RASTER_SCALE, Math.min(MAX_RASTER_SCALE, scale));
+    }
 
     // ========================
     //  Custom pipeline
@@ -142,24 +195,40 @@ public class CustomFontRenderer {
 
     public static final class GlyphFont {
         final java.awt.Font awtFont;
+        /** Same face at {@link #rasterScale}x size — used for outline/MSDF generation. */
+        final java.awt.Font rasterFont;
+        /**
+         * {@link #rasterFont} with GPOS kerning enabled for layout. Used only
+         * to measure pair kerns via {@link TextLayout} — AWT applies OpenType
+         * kerning to laid-out text only when {@link TextAttribute#KERNING} is
+         * requested; plain {@code createGlyphVector} applies none.
+         */
+        final java.awt.Font kernFont;
+        /** Rasterisation scale chosen by {@link CustomFontRenderer#rasterScaleFor}. */
+        final float rasterScale;
         final FontRenderContext frc;
         final FontMetrics metrics;
         public final float ascent, descent, lineHeight;
         final Map<Integer, Glyph> glyphs = new HashMap<>();
+
+        /** Lazily extracted pair kerns, in logical (screen) units. Key: prev << 32 | cur. */
+        private final Map<Long, Float> kernCache = new HashMap<>();
 
         final List<AtlasPage> pages = new ArrayList<>();
         int currentPageIdx = -1;
 
         int cursorX, cursorY, rowHeight;
         final Map<Integer, AtlasSlot> pendingSlots = new HashMap<>();
-        final Map<Integer, byte[]> pendingSdfData = new HashMap<>();
-        /** SDF normalization spread derived from font size (pixels). */
-        final float sdfSpread;
+        final Map<Integer, byte[]> pendingMsdfData = new HashMap<>();
 
         private java.awt.Font fallbackFont;
 
         GlyphFont(java.awt.Font awtFont) {
             this.awtFont = awtFont;
+            this.rasterScale = rasterScaleFor(awtFont.getSize2D());
+            this.rasterFont = awtFont.deriveFont(awtFont.getSize2D() * rasterScale);
+            this.kernFont = rasterFont.deriveFont(
+                    Map.of(TextAttribute.KERNING, TextAttribute.KERNING_ON));
 
             BufferedImage dummy = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
             java.awt.Graphics2D g2d = dummy.createGraphics();
@@ -169,9 +238,6 @@ public class CustomFontRenderer {
             this.ascent = metrics.getAscent();
             this.descent = metrics.getDescent();
             this.lineHeight = ascent + descent;
-            // SDF spread = 1/3 of font size — enough to cover the distance field
-            // while keeping the gradient visible in the atlas.
-            this.sdfSpread = Math.max(awtFont.getSize() / 6.0f, 8.0f);
             g2d.dispose();
             dummy.flush();
 
@@ -181,8 +247,11 @@ public class CustomFontRenderer {
         private void applyRenderingHints(java.awt.Graphics2D g2d) {
             g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                     RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            // Fractional metrics: subpixel advance/kern precision at the
+            // raster size (integer rounding would cost up to 0.5 raster px ≈
+            // 0.005 em of spacing error per glyph).
             g2d.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
-                    RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
+                    RenderingHints.VALUE_FRACTIONALMETRICS_ON);
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                     RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         }
@@ -190,13 +259,15 @@ public class CustomFontRenderer {
         private java.awt.Font getFallbackFont() {
             if (fallbackFont == null) {
                 fallbackFont = new java.awt.Font(FALLBACK_FONT_NAME,
-                        java.awt.Font.PLAIN, awtFont.getSize());
+                        java.awt.Font.PLAIN, (int) rasterFont.getSize2D());
             }
             return fallbackFont;
         }
 
         private void newCpuPage() {
-            cursorX = 0;
+            // Texel (0,0) is reserved for the field-range metadata read by the
+            // fragment shader — glyph packing starts one texel in.
+            cursorX = 1;
             cursorY = 0;
             rowHeight = 0;
 
@@ -205,7 +276,11 @@ public class CustomFontRenderer {
             page.invW = 1.0f / ATLAS_SIZE;
             page.invH = 1.0f / ATLAS_SIZE;
 
-            NativeImage nativeImage = new NativeImage(ATLAS_SIZE, ATLAS_SIZE, false);
+            // Zero-filled: every unwritten texel reads as 0 = "maximally
+            // outside", consistent with the field's exterior clamp (the
+            // metadata texel at (0,0) is written explicitly right after).
+            NativeImage nativeImage = new NativeImage(ATLAS_SIZE, ATLAS_SIZE, true);
+            writeMetadataTexel(nativeImage);
             page.nativeImage = nativeImage;
             page.texture = new DynamicTexture(page.textureId::toDebugFileName, nativeImage);
             mc.getTextureManager().register(page.textureId, page.texture);
@@ -214,13 +289,64 @@ public class CustomFontRenderer {
             currentPageIdx = pages.size() - 1;
         }
 
+        /**
+         * Writes the self-describing atlas metadata into texel (0,0): the R
+         * channel stores {@code round(RANGE * METADATA_RANGE_SCALE)} (see
+         * {@link MsdfGenerator}). font.fsh reads it back with
+         * {@code texelFetch(Sampler0, ivec2(0,0), 0)}, so the shader's
+         * {@code pxRange} always matches the generator — no mirrored constant.
+         * All other unwritten texels stay 0 = "maximally outside", consistent
+         * with the field's exterior clamp, so bilinear bleed at cell borders
+         * is harmless.
+         */
+        private static void writeMetadataTexel(NativeImage image) {
+            int encoded = (int) Math.round(MsdfGenerator.RANGE * MsdfGenerator.METADATA_RANGE_SCALE);
+            // NativeImage stores ABGR: A=bits31..24, B=23..16, G=15..8, R=7..0
+            image.setPixel(0, 0, (0xFF << 24) | encoded);
+        }
+
         public Glyph getGlyph(int codePoint) {
             Glyph glyph = glyphs.get(codePoint);
             if (glyph != null) {
                 return glyph;
             }
-            glyph = rasterize(codePoint);
-            return glyph;
+            return rasterize(codePoint);
+        }
+
+        /**
+         * Pair kerning adjustment in logical (screen) units, added to the pen
+         * before drawing {@code cur}. Extracted once per pair through a
+         * two-codepoint {@link TextLayout} on {@link #kernFont} (which applies
+         * the font's GPOS pair positioning) and cached. Pairs involving
+         * codepoints the primary face cannot display get 0 — mixed-face
+         * kerning data is meaningless.
+         */
+        float kern(int prev, int cur) {
+            if (prev < 0) {
+                return 0f;
+            }
+            long key = ((long) prev << 32) | (cur & 0xFFFFFFFFL);
+            Float cached = kernCache.get(key);
+            if (cached != null) {
+                return cached;
+            }
+            float k = computeKern(prev, cur);
+            kernCache.put(key, k);
+            return k;
+        }
+
+        private float computeKern(int prev, int cur) {
+            if (!rasterFont.canDisplay(prev) || !rasterFont.canDisplay(cur)) {
+                return 0f;
+            }
+            String pair = new String(new int[] { prev, cur }, 0, 2);
+            float kerned = new TextLayout(pair, kernFont, frc).getAdvance() / rasterScale;
+            float raw = getGlyph(prev).advanceX + getGlyph(cur).advanceX;
+            float k = kerned - raw;
+            // Defensive: a broken layout result must never collapse or
+            // explode spacing. Legitimate kerns stay well under 50% of the
+            // pair's raw width.
+            return Math.abs(k) > 0.5f * raw ? 0f : k;
         }
 
         private Glyph rasterize(int codePoint) {
@@ -228,39 +354,43 @@ public class CustomFontRenderer {
                 newCpuPage();
             }
 
-            java.awt.Font fontToUse = awtFont;
-            if (!awtFont.canDisplay(codePoint)) {
+            java.awt.Font fontToUse = rasterFont;
+            if (!rasterFont.canDisplay(codePoint)) {
                 fontToUse = getFallbackFont();
             }
 
             String charStr = new String(Character.toChars(codePoint));
             GlyphVector glyphVector = fontToUse.createGlyphVector(frc, charStr);
-            Rectangle2D visualBounds = glyphVector.getVisualBounds();
 
-            float advance = (float) fontToUse.getStringBounds(charStr, frc).getWidth();
+            // Typographic advance in logical (screen) units — from glyph
+            // metrics (exact with fractional metrics on), never from visual
+            // bounds. The raster font is rasterScale times larger.
+            float advance = 0f;
+            for (int i = 0; i < glyphVector.getNumGlyphs(); i++) {
+                advance += glyphVector.getGlyphMetrics(i).getAdvanceX();
+            }
+            advance /= rasterScale;
             if (advance <= 0) {
                 advance = metrics.charWidth(codePoint);
             }
 
+            Rectangle2D visualBounds = glyphVector.getVisualBounds();
             double visualW = visualBounds.getWidth();
             double visualH = visualBounds.getHeight();
             if (visualW <= 0 || visualH <= 0) {
                 return new Glyph(0, 0, 0, 0, advance, false, -1);
             }
 
-            int padding = SDF_PADDING;
-            int realWidth = (int) Math.ceil(visualW);
-            int realHeight = (int) Math.ceil(visualH);
-            int atlasWidth = realWidth + padding * 2;
-            int atlasHeight = realHeight + padding * 2;
+            int cellWidth = (int) Math.ceil(visualW) + SDF_PADDING * 2;
+            int cellHeight = (int) Math.ceil(visualH) + SDF_PADDING * 2;
 
-            if (cursorX + atlasWidth > ATLAS_SIZE) {
+            if (cursorX + cellWidth > ATLAS_SIZE) {
                 cursorX = 0;
                 cursorY += rowHeight;
                 rowHeight = 0;
             }
 
-            if (cursorY + atlasHeight > ATLAS_SIZE) {
+            if (cursorY + cellHeight > ATLAS_SIZE) {
                 flushCurrentPage();
                 newCpuPage();
             }
@@ -268,62 +398,38 @@ public class CustomFontRenderer {
             int cellX = cursorX;
             int cellY = cursorY;
 
-            int drawX = padding - Math.round((float) visualBounds.getX());
-            int drawY = padding - Math.round((float) visualBounds.getY());
+            // Exact float placement: the ink's top-left lands precisely at
+            // (PADDING, PADDING) in the cell, so the field and the screen
+            // quad derived from the same visualBounds never drift apart
+            // (rounding the draw offset would misplace the outline by up to
+            // half a raster pixel relative to the quad).
+            float drawX = SDF_PADDING - (float) visualBounds.getX();
+            float drawY = SDF_PADDING - (float) visualBounds.getY();
 
-            // --- SDF generation: render glyph mask → distance transform → write to atlas ---
+            // --- MTSDF generation: vector outline -> multi-channel + true SDF ---
+            Shape outline = glyphVector.getOutline(drawX, drawY);
+            // Per channel: 0 = RANGE/2 px outside, 128 = on the edge,
+            // 255 = RANGE/2 px inside. The shader reads median(R, G, B),
+            // falling back to the true SDF in A where the median saturates.
+            byte[] msdfPixels = MsdfGenerator.generate(outline, cellWidth, cellHeight);
 
-            // 1. Render glyph to a temporary mask image (cleared to transparent)
-            BufferedImage maskImage = new BufferedImage(atlasWidth, atlasHeight,
-                    BufferedImage.TYPE_INT_ARGB);
-            java.awt.Graphics2D maskG2d = maskImage.createGraphics();
-            maskG2d.setComposite(java.awt.AlphaComposite.Clear);
-            maskG2d.fillRect(0, 0, atlasWidth, atlasHeight);
-            maskG2d.setComposite(java.awt.AlphaComposite.SrcOver);
-            applyRenderingHints(maskG2d);
-            maskG2d.setFont(fontToUse);
-            maskG2d.setColor(Color.WHITE);
-            maskG2d.drawString(charStr, drawX, drawY);
-            maskG2d.dispose();
-
-            // 2. Extract boolean mask from alpha channel
-            boolean[][] mask = new boolean[atlasHeight][atlasWidth];
-            for (int y = 0; y < atlasHeight; y++) {
-                for (int x = 0; x < atlasWidth; x++) {
-                    int alpha = (maskImage.getRGB(x, y) >> 24) & 0xFF;
-                    mask[y][x] = alpha > 0;
-                }
-            }
-            maskImage.flush();
-
-            // 3. Generate SDF bytes (spread derived from font size)
-            byte[] sdfPixels = generateSDF(mask, atlasWidth, atlasHeight, sdfSpread);
-
-            // Debug: log SDF value range
-            if (LOGGER.isDebugEnabled()) {
-                int sdfMin = 255, sdfMax = 0;
-                for (byte b : sdfPixels) {
-                    int v = b & 0xFF;
-                    if (v < sdfMin) sdfMin = v;
-                    if (v > sdfMax) sdfMax = v;
-                }
-                LOGGER.debug("[SDF] codepoint={} atlas={}x{} sdfRange=[{}, {}]",
-                        codePoint, atlasWidth, atlasHeight, sdfMin, sdfMax);
-            }
-
-            // 4. Build the Glyph and register in maps BEFORE flushCurrentPage
-            //    (flushCurrentPage needs glyphs.get() to succeed)
-            Glyph glyph = new Glyph(atlasWidth, atlasHeight,
-                    (float) visualBounds.getX() - padding,
-                    (float) visualBounds.getY() - padding,
+            // Build the Glyph and register in maps BEFORE flushCurrentPage
+            // (flushCurrentPage needs glyphs.get() to succeed).
+            // Screen-space quad size and bearings are the atlas-cell
+            // dimensions divided by the raster scale.
+            Glyph glyph = new Glyph(
+                    cellWidth / rasterScale,
+                    cellHeight / rasterScale,
+                    ((float) visualBounds.getX() - SDF_PADDING) / rasterScale,
+                    ((float) visualBounds.getY() - SDF_PADDING) / rasterScale,
                     advance, true, -1);
             glyphs.put(codePoint, glyph);
-            pendingSdfData.put(codePoint, sdfPixels);
-            pendingSlots.put(codePoint, new AtlasSlot(cellX, cellY, atlasWidth, atlasHeight));
+            pendingMsdfData.put(codePoint, msdfPixels);
+            pendingSlots.put(codePoint, new AtlasSlot(cellX, cellY, cellWidth, cellHeight));
 
-            cursorX += atlasWidth;
-            if (atlasHeight > rowHeight) {
-                rowHeight = atlasHeight;
+            cursorX += cellWidth;
+            if (cellHeight > rowHeight) {
+                rowHeight = cellHeight;
             }
 
             return glyph;
@@ -343,7 +449,7 @@ public class CustomFontRenderer {
                 int codePoint = entry.getKey();
                 Glyph glyph = glyphs.get(codePoint);
                 if (glyph == null) {
-                    LOGGER.warn("[SDF] flushCurrentPage: glyph NULL for codepoint {}, UVs will NOT be set!", codePoint);
+                    LOGGER.warn("[MTSDF] flushCurrentPage: glyph NULL for codepoint {}, UVs will NOT be set!", codePoint);
                     continue;
                 }
                 AtlasSlot slot = entry.getValue();
@@ -354,26 +460,29 @@ public class CustomFontRenderer {
                 glyph.v1 = (slot.py + slot.ph) * invH;
                 glyph.pageIndex = currentPageIdx;
 
-                // Upload SDF bytes to NativeImage.
-                // Write the same value to R, G, B so the shader can read it
-                // regardless of whether NativeImage uses ARGB or ABGR internally.
-                byte[] sdfPixels = pendingSdfData.get(codePoint);
-                if (sdfPixels != null) {
+                // Upload MTSDF bytes to NativeImage (RGBA, 4 bytes per pixel).
+                // NativeImage stores ABGR: A=bits31..24, B=23..16, G=15..8, R=7..0
+                byte[] msdfPixels = pendingMsdfData.get(codePoint);
+                if (msdfPixels != null) {
                     for (int y = 0; y < slot.ph; y++) {
-                        int rowBase = y * slot.pw;
+                        int rowBase = y * slot.pw * 4;
                         int dstY = slot.py + y;
                         for (int x = 0; x < slot.pw; x++) {
-                            int v = sdfPixels[rowBase + x] & 0xFF;
+                            int i = rowBase + x * 4;
+                            int r = msdfPixels[i] & 0xFF;
+                            int g = msdfPixels[i + 1] & 0xFF;
+                            int b = msdfPixels[i + 2] & 0xFF;
+                            int a = msdfPixels[i + 3] & 0xFF;
                             nativeImage.setPixel(slot.px + x, dstY,
-                                    (0xFF << 24) | (v << 16) | (v << 8) | v);
+                                    (a << 24) | (b << 16) | (g << 8) | r);
                         }
                     }
                 } else {
-                    LOGGER.warn("[SDF] flushCurrentPage: sdfPixels NULL for codepoint {}", codePoint);
+                    LOGGER.warn("[MTSDF] flushCurrentPage: msdfPixels NULL for codepoint {}", codePoint);
                 }
             }
             pendingSlots.clear();
-            pendingSdfData.clear();
+            pendingMsdfData.clear();
             page.texture.upload();
             setLinearFilter(page.texture);
 
@@ -408,13 +517,17 @@ public class CustomFontRenderer {
     private static final AtomicInteger ATLAS_ID = new AtomicInteger(0);
 
     public static GlyphFont loadFont(Identifier path, float size) {
-        String key = path.toString() + "@" + size;
+        return loadFont(path, size, java.awt.Font.PLAIN);
+    }
+
+    public static GlyphFont loadFont(Identifier path, float size, int awtStyle) {
+        String key = path.toString() + "@" + size + "@" + awtStyle;
         return FONT_CACHE.computeIfAbsent(key, k -> {
             try (InputStream is = mc.getResourceManager()
                     .getResource(path).orElseThrow().open()) {
                 java.awt.Font base = java.awt.Font.createFont(
                         java.awt.Font.TRUETYPE_FONT, is);
-                return new GlyphFont(base.deriveFont(size));
+                return new GlyphFont(base.deriveFont(awtStyle, size));
             } catch (Exception e) {
                 throw new RuntimeException("Failed to load font: " + path, e);
             }
@@ -472,11 +585,20 @@ public class CustomFontRenderer {
     //  Measurement
     // ========================
 
+    /**
+     * Width of the string in logical (screen) units: per-glyph typographic
+     * advances plus pair kerning — the same layout code path as
+     * {@link #drawString(GuiGraphicsExtractor, GlyphFont, String, float, float, IntFunction)},
+     * so measured and rendered widths always agree.
+     */
     public static float stringWidth(GlyphFont font, String text) {
         float width = 0f;
+        int prevCp = -1;
         for (int i = 0; i < text.length();) {
             int codePoint = text.codePointAt(i);
-            width += font.getGlyph(codePoint).advanceX;
+            width += font.kern(prevCp, codePoint)
+                    + font.getGlyph(codePoint).advanceX;
+            prevCp = codePoint;
             i += Character.charCount(codePoint);
         }
         return width;
@@ -647,9 +769,9 @@ public class CustomFontRenderer {
     }
 
     public static void drawRainbowString(GuiGraphicsExtractor gui,
-                                          GlyphFont font, String text,
-                                          float x, float y, long speedMs,
-                                          float sat, float bri, int alpha) {
+                                         GlyphFont font, String text,
+                                         float x, float y, long speedMs,
+                                         float sat, float bri, int alpha) {
         int length = Math.max(1, (int) text.codePoints().count());
         drawString(gui, font, text, x, y, i -> {
             float hue = ((System.currentTimeMillis() % speedMs)
@@ -660,10 +782,10 @@ public class CustomFontRenderer {
     }
 
     public static void drawRainbowGradientString(GuiGraphicsExtractor gui,
-                                                  GlyphFont font, String text,
-                                                  float x, float y,
-                                                  long speedMs, float sat,
-                                                  float bri, int alpha) {
+                                                 GlyphFont font, String text,
+                                                 float x, float y,
+                                                 long speedMs, float sat,
+                                                 float bri, int alpha) {
         int length = Math.max(1, (int) text.codePoints().count());
         drawGradientString(gui, font, text, x, y,
                 i -> {
@@ -714,7 +836,7 @@ public class CustomFontRenderer {
     }
 
     private static ColorEmitter gradientEmitter(IntFunction<Integer> topFunc,
-                                                 IntFunction<Integer> botFunc) {
+                                                IntFunction<Integer> botFunc) {
         return (charIndex, glyph, dst, offset) -> {
             writeColor(topFunc.apply(charIndex), dst, offset);       // TL
             writeColor(botFunc.apply(charIndex), dst, offset + 4);   // BL
@@ -757,19 +879,22 @@ public class CustomFontRenderer {
     private record GlyphRun(int charIndex, Glyph glyph, float x) {}
 
     private static void drawGrouped(GuiGraphicsExtractor gui, GlyphFont font,
-                                     String text, float x, float y,
-                                     ColorEmitter emitter) {
+                                    String text, float x, float y,
+                                    ColorEmitter emitter) {
         Map<Integer, List<GlyphRun>> groups = new LinkedHashMap<>();
         float cursorX = x;
+        int prevCp = -1;
         int charIndex = 0;
         for (int i = 0; i < text.length();) {
             int codePoint = text.codePointAt(i);
             Glyph glyph = font.getGlyph(codePoint);
+            cursorX += font.kern(prevCp, codePoint);
             if (glyph.hasImage) {
                 groups.computeIfAbsent(glyph.pageIndex, k -> new ArrayList<>())
                         .add(new GlyphRun(charIndex, glyph, cursorX));
             }
             cursorX += glyph.advanceX;
+            prevCp = codePoint;
             i += Character.charCount(codePoint);
             charIndex++;
         }
@@ -778,6 +903,8 @@ public class CustomFontRenderer {
         }
 
         float baselineY = y + font.ascent;
+        // 基线统一对齐到像素，确保所有字形在同一条线上
+        float snappedBaselineY = snapToPixel(baselineY);
         Matrix3x2f currentPose = new Matrix3x2f(gui.pose());
         ScreenRectangle currentScissor = gui.peekScissorStack();
 
@@ -794,8 +921,8 @@ public class CustomFontRenderer {
 
             for (GlyphRun run : runs) {
                 Glyph glyph = run.glyph;
-                float x0 = snapToPixel(run.x + glyph.bearingX);
-                float y0 = snapToPixel(baselineY + glyph.bearingY);
+                float x0 = run.x + glyph.bearingX;
+                float y0 = snappedBaselineY + glyph.bearingY;
                 float x1 = x0 + glyph.width;   // includes SDF padding
                 float y1 = y0 + glyph.height;   // includes SDF padding
 
@@ -922,37 +1049,42 @@ public class CustomFontRenderer {
     }
 
     // ========================
-    //  SDF generation (Euclidean Distance Transform)
+    //  MSDF debug helpers
     // ========================
 
     /**
-     * Dump the SDF bytes to a PNG file for debugging.
-     * Shows: black background, gray edges, white glyph interior.
+     * Dump interleaved RGB MSDF bytes to a PNG file for debugging.
+     * Shows the multi-channel distance field exactly as generated.
      *
-     * @param sdfPixels SDF byte array
+     * @param msdfPixels MSDF byte array (RGB, 3 bytes per pixel, row-major)
      * @param w width
      * @param h height
      * @param file output file path
      */
-    public static void dumpSdfToPng(byte[] sdfPixels, int w, int h, File file) {
-        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_BYTE_GRAY);
+    public static void dumpMsdfToPng(byte[] msdfPixels, int w, int h, File file) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                int v = sdfPixels[y * w + x] & 0xFF;
-                img.getRaster().setSample(x, y, 0, v);
+                int i = (y * w + x) * 3;
+                int r = msdfPixels[i] & 0xFF;
+                int g = msdfPixels[i + 1] & 0xFF;
+                int b = msdfPixels[i + 2] & 0xFF;
+                img.setRGB(x, y, (r << 16) | (g << 8) | b);
             }
         }
         try {
             javax.imageio.ImageIO.write(img, "png", file);
-            LOGGER.info("[SDF] Dumped SDF debug image to {}", file.getAbsolutePath());
+            LOGGER.info("[MTSDF] Dumped MSDF debug image to {}", file.getAbsolutePath());
         } catch (Exception e) {
-            LOGGER.warn("[SDF] Failed to dump SDF debug image", e);
+            LOGGER.warn("[MTSDF] Failed to dump MSDF debug image", e);
         }
         img.flush();
     }
 
     /**
      * Dump the current atlas NativeImage to a PNG file for debugging.
+     * The MTSDF atlas is a full-color image (R/G/B distance channels;
+     * alpha holds the true SDF, forced opaque in this dump).
      */
     public static void dumpAtlasToPng(GlyphFont font, File file) {
         if (font.pages.isEmpty()) return;
@@ -966,133 +1098,18 @@ public class CustomFontRenderer {
                 // NativeImage stores ABGR: A=bits31..24, B=23..16, G=15..8, R=7..0
                 int abgr = ni.getPixel(x, y);
                 int r = abgr & 0xFF;
-                // For SDF debug: show R channel as grayscale
-                img.setRGB(x, y, 0xFF000000 | (r << 16) | (r << 8) | r);
+                int g = (abgr >> 8) & 0xFF;
+                int b = (abgr >> 16) & 0xFF;
+                img.setRGB(x, y, 0xFF000000 | (r << 16) | (g << 8) | b);
             }
         }
         try {
             javax.imageio.ImageIO.write(img, "png", file);
-            LOGGER.info("[SDF] Dumped atlas debug image to {}", file.getAbsolutePath());
+            LOGGER.info("[MTSDF] Dumped atlas debug image to {}", file.getAbsolutePath());
         } catch (Exception e) {
-            LOGGER.warn("[SDF] Failed to dump atlas debug image", e);
+            LOGGER.warn("[MTSDF] Failed to dump atlas debug image", e);
         }
         img.flush();
-    }
-
-    /**
-     * Generate a signed distance field from a binary glyph mask.
-     *
-     * <p>Uses the Felzenszwalb &amp; Huttenlocher algorithm for O(n) EDT.
-     * Output is a byte array where 128 = edge, 255 = center, 0 = far outside.</p>
-     *
-     * @param mask  true = inside glyph, false = outside
-     * @param w     mask width
-     * @param h     mask height
-     * @return SDF bytes, one per pixel (row-major)
-     */
-    private static byte[] generateSDF(boolean[][] mask, int w, int h, float spread) {
-        // Use a large but finite value — Float.MAX_VALUE overflows to INF
-        // in the EDT parabola formula (data[i] + i*i), breaking the algorithm.
-        final float INF = 1e20f;
-
-        float[] inside = new float[w * h];
-        float[] outside = new float[w * h];
-
-        // Initialize: inside[i]=0 if mask[i], else INF; outside[i]=INF if mask[i], else 0
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                int i = y * w + x;
-                if (mask[y][x]) {
-                    inside[i] = 0f;
-                    outside[i] = INF;
-                } else {
-                    inside[i] = INF;
-                    outside[i] = 0f;
-                }
-            }
-        }
-
-        // Compute EDT for both fields (squared distances)
-        edt(inside, w, h);
-        edt(outside, w, h);
-
-        // Normalize and encode to bytes: edge=128, center=255, far outside=0
-        byte[] sdf = new byte[w * h];
-        for (int i = 0; i < sdf.length; i++) {
-            // Signed distance: positive inside, negative outside
-            float dist = (float) (Math.sqrt(outside[i]) - Math.sqrt(inside[i]));
-            float normalized = dist / spread;
-            int value = (int) (127.5f + normalized * 127.5f);
-            sdf[i] = (byte) Math.max(0, Math.min(255, value));
-        }
-        return sdf;
-    }
-
-    /**
-     * 2D Euclidean Distance Transform (separable, Felzenszwalb algorithm).
-     * Operates on squared distances in-place.
-     */
-    private static void edt(float[] data, int w, int h) {
-        // Transform rows
-        for (int y = 0; y < h; y++) {
-            edt1d(data, y * w, w);
-        }
-        // Transform columns
-        float[] column = new float[h];
-        for (int x = 0; x < w; x++) {
-            for (int y = 0; y < h; y++) {
-                column[y] = data[y * w + x];
-            }
-            edt1d(column, 0, h);
-            for (int y = 0; y < h; y++) {
-                data[y * w + x] = column[y];
-            }
-        }
-    }
-
-    /**
-     * 1D squared-distance transform (lower envelope of parabolas).
-     *
-     * @param data array containing input values (modified in-place)
-     * @param offset start index in data
-     * @param n number of elements
-     */
-    private static void edt1d(float[] data, int offset, int n) {
-        float[] d = new float[n];
-        int[] v = new int[n];
-        float[] z = new float[n + 1];
-
-        int k = 0;
-        v[0] = 0;
-        z[0] = Float.NEGATIVE_INFINITY;
-        z[1] = Float.POSITIVE_INFINITY;
-
-        // Build lower envelope
-        for (int q = 1; q < n; q++) {
-            float s = ((data[offset + q] + q * q) - (data[offset + v[k]] + v[k] * v[k]))
-                    / (2f * q - 2f * v[k]);
-            while (s <= z[k]) {
-                k--;
-                s = ((data[offset + q] + q * q) - (data[offset + v[k]] + v[k] * v[k]))
-                        / (2f * q - 2f * v[k]);
-            }
-            k++;
-            v[k] = q;
-            z[k] = s;
-            z[k + 1] = Float.POSITIVE_INFINITY;
-        }
-
-        // Fill distances from envelope
-        k = 0;
-        for (int q = 0; q < n; q++) {
-            while (z[k + 1] < q) {
-                k++;
-            }
-            float dx = q - v[k];
-            d[q] = dx * dx + data[offset + v[k]];
-        }
-
-        System.arraycopy(d, 0, data, offset, n);
     }
 
     // ========================
@@ -1108,8 +1125,9 @@ public class CustomFontRenderer {
         }
         font.pages.clear();
         font.pendingSlots.clear();
-        font.pendingSdfData.clear();
+        font.pendingMsdfData.clear();
         font.glyphs.clear();
+        font.kernCache.clear();
     }
 
     public static void flushAllPages() {

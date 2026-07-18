@@ -2,12 +2,15 @@ package geminiclient.gemini.modules.impl.visual;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.customRenderer.glsl.modules.TargetDisplayRenderer;
+import geminiclient.gemini.customRenderer.glsl.modules.TargetDisplayRingRenderer;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.AttackEvent;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -19,6 +22,11 @@ public class TargetDisplay extends Module {
     private static final long HOLD_DURATION_MS = 3000;
     private long lastAttackTime = 0;
 
+    // ── 显示模式 ──────────────────────────────────────────────────
+    private final ListValue displayMode = new ListValue("Mode", "Classic", new String[]{
+            "Classic", "Ring"
+    });
+
     // ── 动画控制变量 ──────────────────────────────────────────────
     private float animatedHealth = 0f;
     private float fadeAlpha = 0f; // 0.0f 到 1.0f 之间的透明度
@@ -27,6 +35,7 @@ public class TargetDisplay extends Module {
         super("TargetDisplay", ModuleEnum.Visual);
         hudX = 6;
         hudY = 100;
+        addValue(displayMode);
     }
 
     // ── 事件处理 ──────────────────────────────────────────────────
@@ -80,6 +89,15 @@ public class TargetDisplay extends Module {
         // 缓动公式：当前值 += (目标值 - 当前值) * 缓动系数
         animatedHealth += (actualHealth - animatedHealth) * 0.15f;
 
+        if (displayMode.is("Ring")) {
+            // Ring 模式：圆形头像 + 血量进度环 + HP/Ping 信息行
+            TargetDisplayRingRenderer.drawRingDisplay(g, x, y, target, displayName,
+                    animatedHealth, maxHealth, resolvePing(target), fadeAlpha);
+            Gemini.hudDragManager.registerDragRegion(this, x, y,
+                    TargetDisplayRingRenderer.DISPLAY_WIDTH, TargetDisplayRingRenderer.DISPLAY_HEIGHT);
+            return;
+        }
+
         if (target instanceof Player player) {
             TargetDisplayRenderer.drawTargetDisplay(g, x, y, player, displayName, animatedHealth, maxHealth, fadeAlpha);
         } else {
@@ -97,6 +115,16 @@ public class TargetDisplay extends Module {
         int x = hudX;
         int y = hudY;
 
+        if (displayMode.is("Ring")) {
+            if (!enabled) {
+                // 占位符也应具有一致的视觉圆角和背景
+                TargetDisplayRingRenderer.drawBackground(g, x, y, 0.35f);
+            }
+            Gemini.hudDragManager.registerDragRegion(this, x, y,
+                    TargetDisplayRingRenderer.DISPLAY_WIDTH, TargetDisplayRingRenderer.DISPLAY_HEIGHT);
+            return;
+        }
+
         if (!enabled) {
             // 占位符也应具有一致的视觉圆角和背景
             TargetDisplayRenderer.drawBackground(g, x, y,
@@ -110,6 +138,15 @@ public class TargetDisplay extends Module {
     }
 
     // ── 辅助方法 ──────────────────────────────────────────────────
+
+    /** 获取目标玩家的网络延迟（毫秒），非玩家或无法获取时返回 -1。 */
+    private static int resolvePing(LivingEntity entity) {
+        if (!(entity instanceof Player player) || mc.getConnection() == null) {
+            return -1;
+        }
+        PlayerInfo info = mc.getConnection().getPlayerInfo(player.getUUID());
+        return info != null ? info.getLatency() : -1;
+    }
 
     private static String buildDisplayName(LivingEntity entity) {
         Component customName = entity.getCustomName();

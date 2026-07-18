@@ -177,24 +177,40 @@ public class KillEffect extends Module {
                 inst.updateParticles(dt, stage, nowMs);
             }
 
+            // Update explosion burst debris: spawned at the flash peak,
+            // flies outward through hypernova, dissipates in afterglow
+            if (enableParticles.enabled && stage >= KillEffectInstance.STAGE_FLASH
+                    && stage <= KillEffectInstance.STAGE_AFTERGLOW) {
+                float mergeScale = 1.0f + (inst.mergeCount - 1) * 0.25f;
+                inst.updateBurstParticles(dt, stage, nowMs, mergeScale);
+            }
+
             // Camera shake: collapse → void (lingering) → flash → hypernova
             if (cameraShake.enabled) {
                 if (stage == KillEffectInstance.STAGE_COLLAPSE) {
                     float progress = inst.stageProgress(nowMs);
                     shakeIntensity = Math.max(shakeIntensity, progress * 3.0f);
                 } else if (stage == KillEffectInstance.STAGE_VOID) {
-                    // Faint lingering tremor during the silent wait
+                    // Continue from collapse's 3.0 peak, quadratic decay —
+                    // no step down at the boundary
                     float progress = inst.stageProgress(nowMs);
-                    float voidShake = (1f - progress) * 1.0f;
-                    shakeIntensity = Math.max(shakeIntensity, voidShake);
+                    float d = 1f - progress;
+                    shakeIntensity = Math.max(shakeIntensity, 3.0f * d * d);
                 } else if (stage == KillEffectInstance.STAGE_FLASH) {
                     float progress = inst.stageProgress(nowMs);
-                    // Sharp spike at start, rapid decay
-                    float flashShake = (1f - progress) * 6.0f;
-                    shakeIntensity = Math.max(shakeIntensity, flashShake);
+                    // Bell-curve attack/release, synced with the light pulse —
+                    // starts near zero instead of snapping to full strength
+                    float t = progress;
+                    float bell = t < 0.4f
+                        ? (float)Math.exp(-((t - 0.4f) * (t - 0.4f)) / 0.04f)
+                        : (float)Math.exp(-((t - 0.4f) * (t - 0.4f)) / 0.12f);
+                    shakeIntensity = Math.max(shakeIntensity, 6.0f * bell);
                 } else if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
                     float progress = inst.stageProgress(nowMs);
-                    float novaShake = (1f - progress) * 5.0f;
+                    // Smooth attack over the first ~115ms, then linear decay
+                    float attack = Math.min(progress / 0.05f, 1f);
+                    attack = attack * attack * (3f - 2f * attack);
+                    float novaShake = (1f - progress) * 5.0f * attack;
                     shakeIntensity = Math.max(shakeIntensity, novaShake);
                 }
             }
@@ -250,6 +266,19 @@ public class KillEffect extends Module {
                 if (particleCount > 0) {
                     KillEffectRenderer.drawParticles(
                             event.poseStack(), particleBatch, particleCount);
+                }
+            }
+
+            // Explosion burst debris (stages 7-9): hot fragments flying
+            // outward from the detonation, cooling and dissipating
+            if (enableParticles.enabled && stage >= KillEffectInstance.STAGE_FLASH
+                    && stage <= KillEffectInstance.STAGE_AFTERGLOW
+                    && inst.getBurstCount() > 0) {
+                int burstCount = inst.fillBurstBatch(
+                        particleBatch, MAX_PARTICLE_BATCH, nowMs, scaledIntensity);
+                if (burstCount > 0) {
+                    KillEffectRenderer.drawParticles(
+                            event.poseStack(), particleBatch, burstCount);
                 }
             }
 

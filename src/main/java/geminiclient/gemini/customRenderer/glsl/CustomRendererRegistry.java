@@ -8,12 +8,14 @@ import geminiclient.gemini.customRenderer.glsl.modules.KillEffectRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.MagicHaloRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.SkyLanternRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.TargetDisplayRenderer;
+import geminiclient.gemini.customRenderer.glsl.modules.TargetDisplayRingRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.TrailRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.GhostAfterImageRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.InstancedParticleRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.MipBloomProcessor;
 import geminiclient.gemini.customRenderer.glsl.modules.SweepAttackRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.TrajectoriesRenderer;
+import geminiclient.gemini.modules.impl.visual.effectDisplay.Md3ShadowRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.GlowRenderer;
 import geminiclient.gemini.customRenderer.glsl.InfiniteGridRenderer;
@@ -42,6 +44,8 @@ public final class CustomRendererRegistry {
     public static void registerAll(Consumer<RenderPipeline> registry) {
         CustomFontRenderer.registerPipeline(registry);
         GlowRenderer.registerPipelines(registry);
+        SdfUIRenderer.registerPipelines(registry);
+        Md3ShadowRenderer.registerPipeline(registry);
         CustomAcrylicRenderer.registerPipelines(registry);
         CustomBlurRenderer.registerPipeline(registry);
         JumpCircleRenderer.registerPipeline(registry);
@@ -51,6 +55,7 @@ public final class CustomRendererRegistry {
         MagicHaloRenderer.registerPipeline(registry);
         SkyLanternRenderer.registerPipeline(registry);
         TargetDisplayRenderer.registerPipeline(registry);
+        TargetDisplayRingRenderer.registerPipeline(registry);
         TrajectoriesRenderer.registerPipeline(registry);
         TrailRenderer.registerPipeline(registry);
         GhostAfterImageRenderer.registerPipeline(registry);

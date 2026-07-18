@@ -91,6 +91,18 @@ public final class CustomBlurRenderer {
         registry.accept(pipeline);
     }
 
+    /**
+     * Compile the blur program ahead of first use. Called by
+     * {@link UiShaderWarmup} during the resource-reload stage (render thread,
+     * after the vanilla ShaderManager) so the first blur render doesn't pay
+     * the compile/link cost. Repeat calls are cheap: the GL pipeline cache
+     * deduplicates.
+     */
+    public static void precompile() {
+        ensureProgram();
+        RenderSystem.getDevice().precompilePipeline(pipeline, null);
+    }
+
     // ========================
     //  Main render entry point
     // ========================

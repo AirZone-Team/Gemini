@@ -1,18 +1,23 @@
 package geminiclient.mixin;
 
+import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectInstance;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectPostProcessor;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
+import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.modules.impl.visual.KillEffect;
 import geminiclient.gemini.modules.impl.visual.SweepingAttackVFX;
 import geminiclient.gemini.modules.impl.visual.FullLight;
+import geminiclient.gemini.modules.impl.visual.clickgui.AbstractClickGuiScreen;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.state.GameRenderState;
+import net.minecraft.client.renderer.state.gui.GuiRenderState;
 import net.minecraft.world.entity.LivingEntity;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -29,6 +34,34 @@ public class MixinGameRenderer {
     @Shadow @Final
     private final GameRenderState gameRenderState = new GameRenderState();
 
+    /**
+     * While a ClickGui screen is open, skip the vanilla screen extraction in
+     * {@code extractGui}. The screen's render state is submitted later in
+     * {@link #inject2D}, after the client HUD modules, so the ClickGui draws
+     * on top of every other HUD element.
+     */
+    @WrapWithCondition(method = "extractGui", at = @At(value = "INVOKE",
+            target = "Lnet/neoforged/neoforge/client/ClientHooks;drawScreen(Lnet/minecraft/client/gui/screens/Screen;Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V"))
+    public boolean deferClickGuiExtraction(Screen screen, GuiGraphicsExtractor graphics, int mouseX, int mouseY, float deltaTicks) {
+        return !(screen instanceof AbstractClickGuiScreen);
+    }
+
+    /**
+     * While a ClickGui screen is open, override the blur radius used by the
+     * vanilla menu-blur post chain for this frame. The field is re-extracted
+     * from the game options every frame, so the original value is restored
+     * automatically once the ClickGui closes.
+     */
+    @Inject(method = "render", at = @At("HEAD"))
+    public void applyClickGuiBlurRadius(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
+        if (this.minecraft.screen instanceof AbstractClickGuiScreen screen) {
+            ClickGui clickGui = Gemini.moduleManager.getModule(ClickGui.class);
+            int strength = clickGui != null ? clickGui.getBlurStrength() : 0;
+            this.gameRenderState.optionsRenderState.menuBackgroundBlurriness =
+                    Math.round(strength * screen.getBlurFade());
+        }
+    }
+
     @Inject(method = "render",at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;render(Lcom/mojang/blaze3d/buffers/GpuBufferSlice;)V"))
     public void inject2D(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
         int i = (int) this.minecraft.mouseHandler.getScaledXPos(this.minecraft.getWindow());
@@ -36,6 +69,27 @@ public class MixinGameRenderer {
         GuiGraphicsExtractor g = new GuiGraphicsExtractor(this.minecraft, this.gameRenderState.guiRenderState, i, j);
         Gemini.eventManager.call(new Render2DEvent(g, g.pose()));
         CustomFontRenderer.flushAllPages();
+
+        // ── ClickGui: submit the screen above all HUD, with a blur boundary ──
+        // Everything submitted so far (vanilla HUD + client HUD modules such as
+        // the ArrayList) sits in strata before the boundary and gets blurred by
+        // the vanilla blur pass; the ClickGui strata draw sharp on top of it.
+        if (this.minecraft.screen instanceof AbstractClickGuiScreen screen
+                && this.minecraft.getOverlay() == null) {
+            GuiRenderState guiState = this.gameRenderState.guiRenderState;
+            guiState.nextStratum();
+
+            ClickGui clickGui = Gemini.moduleManager.getModule(ClickGui.class);
+            if (clickGui != null && clickGui.getBlurStrength() > 0) {
+                guiState.blurBeforeThisStratum();
+            }
+
+            GuiGraphicsExtractor screenGraphics =
+                    new GuiGraphicsExtractor(this.minecraft, guiState, i, j);
+            screen.extractRenderStateWithTooltipAndSubtitles(
+                    screenGraphics, i, j, deltaTracker.getGameTimeDeltaTicks());
+            CustomFontRenderer.flushAllPages();
+        }
     }
 
     /**
@@ -59,14 +113,11 @@ public class MixinGameRenderer {
         float mergeMult = 1.0f + (mergeCount - 1) * 0.3f; // +30% per additional kill
 
         // ── Global fade-in: prevent sudden screen brightening ─────────
-        // Ramps from 0 to 1 over the first 0.5s of the effect, so bloom
-        // and other post-processing don't hit the screen suddenly.
+        // smoothstep (3t²−2t³) ramp: zero slope at both ends, so bloom /
+        // distortion / tone mapping ease in instead of snapping on.
         float effectAgeSec = (nowMs - killEffect.getPrimaryStartTime()) / 1000f;
-        float globalFadeIn = Math.min(effectAgeSec / 0.5f, 1f);
-        if (stage <= KillEffectInstance.STAGE_MAGIC_TOWER) {
-            // During early stages (circle + tower), fade in even slower
-            globalFadeIn = Math.min(effectAgeSec / 0.8f, 1f);
-        }
+        float fadeT = Math.min(effectAgeSec / 0.9f, 1f);
+        float globalFadeIn = fadeT * fadeT * (3f - 2f * fadeT);
 
         // ── Compute per-stage post-processing strengths ──────────
         float progress   = killEffect.getPrimaryProgress(nowMs);
@@ -78,19 +129,29 @@ public class MixinGameRenderer {
 
         // ── Black hole screen-space / flash / shockwave params ────
         int   bhStage     = 0;
-        float bhProgress  = 0f;  // repurposed as preExpansionR / shockStrength
-        float bhIntensity = 0f;  // repurposed as flashIntensity / shockSpeed
+        float bhProgress  = 0f;  // BH: stage progress;  Nova: hypernova progress
+        float bhIntensity = 0f;  // BH: merge mult;      Flash: bell pulse
 
         if (stage >= KillEffectInstance.STAGE_BLACK_HOLE
                 && stage <= KillEffectInstance.STAGE_COLLAPSE) {
             // ── Black hole phases: gravitational lensing ──────────
-            distort  = 0.7f;
-            godRay   = 0.3f;
-            chromatic = 0.15f;
+            // Entry ramp only on stage 3 (first BH stage): later BH stages
+            // share the same strengths, so ramping them would dip.
+            float entry = 1f;
+            if (stage == KillEffectInstance.STAGE_BLACK_HOLE) {
+                entry = smoothstep01(progress / 0.15f);
+            }
+            distort  = 0.7f * entry;
+            godRay   = 0.3f * entry;
+            chromatic = 0.15f * entry;
 
-            // Distortion decays during collapse as the hole vanishes
+            // Distortion decays during collapse as the hole vanishes;
+            // god rays and chromatic also wind down to zero so nothing
+            // pops when the silent VOID stage begins.
             if (stage == KillEffectInstance.STAGE_COLLAPSE) {
                 distort *= 1.0f - progress * 0.9f;
+                godRay   *= 1.0f - progress;
+                chromatic *= 1.0f - progress;
             }
 
             bhStage     = stage;
@@ -99,10 +160,11 @@ public class MixinGameRenderer {
 
         } else if (stage == KillEffectInstance.STAGE_FLASH) {
             // ── Glow flash: multi-pulse light emission after void ──
-            bloom    = Math.max(bloom, 2.5f);
-            chromatic = 0.8f;
-            godRay   = 1.0f;
-            radius   = 30f;
+            float entry = smoothstep01(progress / 0.10f);
+            bloom    = Math.max(bloom, 2.5f * entry);
+            chromatic = 0.8f * entry;
+            godRay   = 1.0f * entry;
+            radius   = 30f * entry;
 
             // Flash intensity: bell-curve pulse
             float t = progress;
@@ -116,28 +178,34 @@ public class MixinGameRenderer {
 
         } else if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
             // ── Hypernova explosion (enhanced) ────────────────────
-            distort  = 0.6f;
-            godRay   = 1.2f;
-            chromatic = 0.5f;
-            bloom    = Math.max(bloom, 2.0f);
-            radius   = 24f;
+            // Blend FROM the flash stage's end values (bloom 2.5, godRay 1.0,
+            // chromatic 0.8, radius 30) INTO hypernova's own — the entry ramp
+            // interpolates instead of snapping down and back up.
+            float entry = smoothstep01(progress / 0.05f);
+            bloom    = Math.max(bloom, 2.5f + (2.0f - 2.5f) * entry);
+            godRay   = 1.0f + (1.2f - 1.0f) * entry;
+            chromatic = 0.8f + (0.5f - 0.8f) * entry;
+            distort  = 0.6f * entry;
+            radius   = 30f + (24f - 30f) * entry;
 
             bhStage     = 8;
-            bhProgress  = 0.6f * (1f - progress * 0.7f) * mergeMult;  // → shockStrength
-            bhIntensity = 1.0f + progress * 2.5f;                     // → shockSpeed
+            bhProgress  = progress;    // → SHOCKWAVE / FLASH_SCREEN / AFTERIMAGE progress
+            bhIntensity = mergeMult;   // → intensity multiplier
 
         } else if (stage == KillEffectInstance.STAGE_AFTERGLOW) {
-            // ── Afterglow: all effects decay to zero ─────────────────
-            // Quadratic ease-out decay: starts fast, slows near end
-            float decay = 1.0f - progress;
-            decay = decay * decay;
+            // ── Afterglow: decay FROM hypernova's end values ─────────
+            // Start exactly where stage 8 left off (bloom 2.0, distort 0.6,
+            // godRay 1.2, chromatic 0.5, radius 24) so the boundary is
+            // continuous; godRay keeps a 0.35 floor that the fade-out
+            // stage then carries to zero.
+            float d1 = 1.0f - progress;
+            float decay = d1 * d1;
 
-            float peakBloom = Math.max(killEffect.getBloomStrength(), 1.5f);
-            bloom    = peakBloom * decay;
-            distort  = 0.5f * decay;
-            godRay   = 1.0f * decay;
-            chromatic = 0.3f * decay;
-            radius   = 16f * decay;
+            bloom    = Math.max(killEffect.getBloomStrength() * mergeMult * 1.4f, 2.0f) * decay;
+            distort  = 0.6f * decay;
+            godRay   = 0.35f + 0.85f * decay;
+            chromatic = 0.5f * decay;
+            radius   = 24f * decay;
 
             // No black hole / flash / shockwave passes during afterglow
             bhStage     = 0;
@@ -145,12 +213,14 @@ public class MixinGameRenderer {
             bhIntensity = 0f;
 
         } else if (stage == KillEffectInstance.STAGE_FADE_OUT) {
-            // ── Fade-out: post-processing already at zero; keep off ──
-            // while the 3D intersecting planes (billboard + horizontal +
-            // vertical cross) dissolve gracefully via the fade-out alpha.
+            // ── Fade-out: residual shafts die with the glow ball ─────
+            // godRay continues from afterglow's 0.35 floor through the
+            // fade-out smoothstep; everything else is already at zero.
+            float t = progress;
+            float fade = 1f - t * t * (3f - 2f * t);
             bloom     = 0f;
             distort   = 0f;
-            godRay    = 0f;
+            godRay    = 0.35f * fade;
             chromatic = 0f;
             radius    = 0f;
 
@@ -159,26 +229,95 @@ public class MixinGameRenderer {
             bhIntensity = 0f;
         }
 
-        // ── Light source position for depth-aware passes ─────────
-        // Glow sphere is at hypernova center, raised 2.5 blocks (same as drawHypernova)
+        // ── Residual light source for depth-aware passes ─────────
+        // Pseudo ray-traced point light (screen-space) at the explosion
+        // center. Intensity/color envelope per stage; occluded by blocks
+        // and entities via depth-buffer shadow rays (see SCREEN_LIGHTING).
+        // center[1] already includes the +1.5 visual-center offset.
         float[] lightWorldPos = null;
         float[] lightColor = null;
         float ssrIntensity = 0f;
         int volumetricSteps = 16;
 
-        // Activate depth-aware lighting during black hole + hypernova stages
-        if (center != null && stage >= KillEffectInstance.STAGE_BLACK_HOLE
-                && stage <= KillEffectInstance.STAGE_AFTERGLOW) {
-            lightWorldPos = new float[]{
-                (float) center[0],
-                (float) center[1] + 2.5f, // raised to hypernova glow ball height
-                (float) center[2],
-                48f  // light radius in blocks
-            };
-            lightColor = new float[]{1.0f, 0.85f, 0.55f, 1.0f};
-            ssrIntensity = (stage == KillEffectInstance.STAGE_HYPERNOVA
-                    || stage == KillEffectInstance.STAGE_FLASH) ? 0.7f : 0f;
-            volumetricSteps = 16;
+        if (center != null) {
+            float li = 0f;              // light intensity
+            float lr = 28f;             // light radius (blocks)
+            float lcR = 1f, lcG = 0.85f, lcB = 0.55f;
+
+            if (stage >= KillEffectInstance.STAGE_BLACK_HOLE
+                    && stage <= KillEffectInstance.STAGE_ACCRETION) {
+                // Accretion disk glow: faint warm light while the hole feeds.
+                // (Also feeds the volumetric god-ray pass its light position.)
+                // smoothstep entry ramp on stage 3 so the lighting pass
+                // doesn't snap on at the tower→BH boundary.
+                float entry = (stage == KillEffectInstance.STAGE_BLACK_HOLE)
+                        ? smoothstep01(progress / 0.15f) : 1f;
+                li  = 0.5f * entry;
+                lr  = 20f;
+                lcR = 1f; lcG = 0.55f; lcB = 0.15f;
+            } else if (stage == KillEffectInstance.STAGE_COLLAPSE) {
+                // Energy builds as the hole collapses, then dies with it —
+                // fade the light out over the last 30% so the transition
+                // into the silent VOID stage has no light pop.
+                float dieOut = 1f - smoothstep01((progress - 0.7f) / 0.3f);
+                li  = (0.5f + progress * 0.8f) * dieOut;
+                lr  = 20f + progress * 8f;
+                lcR = 1f; lcG = 0.60f; lcB = 0.20f;
+            } else if (stage == KillEffectInstance.STAGE_FLASH) {
+                // Pulse with the flash bell curve, white-hot
+                li  = 2.0f * bhIntensity;
+                lr  = 34f;
+                lcR = 1f; lcG = 0.97f; lcB = 0.90f;
+            } else if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
+                // Blinding at detonation, slow ease-out decay
+                float entry = smoothstep01(progress / 0.05f);
+                li  = 2.8f * (1f - progress * 0.45f) * entry;
+                lr  = 44f;
+                lcR = 1f; lcG = 0.95f; lcB = 0.85f;
+            } else if (stage == KillEffectInstance.STAGE_AFTERGLOW) {
+                // Residual ember. Starts exactly at hypernova's end
+                // (li 1.54, lr 44, color 1.0/0.95/0.85) and decays to the
+                // fade-out stage's entry (li 0.5, lr 26, color 1.0/0.60/0.28).
+                float d1 = 1.0f - progress;
+                float decay = d1 * d1;
+                li  = 0.5f + 1.04f * decay;
+                lr  = 26f + 18f * decay;
+                lcR = 1f; lcG = 0.60f + 0.35f * decay; lcB = 0.28f + 0.57f * decay;
+            } else if (stage == KillEffectInstance.STAGE_FADE_OUT) {
+                // Last ember dying out with the fade-out smoothstep —
+                // starts at the afterglow floor (0.5) and falls to zero.
+                float t = progress;
+                float fade = 1f - t * t * (3f - 2f * t);
+                li  = 0.5f * fade;
+                lr  = 16f + 10f * fade;
+                lcR = 1f; lcG = 0.50f + 0.10f * fade; lcB = 0.22f + 0.06f * fade;
+            }
+            // STAGE_VOID (6): li stays 0 — dead silence, no light.
+
+            if (li > 0.01f) {
+                lightWorldPos = new float[]{
+                    (float) center[0],
+                    (float) center[1] + 1.0f, // matches drawHypernova glow ball (+2.5 total)
+                    (float) center[2],
+                    lr
+                };
+                lightColor = new float[]{lcR, lcG, lcB, li};
+                // SSRT only during flash/hypernova; fade it out across the
+                // hypernova stage so it doesn't cut at the afterglow boundary.
+                ssrIntensity = stage == KillEffectInstance.STAGE_FLASH ? 0.7f
+                        : stage == KillEffectInstance.STAGE_HYPERNOVA ? 0.7f * (1f - progress)
+                        : 0f;
+            }
+        }
+
+        // ── Chain fade: eases the whole post chain in AND out ──────
+        // Ramps in over the first 0.9s (smoothstep); ramps back out over
+        // the fade-out stage so the ACES tone-map/vignette never pops off
+        // when the chain deactivates at the end of the effect.
+        float chainFade = globalFadeIn;
+        if (stage == KillEffectInstance.STAGE_FADE_OUT) {
+            float t = progress;
+            chainFade *= 1f - t * t * (3f - 2f * t);
         }
 
         KillEffectPostProcessor.processFrame(
@@ -188,13 +327,23 @@ public class MixinGameRenderer {
                 center, null,
                 bhStage, bhProgress, bhIntensity,
                 lightWorldPos, lightColor,
-                ssrIntensity, volumetricSteps);
+                ssrIntensity, volumetricSteps,
+                chainFade);
 
         // ── Sweep Attack post-processing (distortion + chromatic) ──
         SweepingAttackVFX sweep = Gemini.moduleManager.getModule(SweepingAttackVFX.class);
         if (sweep != null && sweep.enabled && sweep.hasActiveEffects()) {
             sweep.processPost();
         }
+    }
+
+    /**
+     * smoothstep(0,1,x) — zero-slope ease at both ends. Used for stage-entry
+     * ramps so post-processing passes never pop in at full strength.
+     */
+    private static float smoothstep01(float x) {
+        float t = Math.clamp(x, 0f, 1f);
+        return t * t * (3f - 2f * t);
     }
 
     @Inject(method = "getNightVisionScale", at = @At("HEAD"), cancellable = true)

@@ -24,6 +24,19 @@ public abstract class ValueComponent {
         return this.value.visibility.get();
     }
 
+    /**
+     * Extra height below the base row when this component is expanded
+     * (dropdown lists, checkbox groups). Default: none.
+     */
+    public int getExtraHeight() {
+        return 0;
+    }
+
+    /** Total height including any expanded content. */
+    public int getTotalHeight() {
+        return height + getExtraHeight();
+    }
+
     public abstract void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks);
 
     public abstract boolean mouseClicked(double mouseX, double mouseY, int button);

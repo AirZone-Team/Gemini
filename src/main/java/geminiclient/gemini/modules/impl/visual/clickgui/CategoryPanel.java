@@ -22,15 +22,15 @@ public class CategoryPanel implements MinecraftInstance {
     private boolean isExpanded = true;
     private final List<ModuleComponent> moduleComponents = new ArrayList<>();
 
-    // ── Modern material palette ─────────────────────────
-    private static final int PANEL_BG      = new Color(13, 14, 20, 200).getRGB();
-    private static final int HEADER_BG     = new Color(20, 22, 32, 220).getRGB();
-    private static final int HEADER_HOVER  = new Color(28, 30, 42, 230).getRGB();
-    private static final int ACCENT_COLOR  = new Color(139, 92, 246).getRGB();
-    private static final int TEXT_COLOR    = new Color(235, 235, 245).getRGB();
-    private static final int TEXT_DIM      = new Color(155, 160, 175).getRGB();
-    private static final int BORDER_BASE   = new Color(255, 255, 255, 15).getRGB();
-    private static final int BORDER_HOVER  = new Color(255, 255, 255, 30).getRGB();
+    // ── Modern material palette (shared via ClassicTheme) ──
+    private static final int PANEL_BG      = ClassicTheme.PANEL_BG;
+    private static final int HEADER_BG     = ClassicTheme.HEADER_BG;
+    private static final int HEADER_HOVER  = ClassicTheme.HEADER_HOVER;
+    private static final int ACCENT_COLOR  = ClassicTheme.ACCENT;
+    private static final int TEXT_COLOR    = ClassicTheme.TEXT;
+    private static final int TEXT_DIM      = ClassicTheme.TEXT_DIM;
+    private static final int BORDER_BASE   = ClassicTheme.BORDER;
+    private static final int BORDER_HOVER  = ClassicTheme.BORDER_HOVER;
 
     // ── Multi-layer shadow ─────────────────────────────
     private static final int AMBIENT_SHADOW = new Color(0, 0, 0, 16).getRGB();
@@ -102,9 +102,20 @@ public class CategoryPanel implements MinecraftInstance {
 
     private void handleDragging(double mouseX, double mouseY, float scrollOffset) {
         if (isDragging) {
-            this.x = (int) (mouseX - dragOffsetX);
-            this.y = (int) (mouseY - dragOffsetY - scrollOffset);
+            int newX = (int) (mouseX - dragOffsetX);
+            int newY = (int) (mouseY - dragOffsetY - scrollOffset);
+            // Keep the rendered header on screen: 0 <= y + scrollOffset <= screenH - header
+            int maxX = Math.max(0, mc.getWindow().getGuiScaledWidth() - width);
+            int minY = (int) -scrollOffset;
+            int maxY = Math.max(minY, mc.getWindow().getGuiScaledHeight() - HEADER_HEIGHT + (int) -scrollOffset);
+            this.x = Math.max(0, Math.min(newX, maxX));
+            this.y = Math.max(minY, Math.min(newY, maxY));
         }
+    }
+
+    /** Bottom edge of the panel at full expansion (logical, pre-scroll) — used for scroll clamping. */
+    public int getBottomY() {
+        return this.y + getFullPanelHeight();
     }
 
     private void renderPanel(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY,
@@ -112,11 +123,11 @@ public class CategoryPanel implements MinecraftInstance {
         int fullPanelHeight = getFullPanelHeight();
         int animatedHeight = HEADER_HEIGHT + (int) ((fullPanelHeight - HEADER_HEIGHT) * easedProgress);
 
-        // ── Multi-layer shadow ──────────────────────────
-        GlowRenderer.drawDropShadow(guiGraphics, x, renderY, width, animatedHeight,
-                2, 24, AMBIENT_SHADOW);
-        GlowRenderer.drawDropShadow(guiGraphics, x, renderY, width, animatedHeight,
-                1, 8, CONTACT_SHADOW);
+        // ── Multi-layer shadow (rounded SDF — hugs the panel corners) ──
+        GlowRenderer.drawDropShadowRoundedRect(guiGraphics, x, renderY, width, animatedHeight,
+                CORNER_RADIUS, 0, 2, 24, AMBIENT_SHADOW);
+        GlowRenderer.drawDropShadowRoundedRect(guiGraphics, x, renderY, width, animatedHeight,
+                CORNER_RADIUS, 0, 1, 8, CONTACT_SHADOW);
 
         // ── Panel background ────────────────────────────
         CustomRoundedRectRenderer.drawRoundedRect(

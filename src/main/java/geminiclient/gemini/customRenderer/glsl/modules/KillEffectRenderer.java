@@ -31,7 +31,7 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
  *   <li>{@link #BLACK_HOLE_PIPE} — Event horizon + photon ring + lens distortion</li>
  *   <li>{@link #PARTICLE_PIPE} — Accretion particles (additive, depth-tested)</li>
  *   <li>{@link #HYPERNOVA_PIPE} — Explosion flash overlay (no depth, always visible)</li>
- *   <li>{@link #GLOW_BALL_PIPE} — Volumetric glow sphere (depth-tested, 4 layers)</li>
+ *   <li>{@link #ORB_PIPE} — Volumetric 3D orb (real sphere mesh, ray-marched)</li>
  *   <li>{@link #RAY_PIPE} — Radial light rays for pseudo ray-tracing (depth-tested)</li>
  * </ul>
  *
@@ -39,8 +39,10 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
  * <ul>
  *   <li>UV.x/y — billboard quad corner (0..1), maps to effect-local coordinates in FS</li>
  *   <li>Color.r — time progress 0→1 (within current stage)</li>
- *   <li>Color.g — stage identifier (1–7)</li>
- *   <li>Color.b — effect-specific intensity parameter</li>
+ *   <li>Color.g — normalized identifier: stage/8 (magic, hole), layer/4 (glow),
+ *       mode flag 0/0.5/1 (nova, particle), ray index 0..1 (ray)</li>
+ *   <li>Color.b — intensity/4 (hole, glow, nova, ray) or raw ≤1 (magic);
+ *       shaders rescale by ×4 where applicable (bytes can only hold 0..1)</li>
  *   <li>Color.a — master alpha</li>
  * </ul>
  */
@@ -122,19 +124,23 @@ public final class KillEffectRenderer {
             .build();
 
     /**
-     * Volumetric glow ball: depth-tested multi-layer sphere with pseudo ray-tracing.
+     * Volumetric orb: real 3D sphere mesh with per-pixel ray-marched volume.
      *
-     * <p>Uses depth testing ({@link #EFFECT_DEPTH}) so block/entity geometry
-     * correctly occludes the glow.  Emitted in 4 concentric layers:
-     * dense core → mid halo → outer aura → ambient sphere.
-     * Each layer renders a different fragment shader path via
-     * {@code vertexColor.g} layer selector.</p>
+     * <p>Renders an actual UV-sphere tessellation in world space (not a
+     * camera-facing billboard).  The fragment shader intersects the view
+     * ray with the sphere analytically and integrates an emissive density
+     * field front-to-back — bright core, soft limb, correct from every
+     * viewing angle, including from inside the ball (culling disabled;
+     * both shell hemispheres integrate and the result is halved).</p>
+     *
+     * <p>Depth testing ({@link #EFFECT_DEPTH}) keeps the ball correctly
+     * occluded by blocks and entities.</p>
      */
-    public static final RenderPipeline GLOW_BALL_PIPE = RenderPipeline.builder(
+    public static final RenderPipeline ORB_PIPE = RenderPipeline.builder(
                     RenderPipelines.MATRICES_PROJECTION_SNIPPET)
-            .withLocation(getIdentifier("pipeline/kill_effect_glow"))
-            .withVertexShader(getIdentifier("core/kill_effect_glow"))
-            .withFragmentShader(getIdentifier("core/kill_effect_glow"))
+            .withLocation(getIdentifier("pipeline/kill_effect_orb"))
+            .withVertexShader(getIdentifier("core/kill_effect_orb"))
+            .withFragmentShader(getIdentifier("core/kill_effect_orb"))
             .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
             .withDepthStencilState(EFFECT_DEPTH)
             .withColorTargetState(ADDITIVE_BLEND)
@@ -167,7 +173,7 @@ public final class KillEffectRenderer {
     private static final RenderType BLACK_HOLE_TYPE  = createRenderType("gemini_kill_hole", BLACK_HOLE_PIPE);
     private static final RenderType PARTICLE_TYPE    = createRenderType("gemini_kill_particle", PARTICLE_PIPE);
     private static final RenderType HYPERNOVA_TYPE   = createRenderType("gemini_kill_nova", HYPERNOVA_PIPE);
-    private static final RenderType GLOW_BALL_TYPE   = createRenderType("gemini_kill_glow", GLOW_BALL_PIPE);
+    private static final RenderType ORB_TYPE         = createRenderType("gemini_kill_orb", ORB_PIPE);
     private static final RenderType RAY_TYPE         = createRenderType("gemini_kill_ray", RAY_PIPE);
 
     private static RenderType createRenderType(String name, RenderPipeline pipe) {
@@ -186,7 +192,7 @@ public final class KillEffectRenderer {
         registry.accept(BLACK_HOLE_PIPE);
         registry.accept(PARTICLE_PIPE);
         registry.accept(HYPERNOVA_PIPE);
-        registry.accept(GLOW_BALL_PIPE);
+        registry.accept(ORB_PIPE);
         registry.accept(RAY_PIPE);
     }
 
@@ -244,12 +250,14 @@ public final class KillEffectRenderer {
                 .setUv(u1, v0).setColor(rgba);
     }
 
-    /** Pack float RGBA into int ARGB. */
+    /** Pack float RGBA into int ARGB. Inputs are clamped to [0,1] — the vertex
+     *  color is 4 bytes, so values &gt; 1 would overflow into the adjacent
+     *  channel's bits. Encode stage/layer IDs normalized (see call sites). */
     private static int packColor(float r, float g, float b, float a) {
-        int ir = (int)(r * 255f);
-        int ig = (int)(g * 255f);
-        int ib = (int)(b * 255f);
-        int ia = (int)(a * 255f);
+        int ir = (int)(Math.clamp(r, 0f, 1f) * 255f);
+        int ig = (int)(Math.clamp(g, 0f, 1f) * 255f);
+        int ib = (int)(Math.clamp(b, 0f, 1f) * 255f);
+        int ia = (int)(Math.clamp(a, 0f, 1f) * 255f);
         return (ia << 24) | (ir << 16) | (ig << 8) | ib;
     }
 
@@ -310,7 +318,7 @@ public final class KillEffectRenderer {
             float circleAlpha = alpha * (progress < 0.2f ? progress / 0.2f : 1f); // fade in
             float yOffset = 0.02f; // slightly above ground
 
-            int rgba = packColor(progress, 1f, 0.8f, circleAlpha);
+            int rgba = packColor(progress, 1f / 8f, 0.8f, circleAlpha);
 
             // Draw horizontal billboard (use up=world-up mapping for UV)
             float rx = px - cx, ry = py + yOffset - cy, rz = pz - cz;
@@ -332,6 +340,21 @@ public final class KillEffectRenderer {
             } else if (stage == KillEffectInstance.STAGE_BLACK_HOLE) {
                 isTransition = true;
                 transT = 1f; // fully into transition — tower is almost gone
+            }
+
+            // ── Circle→tower crossfade ──────────────────────────────
+            // The ground circle from stage 1 keeps rendering during the
+            // first 25% of the tower stage, fading out as the tower rises —
+            // otherwise it would vanish instantly at the stage boundary.
+            if (stage == KillEffectInstance.STAGE_MAGIC_TOWER && progress < 0.25f) {
+                float circleFade = 1.0f - progress / 0.25f;
+                float size = baseSize * (1.0f + progress * 0.4f); // slight expand as it dissolves
+                int circleRgba = packColor(1f, 1f / 8f, 0.8f, alpha * circleFade);
+                float crx = px - cx, cry = py + 0.02f - cy, crz = pz - cz;
+                buf.addVertex(vm, crx - size, cry, crz - size).setUv(0f, 0f).setColor(circleRgba);
+                buf.addVertex(vm, crx - size, cry, crz + size).setUv(0f, 1f).setColor(circleRgba);
+                buf.addVertex(vm, crx + size, cry, crz + size).setUv(1f, 1f).setColor(circleRgba);
+                buf.addVertex(vm, crx + size, cry, crz - size).setUv(1f, 0f).setColor(circleRgba);
             }
 
             for (int i = 0; i < towerLayers; i++) {
@@ -359,7 +382,7 @@ public final class KillEffectRenderer {
 
                 float size = baseSize * scale;
 
-                int rgba = packColor(progress, shaderStage, 0.8f, layerAlpha);
+                int rgba = packColor(progress, shaderStage / 8f, 0.8f, layerAlpha);
 
                 float rx = px - cx, ry = py + yOffset - cy, rz = pz - cz;
                 buf.addVertex(vm, rx - size, ry, rz - size).setUv(0f, 0f).setColor(rgba);
@@ -443,7 +466,7 @@ public final class KillEffectRenderer {
         BufferBuilder buf = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-        int rgba = packColor(progress, (float)stage, brightness, alpha);
+        int rgba = packColor(progress, stage / 8f, brightness / 4f, alpha);
         float halfSize = holeSize * 2f; // billboard covers area around hole
 
         emitBillboard(buf, vm, cx, cy, cz, px, py, pz, halfSize,
@@ -500,10 +523,12 @@ public final class KillEffectRenderer {
      * <p>Layered composition of three effects:</p>
      * <ol>
      *   <li>{@link #HYPERNOVA_PIPE} — full-screen flash billboard (no depth,
-     *       always visible overlay) for the base flash + shockwave pattern</li>
-     *   <li>{@link #GLOW_BALL_PIPE} — depth-tested multi-layer volumetric
-     *       glow sphere (dense core → mid halo → outer aura → ambient sphere)
-     *       that properly occludes behind blocks and entities</li>
+     *       always visible overlay) for the base flash + shockwave pattern,
+     *       plus a horizontal ground shock ring during hypernova</li>
+     *   <li>{@link #ORB_PIPE} — depth-tested volumetric 3D sphere with
+     *       per-pixel ray-marched density integration (bright core, soft
+     *       limb, self-absorption); a real ball in the world, not a
+     *       camera-facing billboard</li>
      *   <li>{@link #RAY_PIPE} — depth-tested radial light rays for pseudo
      *       ray-tracing, terminating naturally at occluding surfaces</li>
      * </ol>
@@ -546,110 +571,158 @@ public final class KillEffectRenderer {
         float dx = px - cx, dy = py - cy, dz = pz - cz;
         float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.1f;
 
+        // ── Layer 0: Ground shock ring (horizontal quad) ─────────────
+        // A flat quad on the ground running the nova shader's flash-mode
+        // expanding ring (that path has an edge mask, so no square edge).
+        // Alpha eases to zero before the stage ends to avoid a cutoff pop.
+        if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
+            float groundY = (float) inst.position.y + 0.04f;
+            float ringSize = dist * 0.45f * (1.0f + progress * 1.6f);
+            float fade = 1.0f - progress;
+            float ringAlpha = alpha * 0.85f * fade * (float)Math.sqrt(fade);
+
+            int ringRgba = packColor(progress * 0.55f, 0f, 1.5f / 4f, ringAlpha);
+
+            BufferBuilder ringBuf = Tesselator.getInstance()
+                    .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+            float rx = px - cx, ry = groundY - cy, rz = pz - cz;
+            ringBuf.addVertex(vm, rx - ringSize, ry, rz - ringSize).setUv(0f, 0f).setColor(ringRgba);
+            ringBuf.addVertex(vm, rx - ringSize, ry, rz + ringSize).setUv(0f, 1f).setColor(ringRgba);
+            ringBuf.addVertex(vm, rx + ringSize, ry, rz + ringSize).setUv(1f, 1f).setColor(ringRgba);
+            ringBuf.addVertex(vm, rx + ringSize, ry, rz - ringSize).setUv(1f, 0f).setColor(ringRgba);
+            HYPERNOVA_TYPE.draw(ringBuf.buildOrThrow());
+        }
+
         // ── Layer 1: Full-screen flash overlay (no depth, always visible) ──
         float lightSize = dist * 0.55f * 0.45f;
         float flashTime = 0.35f + 0.04f * (float)Math.sin(progress * Math.PI * 3.0);
-        float flashIntensity = 3.5f + (float)Math.sin(progress * Math.PI * 2.5f) * 0.5f;
+        // Oscillation converges to 3.5 at stage end — the same value the
+        // afterglow stage starts with, so there's no brightness step.
+        float flashIntensity = 3.5f + (float)Math.sin(progress * Math.PI * 2.5f)
+                * 0.5f * (1.0f - progress);
 
         BufferBuilder buf = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-        int flashRgba = packColor(flashTime, 0f, flashIntensity, alpha);
+        int flashRgba = packColor(flashTime, 0f, flashIntensity / 4f, alpha);
         emitBillboard(buf, vm, cx, cy, cz, px, py, pz, lightSize,
                 0f, 0f, 1f, 1f, flashRgba);
 
         HYPERNOVA_TYPE.draw(buf.buildOrThrow());
 
-        // ── Layer 2: Depth-tested volumetric glow ball ──────────────────
-        drawGlowBall(vm, cx, cy, cz, px, py, pz, dist, progress, alpha, stage);
+        // ── Layer 2: Volumetric orb — real 3D sphere, ray-marched ─────
+        drawGlowSphere(poseStack, px, py, pz, progress, alpha, stage);
 
         // ── Layer 3: Depth-tested radial rays (pseudo ray-tracing) ──────
         drawRadialRays(vm, cx, cy, cz, px, py, pz, dist, progress, alpha, stage);
     }
 
     // ════════════════════════════════════════════════════════════════
-    //  Volumetric glow ball
+    //  Volumetric orb (real 3D sphere, ray-marched in the fragment shader)
     // ════════════════════════════════════════════════════════════════
 
-    /** Number of concentric glow layers emitted per frame. */
-    private static final int GLOW_LAYERS = 4;
+    /** Sphere tessellation: latitude bands × longitude segments. */
+    private static final int SPHERE_LAT = 14;
+    private static final int SPHERE_LON = 24;
+
+    /** Cached unit-sphere vertex positions, 4 per quad (QUADS mode). */
+    private static float[][] unitSphereVerts;
+
+    /** Lazily build the unit sphere tessellation (lat-long grid). */
+    private static float[][] getUnitSphere() {
+        if (unitSphereVerts != null) return unitSphereVerts;
+        float[][] v = new float[SPHERE_LAT * SPHERE_LON * 4][3];
+        int idx = 0;
+        for (int i = 0; i < SPHERE_LAT; i++) {
+            double t0 = Math.PI * i / SPHERE_LAT;
+            double t1 = Math.PI * (i + 1) / SPHERE_LAT;
+            for (int j = 0; j < SPHERE_LON; j++) {
+                double p0 = 2.0 * Math.PI * j / SPHERE_LON;
+                double p1 = 2.0 * Math.PI * (j + 1) / SPHERE_LON;
+                v[idx++] = sphPoint(t0, p0);
+                v[idx++] = sphPoint(t0, p1);
+                v[idx++] = sphPoint(t1, p1);
+                v[idx++] = sphPoint(t1, p0);
+            }
+        }
+        unitSphereVerts = v;
+        return v;
+    }
+
+    private static float[] sphPoint(double theta, double phi) {
+        return new float[]{
+            (float)(Math.sin(theta) * Math.cos(phi)),
+            (float) Math.cos(theta),
+            (float)(Math.sin(theta) * Math.sin(phi))
+        };
+    }
 
     /**
-     * Emit multi-layer depth-tested glow ball billboards.
+     * Draw the volumetric orb: a real sphere mesh in world space whose
+     * fragment shader ray-marches the view ray through an emissive
+     * density field (bright core, soft limb, Beer-law self-absorption).
      *
-     * <p>Four concentric layers at different scales create a volumetric
-     * self-illuminated sphere.  Each layer uses a different shader path
-     * selected by {@code vertexColor.g}:
-     * <ul>
-     *   <li>0.0 — dense core: ultra-bright, tight gaussian, white-hot</li>
-     *   <li>0.5 — mid glow: intense halo + Fresnel ring + ray streaks</li>
-     *   <li>1.0 — outer glow: soft volumetric aura, wide falloff</li>
-     *   <li>1.5 — ambient sphere: far-reaching subtle ambient light</li>
-     * </ul>
+     * <p>The pose stack is translated to the effect center so the mesh
+     * is emitted in effect-local space; the shader recovers the sphere
+     * center in view space from {@code ModelViewMat * vec4(0,0,0,1)}.
+     * No billboarding — the ball has real volume and perspective from
+     * every angle, and works when the camera is inside it.</p>
      *
-     * <p>Depth testing ensures correct occlusion: glow disappears behind
-     * blocks but shines through transparent surfaces and around corners.</p>
+     * <p>Stage envelopes are continuous across boundaries:
+     * hypernova grows 1.5→7 blocks white-hot; afterglow shrinks 7→4
+     * cooling to ember; fade-out dies with the fade smoothstep.</p>
      */
-    private static void drawGlowBall(Matrix4f vm,
-                                      float cx, float cy, float cz,
-                                      float px, float py, float pz,
-                                      float dist, float progress, float alpha, int stage) {
+    private static void drawGlowSphere(PoseStack poseStack,
+                                        float px, float py, float pz,
+                                        float progress, float alpha, int stage) {
+        Camera cam = mc.getEntityRenderDispatcher().camera;
+        float cx = (float) cam.position().x;
+        float cy = (float) cam.position().y;
+        float cz = (float) cam.position().z;
 
-        // Layer presets: {scale, layerId, intensityScale}
-        // Scales multiply by dist to maintain visual size at any distance
-        float[][] layerPresets = {
-            // {sizeScale, layerId,  intensityScale}
-            { 0.08f, 0.0f, 2.5f },  // dense core
-            { 0.22f, 0.5f, 1.6f },  // mid glow
-            { 0.55f, 1.0f, 0.7f },  // outer aura
-            { 1.30f, 1.5f, 0.2f },  // ambient sphere
-        };
-
-        // Stage-specific intensity modulation
-        float stageBoost = 1.0f;
+        // ── Stage envelopes (continuous across stage boundaries) ──
+        float radius;   // world-space sphere radius (blocks)
+        float heat;     // 1 = white-hot, 0 = cool ember
+        float boost;    // intensity envelope
         if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
-            // Hypernova: rapid intensity ramp for explosive feel
-            stageBoost = 0.3f + progress * 1.2f;
+            radius = 1.5f + progress * 5.5f;      // 1.5 → 7
+            heat   = 1.0f - progress * 0.55f;     // 1.0 → 0.45
+            boost  = 0.3f + progress * 1.2f;      // 0.3 → 1.5
         } else if (stage == KillEffectInstance.STAGE_AFTERGLOW) {
-            // Afterglow: decaying pulse
             float decay = 1.0f - progress;
-            stageBoost = 0.15f + decay * decay * 0.85f;
+            radius = 7.0f - progress * 3.0f;      // 7 → 4
+            heat   = 0.45f - progress * 0.25f;    // 0.45 → 0.2
+            boost  = 0.3f + decay * decay * 1.2f; // 1.5 → 0.3
         } else {
-            // Fade-out: smooth dissolve
-            stageBoost = 0.08f * alpha;
+            // Fade-out: dies with the same reversed smoothstep as the
+            // master alpha — the 0.3 floor matches afterglow's end.
+            float fade = 1.0f - progress * progress * (3.0f - 2.0f * progress);
+            radius = 1.0f + 3.0f * fade;          // 4 → 1
+            heat   = 0.2f * fade;
+            boost  = 0.3f * fade;
         }
 
-        for (int i = 0; i < GLOW_LAYERS; i++) {
-            float[] preset = layerPresets[i];
-            float sizeScale = preset[0];
-            float layerId = preset[1];
-            float intensityScale = preset[2];
+        float intensity = boost * 2.2f * alpha;
 
-            float halfSize = dist * sizeScale * (1.0f + progress * 0.3f);
-            float layerIntensity = intensityScale * stageBoost * alpha;
-            float layerAlpha = alpha * (i == 0 ? 1.0f :
-                                        i == 1 ? 0.85f :
-                                        i == 2 ? 0.55f : 0.25f);
+        int rgba = packColor(progress, heat, intensity / 4f, alpha);
 
-            // Pulse the core layer for organic feel
-            if (i == 0) {
-                layerIntensity *= 1.0f + 0.08f * (float)Math.sin(progress * Math.PI * 25.0);
+        // Emit the sphere in effect-local space (pose stack carries offset)
+        poseStack.pushPose();
+        poseStack.translate(px - cx, py - cy, pz - cz);
+        Matrix4f svm = poseStack.last().pose();
+
+        float[][] sphere = getUnitSphere();
+        BufferBuilder buf = Tesselator.getInstance()
+                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        for (int i = 0; i < sphere.length; i += 4) {
+            for (int k = 0; k < 4; k++) {
+                float[] v = sphere[i + k];
+                buf.addVertex(svm, v[0] * radius, v[1] * radius, v[2] * radius)
+                        .setUv(radius, 0f).setColor(rgba);
             }
-
-            BufferBuilder buf = Tesselator.getInstance()
-                    .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-
-            int rgba = packColor(
-                    progress,        // R = time progress for shader
-                    layerId,         // G = layer selector
-                    layerIntensity,  // B = intensity
-                    layerAlpha);     // A = alpha
-
-            emitBillboard(buf, vm, cx, cy, cz, px, py, pz, halfSize,
-                    0f, 0f, 1f, 1f, rgba);
-
-            GLOW_BALL_TYPE.draw(buf.buildOrThrow());
         }
+        ORB_TYPE.draw(buf.buildOrThrow());
+        poseStack.popPose();
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -693,13 +766,15 @@ public final class KillEffectRenderer {
             rayAlpha = alpha * (0.3f + progress * 0.7f);
             rayIntensity = 0.6f + progress * 1.2f;
         } else if (stage == KillEffectInstance.STAGE_AFTERGLOW) {
-            // Fewer, fading rays during afterglow
-            rayCount = RAY_COUNT / 2;
+            // Continue from hypernova's end (alpha × 1.0, intensity 1.8) and
+            // decay quadratically; count stays constant so rays fade
+            // uniformly instead of vanishing in steps.
+            rayCount = RAY_COUNT;
             float decay = 1.0f - progress;
-            rayAlpha = alpha * decay * decay * 0.4f;
-            rayIntensity = decay * 0.5f;
+            rayAlpha = alpha * decay * decay;
+            rayIntensity = 1.8f * decay * decay;
         } else {
-            // Fade-out: no rays
+            // Fade-out: no rays (already decayed to zero during afterglow)
             return;
         }
 
@@ -731,7 +806,7 @@ public final class KillEffectRenderer {
             int rgba = packColor(
                     progress,       // R = time for shader
                     (float)i / rayCount, // G = ray index (0..1)
-                    rayI,           // B = intensity
+                    rayI / 4f,      // B = intensity (normalized)
                     rayAlpha);      // A = alpha
 
             emitRayQuad(buf, vm, ox, oy, oz,
