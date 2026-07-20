@@ -3,6 +3,7 @@ package geminiclient.gemini.modules.impl.visual.clickgui.md3.component;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Fonts;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3RenderUtils;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Theme;
+import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.values.ValueParent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
@@ -25,7 +26,13 @@ public abstract class Md3SliderComponent extends Md3ValueComponent {
     protected abstract String formatValue();
 
     @Override
+    public int getTotalHeight() {
+        return ClickGui.md3SliderHeight();
+    }
+
+    @Override
     public void render(GuiGraphicsExtractor gui, int mouseX, int mouseY, float partialTicks) {
+        height = getTotalHeight();
         if (dragging) {
             updateFromMouse(mouseX);
         }

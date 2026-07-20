@@ -5,238 +5,231 @@ import net.minecraft.world.phys.Vec3;
 import java.util.Random;
 
 /**
- * Single sweeping attack VFX instance.
- *
- * <h3>Animation timeline (1.2s total)</h3>
- * <ul>
- *   <li>0.00–0.15s: Arc sweep-in (0→1, fast expansion)</li>
- *   <li>0.00–0.80s: Particles active (alpha 1→0)</li>
- *   <li>0.00–1.00s: Photon ring expansion (0→3.0 radius)</li>
- *   <li>0.00–1.20s: Lightning decay + overall fade-out</li>
- * </ul>
+ * Immutable spawn data plus lightweight CPU particles for one sweeping attack.
+ * Timing and emission settings are snapshotted so changing the GUI never makes
+ * an already-running slash jump or pop.
  */
-public class SweepAttackInstance {
+public final class SweepAttackInstance {
 
-    // ── Constants ─────────────────────────────────────────────────
-    private static final float TOTAL_DURATION_MS = 1800f;  // extended for fade-out
-    private static final float SWEEP_DURATION_MS = 150f;
-    private static final float PARTICLE_DURATION_MS = 1000f;
-    private static final float RING_DURATION_MS = 1200f;
-    private static final float LIGHTNING_DURATION_MS = 1400f;
-    private static final float RING_MAX_RADIUS = 3.0f;
-    private static final float FADE_OUT_START_MS = 1000f;  // when fade-out begins
+    public static final int MAX_PARTICLES = 128;
+    public static final int MAX_BOLTS = 12;
+    public static final int MAX_BOLT_SEGMENTS = 7;
 
-    // ── Particle data ─────────────────────────────────────────────
-    public static final int MAX_PARTICLES = 64;
-
-    public final float[] particleX     = new float[MAX_PARTICLES];
-    public final float[] particleY     = new float[MAX_PARTICLES];
-    public final float[] particleZ     = new float[MAX_PARTICLES];
-    public final float[] particleVX    = new float[MAX_PARTICLES];
-    public final float[] particleVY    = new float[MAX_PARTICLES];
-    public final float[] particleVZ    = new float[MAX_PARTICLES];
-    public final float[] particleLife  = new float[MAX_PARTICLES];
+    public final float[] particleX = new float[MAX_PARTICLES];
+    public final float[] particleY = new float[MAX_PARTICLES];
+    public final float[] particleZ = new float[MAX_PARTICLES];
+    public final float[] particleVX = new float[MAX_PARTICLES];
+    public final float[] particleVY = new float[MAX_PARTICLES];
+    public final float[] particleVZ = new float[MAX_PARTICLES];
+    public final float[] particleLife = new float[MAX_PARTICLES];
     public final float[] particleMaxLife = new float[MAX_PARTICLES];
-    public final float[] particleSize  = new float[MAX_PARTICLES];
+    public final float[] particleSize = new float[MAX_PARTICLES];
     public int particleCount;
 
-    // ── Lightning bolt data ───────────────────────────────────────
-    public static final int MAX_BOLTS = 6;
-    public static final int MAX_BOLT_SEGMENTS = 5;
-
-    /** Bolt endpoints: [bolt][segment] */
     public final float[][] boltX = new float[MAX_BOLTS][MAX_BOLT_SEGMENTS];
     public final float[][] boltY = new float[MAX_BOLTS][MAX_BOLT_SEGMENTS];
     public final float[][] boltZ = new float[MAX_BOLTS][MAX_BOLT_SEGMENTS];
+    public final int[] boltSegments = new int[MAX_BOLTS];
     public int boltCount;
 
-    // ── Core state ────────────────────────────────────────────────
     public final long startTimeMs;
-    public final double x, y, z;
-    public final float dirX, dirZ;
-    public final float arcStart, arcEnd;
-    public boolean alive;
+    public final double x;
+    public final double y;
+    public final double z;
+    public final float dirX;
+    public final float dirZ;
+    public final float arcStart;
+    public final float arcEnd;
+    public final float seed;
+    public boolean alive = true;
 
-    private static final Random RAND = new Random();
+    private final float totalDurationMs;
+    private final float sweepDurationMs;
+    private final float particleDurationMs;
+    private final float ringDurationMs;
+    private final float fadeOutStartMs;
+    private final float particleGravity;
 
-    // ── Constructor ───────────────────────────────────────────────
-
-    public SweepAttackInstance(Vec3 position, float dirX, float dirZ,
-                                float arcStart, float arcEnd) {
+    public SweepAttackInstance(
+            Vec3 position,
+            float dirX,
+            float dirZ,
+            float arcStart,
+            float arcEnd,
+            float heightOffset,
+            int durationMs,
+            float animationSpeed,
+            int particles,
+            float particleSpeed,
+            float particleSpread,
+            float particleSize,
+            float gravity,
+            int lightningBolts
+    ) {
         this.startTimeMs = System.currentTimeMillis();
         this.x = position.x;
-        this.y = position.y + 1.0; // waist height
+        this.y = position.y + heightOffset;
         this.z = position.z;
         this.dirX = dirX;
         this.dirZ = dirZ;
         this.arcStart = arcStart;
         this.arcEnd = arcEnd;
-        this.alive = true;
 
-        spawnParticles();
-        spawnLightning();
+        float speed = Math.max(0.1f, animationSpeed);
+        this.totalDurationMs = Math.max(120f, durationMs / speed);
+        this.sweepDurationMs = Math.max(55f, totalDurationMs * 0.18f);
+        this.particleDurationMs = totalDurationMs * 0.72f;
+        this.ringDurationMs = totalDurationMs * 0.78f;
+        this.fadeOutStartMs = totalDurationMs * 0.48f;
+        this.particleGravity = gravity;
+
+        long mixedSeed = startTimeMs
+                ^ Double.doubleToLongBits(position.x * 17.0 + position.z * 31.0)
+                ^ ((long) Float.floatToIntBits(arcStart) << 32);
+        Random random = new Random(mixedSeed);
+        this.seed = random.nextFloat() * 1024f;
+
+        spawnParticles(random, particles, particleSpeed, particleSpread, particleSize);
+        spawnLightning(random, lightningBolts);
     }
 
-    // ── Animation queries ─────────────────────────────────────────
-
-    /** Overall effect age in seconds. */
     public float ageSeconds(long nowMs) {
-        return (nowMs - startTimeMs) / 1000f;
+        return Math.max(0f, nowMs - startTimeMs) / 1000f;
     }
 
-    /** Overall progress 0→1 over TOTAL_DURATION_MS. */
     public float effectProgress(long nowMs) {
-        return clamp((nowMs - startTimeMs) / TOTAL_DURATION_MS, 0f, 1f);
+        return clamp((nowMs - startTimeMs) / totalDurationMs, 0f, 1f);
     }
 
-    /** Arc sweep progress 0→1 (fast expansion in first 150ms). */
     public float sweepProgress(long nowMs) {
-        return clamp((nowMs - startTimeMs) / SWEEP_DURATION_MS, 0f, 1f);
+        float t = clamp((nowMs - startTimeMs) / sweepDurationMs, 0f, 1f);
+        return 1f - (float) Math.pow(1f - t, 3.2);
     }
 
-    /** Particle alpha — smooth decay over PARTICLE_DURATION_MS. */
     public float particleAlpha(long nowMs) {
-        float t = clamp((nowMs - startTimeMs) / PARTICLE_DURATION_MS, 0f, 1f);
-        return 1f - smoothstep(0.4f, 1.0f, t);
+        float t = clamp((nowMs - startTimeMs) / particleDurationMs, 0f, 1f);
+        return 1f - smoothstep(0.25f, 1f, t);
     }
 
-    /** Photon ring radius — expands from 0 to RING_MAX_RADIUS. */
-    public float ringRadius(long nowMs) {
-        float t = clamp((nowMs - startTimeMs) / RING_DURATION_MS, 0f, 1f);
-        return smoothstep(0f, 1f, t) * RING_MAX_RADIUS;
+    public float ringProgress(long nowMs) {
+        float t = clamp((nowMs - startTimeMs) / ringDurationMs, 0f, 1f);
+        return 1f - (float) Math.pow(1f - t, 2.4);
     }
 
-    /** Photon ring alpha — fades out in the last phase. */
     public float ringAlpha(long nowMs) {
-        float elapsed = nowMs - startTimeMs;
-        if (elapsed < FADE_OUT_START_MS) return 1f;
-        float t = clamp((elapsed - FADE_OUT_START_MS) / (TOTAL_DURATION_MS - FADE_OUT_START_MS), 0f, 1f);
-        return 1f - smoothstep(0.0f, 0.8f, t);
+        float t = effectProgress(nowMs);
+        return smoothstep(0f, 0.08f, t) * (1f - smoothstep(0.52f, 1f, t));
     }
 
-    /** Lightning alpha — decays over LIGHTNING_DURATION_MS. */
     public float lightningAlpha(long nowMs) {
-        float t = clamp((nowMs - startTimeMs) / LIGHTNING_DURATION_MS, 0f, 1f);
-        return 1f - smoothstep(0.3f, 1.0f, t);
+        float t = effectProgress(nowMs);
+        float flicker = 0.78f + 0.22f * (float) Math.sin(ageSeconds(nowMs) * 54f + seed);
+        return (1f - smoothstep(0.18f, 0.82f, t)) * flicker;
     }
 
-    /** Arc alpha — full during sweep + active phase, smooth fade-out at the end. */
     public float arcAlpha(long nowMs) {
         float elapsed = nowMs - startTimeMs;
-        // Fade-in during sweep (0-150ms)
-        float fadeIn = clamp(elapsed / SWEEP_DURATION_MS, 0f, 1f);
-        // Fade-out starting at FADE_OUT_START_MS
+        float fadeIn = smoothstep(0f, Math.min(90f, sweepDurationMs), elapsed);
         float fadeOut = 1f;
-        if (elapsed > FADE_OUT_START_MS) {
-            float t = clamp((elapsed - FADE_OUT_START_MS) / (TOTAL_DURATION_MS - FADE_OUT_START_MS), 0f, 1f);
-            fadeOut = 1f - smoothstep(0.0f, 0.9f, t);
+        if (elapsed > fadeOutStartMs) {
+            fadeOut = 1f - smoothstep(fadeOutStartMs, totalDurationMs, elapsed);
         }
         return fadeIn * fadeOut;
     }
 
-    /** Whether the effect is still alive. */
-    public boolean isAlive(long nowMs) {
-        return (nowMs - startTimeMs) < TOTAL_DURATION_MS;
+    public float burstAlpha(long nowMs) {
+        float t = effectProgress(nowMs);
+        return (1f - smoothstep(0.08f, 0.46f, t))
+                * smoothstep(0f, 0.035f, t);
     }
 
-    // ── Particle spawn ────────────────────────────────────────────
+    public boolean isAlive(long nowMs) {
+        return nowMs - startTimeMs < totalDurationMs;
+    }
 
-    private void spawnParticles() {
-        particleCount = MAX_PARTICLES;
-        float angleRange = arcEnd - arcStart;
-        if (angleRange < 0) angleRange += (float)(2.0 * Math.PI);
+    private void spawnParticles(Random random, int requestedCount, float speed,
+                                float spread, float size) {
+        particleCount = Math.min(Math.max(requestedCount, 0), MAX_PARTICLES);
+        float angleRange = positiveAngleRange();
 
-        for (int i = 0; i < MAX_PARTICLES; i++) {
-            // Position: along the arc
-            float t = RAND.nextFloat();
+        for (int i = 0; i < particleCount; i++) {
+            float t = random.nextFloat();
             float angle = arcStart + angleRange * t;
-            float radius = 1.5f + RAND.nextFloat() * 1.0f;
+            float radius = 0.7f + random.nextFloat() * 1.45f;
 
-            particleX[i] = (float)(x + Math.cos(angle) * radius);
-            particleY[i] = (float)(y + RAND.nextFloat() * 0.5);
-            particleZ[i] = (float)(z + Math.sin(angle) * radius);
+            particleX[i] = (float) (x + Math.cos(angle) * radius);
+            particleY[i] = (float) (y + (random.nextFloat() - 0.35f) * 0.55f);
+            particleZ[i] = (float) (z + Math.sin(angle) * radius);
 
-            // Velocity: slash direction + random cone
-            float speed = 3.0f + RAND.nextFloat() * 5.0f;
-            float spread = 0.5f + RAND.nextFloat() * 0.5f;
-            particleVX[i] = dirX * speed + (RAND.nextFloat() - 0.5f) * spread * speed;
-            particleVY[i] = (RAND.nextFloat() - 0.3f) * speed * 0.5f;
-            particleVZ[i] = dirZ * speed + (RAND.nextFloat() - 0.5f) * spread * speed;
+            float velocity = speed * (0.62f + random.nextFloat() * 0.76f);
+            float cone = Math.max(0f, spread);
+            particleVX[i] = dirX * velocity + (random.nextFloat() - 0.5f) * cone * velocity;
+            particleVY[i] = (random.nextFloat() - 0.2f) * velocity * cone * 0.55f;
+            particleVZ[i] = dirZ * velocity + (random.nextFloat() - 0.5f) * cone * velocity;
 
-            // Lifetime
-            particleMaxLife[i] = 0.3f + RAND.nextFloat() * 0.5f;
+            particleMaxLife[i] = 0.24f + random.nextFloat() * 0.62f;
             particleLife[i] = particleMaxLife[i];
-
-            // Size
-            particleSize[i] = 0.08f + RAND.nextFloat() * 0.12f;
+            particleSize[i] = size * (0.55f + random.nextFloat() * 0.9f);
         }
     }
 
-    // ── Lightning spawn ───────────────────────────────────────────
+    private void spawnLightning(Random random, int requestedBolts) {
+        boltCount = Math.min(Math.max(requestedBolts, 0), MAX_BOLTS);
+        float angleRange = positiveAngleRange();
 
-    private void spawnLightning() {
-        boltCount = MAX_BOLTS;
-        float angleRange = arcEnd - arcStart;
-        if (angleRange < 0) angleRange += (float)(2.0 * Math.PI);
+        for (int b = 0; b < boltCount; b++) {
+            float baseAngle = arcStart + angleRange * random.nextFloat();
+            float baseRadius = 0.8f + random.nextFloat() * 1.55f;
+            float tangentX = (float) -Math.sin(baseAngle);
+            float tangentZ = (float) Math.cos(baseAngle);
 
-        for (int b = 0; b < MAX_BOLTS; b++) {
-            // Start from a random point on the arc
-            float baseAngle = arcStart + angleRange * RAND.nextFloat();
-            float baseRadius = 1.2f + RAND.nextFloat() * 0.8f;
+            float cx = (float) (x + Math.cos(baseAngle) * baseRadius);
+            float cy = (float) (y + (random.nextFloat() - 0.25f) * 0.7f);
+            float cz = (float) (z + Math.sin(baseAngle) * baseRadius);
 
-            float cx = (float)(x + Math.cos(baseAngle) * baseRadius);
-            float cy = (float)(y + 0.5f + RAND.nextFloat() * 1.0f);
-            float cz = (float)(z + Math.sin(baseAngle) * baseRadius);
-
-            int segments = 3 + RAND.nextInt(3); // 3-5 segments
-            for (int s = 0; s < MAX_BOLT_SEGMENTS; s++) {
-                if (s < segments) {
-                    boltX[b][s] = cx;
-                    boltY[b][s] = cy;
-                    boltZ[b][s] = cz;
-
-                    // Random offset for next segment
-                    cx += (RAND.nextFloat() - 0.5f) * 0.8f;
-                    cy += (RAND.nextFloat() - 0.3f) * 0.6f;
-                    cz += (RAND.nextFloat() - 0.5f) * 0.8f;
-                } else {
-                    // Duplicate last point for unused segments
-                    boltX[b][s] = boltX[b][segments - 1];
-                    boltY[b][s] = boltY[b][segments - 1];
-                    boltZ[b][s] = boltZ[b][segments - 1];
-                }
+            int segments = 4 + random.nextInt(MAX_BOLT_SEGMENTS - 3);
+            boltSegments[b] = segments;
+            for (int s = 0; s < segments; s++) {
+                boltX[b][s] = cx;
+                boltY[b][s] = cy;
+                boltZ[b][s] = cz;
+                float stride = 0.24f + random.nextFloat() * 0.32f;
+                cx += tangentX * stride + (random.nextFloat() - 0.5f) * 0.34f;
+                cy += (random.nextFloat() - 0.45f) * 0.38f;
+                cz += tangentZ * stride + (random.nextFloat() - 0.5f) * 0.34f;
             }
         }
     }
 
-    // ── Particle update ───────────────────────────────────────────
-
     public void updateParticles(float dt) {
         for (int i = 0; i < particleCount; i++) {
             particleLife[i] -= dt;
-            if (particleLife[i] <= 0) continue;
+            if (particleLife[i] <= 0f) continue;
 
             particleX[i] += particleVX[i] * dt;
             particleY[i] += particleVY[i] * dt;
             particleZ[i] += particleVZ[i] * dt;
+            particleVY[i] -= particleGravity * dt;
 
-            // Gravity
-            particleVY[i] -= 3.0f * dt;
-
-            // Drag
-            particleVX[i] *= 0.98f;
-            particleVZ[i] *= 0.98f;
+            float drag = (float) Math.pow(0.965f, dt * 20f);
+            particleVX[i] *= drag;
+            particleVY[i] *= drag;
+            particleVZ[i] *= drag;
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────
-
-    private static float clamp(float v, float lo, float hi) {
-        return v < lo ? lo : (v > hi ? hi : v);
+    private float positiveAngleRange() {
+        float range = arcEnd - arcStart;
+        if (range < 0f) range += (float) (Math.PI * 2.0);
+        return range;
     }
 
-    private static float smoothstep(float edge0, float edge1, float x) {
-        float t = clamp((x - edge0) / (edge1 - edge0), 0f, 1f);
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static float smoothstep(float edge0, float edge1, float value) {
+        float t = clamp((value - edge0) / Math.max(edge1 - edge0, 0.0001f), 0f, 1f);
         return t * t * (3f - 2f * t);
     }
 }

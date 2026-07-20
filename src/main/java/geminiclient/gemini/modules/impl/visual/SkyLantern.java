@@ -10,329 +10,629 @@ import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.values.impl.BoolValue;
 import geminiclient.gemini.values.impl.ColorValue;
 import geminiclient.gemini.values.impl.FloatValue;
+import geminiclient.gemini.values.impl.IntValue;
+import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.util.Mth;
 
 import java.util.Arrays;
 
 /**
- * 孔明灯 (Sky Lantern) — paper lanterns rising into the night sky.
+ * A configurable airborne festival containing lanterns, spirit koi, origami
+ * cranes, moon butterflies and shooting stars.
  *
- * <h3>Visual layers</h3>
- * <ol>
- *   <li>Paper shell — rounded dome with Fresnel edge glow (paper backlight)</li>
- *   <li>Bamboo frame — thin hoops at equator/shoulder/opening</li>
- *   <li>Candle tray + suspension strings</li>
- *   <li>Inner flame — small bright white-yellow</li>
- *   <li>Outer flame — medium orange-red with flicker</li>
- *   <li>Glow sprite — large radial halo</li>
- *   <li>Ember sparks — tiny particles drifting upward from the flame</li>
- * </ol>
- *
+ * <p>All objects use primitive-array pools and batched GPU draws. Even the
+ * "Extravagant" quality preset does not allocate per particle every frame.</p>
  */
 public class SkyLantern extends Module {
 
-    // ── Config ───────────────────────────────────────────────────
+    // Scene composition
+    private final ListValue scene = new ListValue("Sky Mix", "Festival", new String[]{
+            "Festival", "Celestial", "Dream Garden", "All", "Custom"
+    });
+    private final ListValue palette = new ListValue("Palette", "Warm Festival", new String[]{
+            "Warm Festival", "Sakura", "Aurora", "Celestial", "Rainbow", "Custom"
+    });
+    private final ListValue quality = new ListValue("Quality", "High", new String[]{
+            "Low", "Medium", "High", "Extravagant"
+    });
 
-    private final FloatValue spawnDelay   = new FloatValue("Spawn Delay", 2f, 0.1f, 8f);
-    private final FloatValue maxAliveMs   = new FloatValue("Lifetime", 8000f, 2000f, 20000f);
-    private final FloatValue riseSpeed    = new FloatValue("Rise Speed", 0.6f, 0.1f, 2.0f);
-    private final FloatValue swayAmount   = new FloatValue("Sway", 0.5f, 0.0f, 1.5f);
-    private final FloatValue flamePower   = new FloatValue("Flame Power", 0.8f, 0.2f, 1.5f);
-    private final ColorValue paperColor   = new ColorValue("Paper Color", 0xFFFF9933);
-    private final BoolValue  showEmbers   = new BoolValue("Embers", true);
+    private final BoolValue lanterns = new BoolValue("Lanterns", true, () -> scene.is("Custom"));
+    private final BoolValue spiritKoi = new BoolValue("Spirit Koi", true, () -> scene.is("Custom"));
+    private final BoolValue paperCranes = new BoolValue("Paper Cranes", true, () -> scene.is("Custom"));
+    private final BoolValue moonButterflies = new BoolValue("Moon Butterflies", true, () -> scene.is("Custom"));
+    private final BoolValue shootingStars = new BoolValue("Shooting Stars", true, () -> scene.is("Custom"));
 
-    // ── Constants ────────────────────────────────────────────────
+    // Population and placement
+    private final IntValue density = new IntValue("Density", 32, 4, 96);
+    private final FloatValue spawnDelay = new FloatValue("Spawn Delay", 0.22f, 0.04f, 2.0f);
+    private final FloatValue lifetime = new FloatValue("Lifetime", 15000f, 3000f, 45000f);
+    private final FloatValue spawnRadius = new FloatValue("Spawn Radius", 18f, 4f, 48f);
+    private final FloatValue minHeight = new FloatValue("Min Height", 2.5f, -2f, 24f);
+    private final FloatValue maxHeight = new FloatValue("Max Height", 14f, 3f, 48f);
+    private final FloatValue renderDistance = new FloatValue("Render Distance", 64f, 16f, 144f);
 
-    private static final int MAX_LANTERNS   = 20;
-    private static final int MAX_EMBERS     = 160;  // ~8 per lantern
-    private static final int EMBER_LIFETIME = 800;  // ms
+    // Motion
+    private final FloatValue flightSpeed = new FloatValue("Flight Speed", 0.72f, 0.05f, 3.0f);
+    private final FloatValue animationSpeed = new FloatValue("Animation", 1.0f, 0.1f, 3.0f);
+    private final FloatValue drift = new FloatValue("Drift", 0.65f, 0f, 2.5f);
+    private final FloatValue windStrength = new FloatValue("Wind", 0.32f, 0f, 1.5f);
+    private final FloatValue windDirection = new FloatValue("Wind Direction", 35f, 0f, 360f);
 
-    // ── Per-lantern state (primitive arrays) ─────────────────────
+    // Shape and lighting
+    private final FloatValue objectSize = new FloatValue("Size", 0.72f, 0.18f, 2.2f);
+    private final FloatValue sizeVariation = new FloatValue("Size Variation", 0.35f, 0f, 0.8f);
+    private final FloatValue opacity = new FloatValue("Opacity", 0.92f, 0.1f, 1f);
+    private final FloatValue glowPower = new FloatValue("Glow", 1.15f, 0f, 2.5f);
+    private final FloatValue flamePower = new FloatValue("Flame Power", 0.95f, 0.2f, 1.8f);
+    private final ColorValue primaryColor = new ColorValue("Primary Color", 0xFFFF9A3D,
+            () -> palette.is("Custom"));
+    private final ColorValue secondaryColor = new ColorValue("Secondary Color", 0xFFFF4F81,
+            () -> palette.is("Custom"));
+    private final ColorValue accentColor = new ColorValue("Accent Color", 0xFFFFE7A3,
+            () -> palette.is("Custom"));
+    private final BoolValue colorVariation = new BoolValue("Color Variation", true);
 
-    private final float[] lx      = new float[MAX_LANTERNS];
-    private final float[] ly      = new float[MAX_LANTERNS];
-    private final float[] lz      = new float[MAX_LANTERNS];
-    private final float[] lpy     = new float[MAX_LANTERNS];
-    private final float[] lswayX  = new float[MAX_LANTERNS];
-    private final float[] lswayZ  = new float[MAX_LANTERNS];
-    private final float[] lphase  = new float[MAX_LANTERNS];
-    private final long[]  lstart  = new long[MAX_LANTERNS];
-    private final boolean[] lalive = new boolean[MAX_LANTERNS];
-    private int lanternCount;
+    // Atmospheric layers
+    private final BoolValue showEmbers = new BoolValue("Lantern Embers", true);
+    private final BoolValue showTrails = new BoolValue("Light Trails", true);
+    private final BoolValue showStardust = new BoolValue("Stardust", true);
+    private final BoolValue halos = new BoolValue("Soft Halos", true);
 
-    // Ember ring buffers
-    private final float[]  emberX      = new float[MAX_EMBERS];
-    private final float[]  emberY      = new float[MAX_EMBERS];
-    private final float[]  emberZ      = new float[MAX_EMBERS];
-    private final float[]  emberVX     = new float[MAX_EMBERS];
-    private final float[]  emberVY     = new float[MAX_EMBERS];
-    private final float[]  emberVZ     = new float[MAX_EMBERS];
-    private final long[]   emberTime   = new long[MAX_EMBERS];
-    private final boolean[] emberAlive = new boolean[MAX_EMBERS];
-    private int emberHead;
-    private int emberCount;
+    private static final int MAX_OBJECTS = 96;
+    private static final int MAX_PARTICLES = 768;
 
-    // Batch arrays
-    private final float[] bodyBatch  = new float[MAX_LANTERNS * 8];
-    private final float[] innerBatch = new float[MAX_LANTERNS * 8];
-    private final float[] outerBatch = new float[MAX_LANTERNS * 8];
-    private final float[] glowBatch  = new float[MAX_LANTERNS * 8];
-    private final float[] emberBatch = new float[MAX_EMBERS * 8];
+    private final float[] ox = new float[MAX_OBJECTS];
+    private final float[] oy = new float[MAX_OBJECTS];
+    private final float[] oz = new float[MAX_OBJECTS];
+    private final float[] opx = new float[MAX_OBJECTS];
+    private final float[] opy = new float[MAX_OBJECTS];
+    private final float[] opz = new float[MAX_OBJECTS];
+    private final float[] ovx = new float[MAX_OBJECTS];
+    private final float[] ovy = new float[MAX_OBJECTS];
+    private final float[] ovz = new float[MAX_OBJECTS];
+    private final float[] ophase = new float[MAX_OBJECTS];
+    private final float[] oscale = new float[MAX_OBJECTS];
+    private final float[] oyaw = new float[MAX_OBJECTS];
+    private final float[] oseed = new float[MAX_OBJECTS];
+    private final long[] ostart = new long[MAX_OBJECTS];
+    private final byte[] otype = new byte[MAX_OBJECTS];
+    private final boolean[] oalive = new boolean[MAX_OBJECTS];
+    private int objectCount;
+
+    private final float[] particleX = new float[MAX_PARTICLES];
+    private final float[] particleY = new float[MAX_PARTICLES];
+    private final float[] particleZ = new float[MAX_PARTICLES];
+    private final float[] particleVX = new float[MAX_PARTICLES];
+    private final float[] particleVY = new float[MAX_PARTICLES];
+    private final float[] particleVZ = new float[MAX_PARTICLES];
+    private final float[] particleR = new float[MAX_PARTICLES];
+    private final float[] particleG = new float[MAX_PARTICLES];
+    private final float[] particleB = new float[MAX_PARTICLES];
+    private final float[] particleSize = new float[MAX_PARTICLES];
+    private final long[] particleTime = new long[MAX_PARTICLES];
+    private final int[] particleLife = new int[MAX_PARTICLES];
+    private final boolean[] particleAlive = new boolean[MAX_PARTICLES];
+    private int particleHead;
+
+    // x,y,z,size,r,g,b,alpha
+    private final float[] lanternBatch = new float[MAX_OBJECTS * 8];
+    private final float[] innerBatch = new float[MAX_OBJECTS * 8];
+    private final float[] outerBatch = new float[MAX_OBJECTS * 8];
+    private final float[] glowBatch = new float[MAX_OBJECTS * 8];
+    private final float[] particleBatch = new float[MAX_PARTICLES * 8];
+    // x,y,z,size,yaw,roll,r,g,b,alpha,type,phase
+    private final float[] flyerBatch = new float[MAX_OBJECTS * 12];
 
     private int tickCounter;
 
-    // ── Constructor ──────────────────────────────────────────────
-
     public SkyLantern() {
         super("SkyLantern", ModuleEnum.Visual);
-        addValue(spawnDelay, maxAliveMs, riseSpeed, swayAmount, flamePower, paperColor, showEmbers);
+        addValue(
+                scene, palette, quality,
+                lanterns, spiritKoi, paperCranes, moonButterflies, shootingStars,
+                density, spawnDelay, lifetime, spawnRadius, minHeight, maxHeight, renderDistance,
+                flightSpeed, animationSpeed, drift, windStrength, windDirection,
+                objectSize, sizeVariation, opacity, glowPower, flamePower,
+                primaryColor, secondaryColor, accentColor, colorVariation,
+                showEmbers, showTrails, showStardust, halos
+        );
     }
 
-    @Override public void onDisabled() {
-        for (int i = 0; i < lanternCount; i++) lalive[i] = false;
-        lanternCount = 0;
-        Arrays.fill(emberAlive, false);
-        emberCount = 0;
-        emberHead = 0;
+    @Override
+    public void onEnabled() {
+        tickCounter = 10000; // Populate immediately on the first update.
+    }
+
+    @Override
+    public void onDisabled() {
+        Arrays.fill(oalive, false);
+        Arrays.fill(particleAlive, false);
+        objectCount = 0;
+        particleHead = 0;
         tickCounter = 0;
     }
-
-    // ── Update ───────────────────────────────────────────────────
 
     @EventTarget
     public void onUpdate(UpdateEvent event) {
         if (mc.player == null || mc.level == null) return;
-        if (mc.player.tickCount <= 1) { onDisabled(); return; }
+        if (mc.player.tickCount <= 1) {
+            onDisabled();
+            return;
+        }
 
         long now = System.currentTimeMillis();
-        float aliveMs = maxAliveMs.getValue();
-        float rise = riseSpeed.getValue() / 20f;
-        float sway = swayAmount.getValue();
-        float fp   = flamePower.getValue();
+        float baseLife = lifetime.getValue();
+        float speed = flightSpeed.getValue() / 20f;
+        float anim = animationSpeed.getValue();
+        float windAngle = (float) Math.toRadians(windDirection.getValue());
+        float windX = (float) Math.cos(windAngle) * windStrength.getValue() / 20f;
+        float windZ = (float) Math.sin(windAngle) * windStrength.getValue() / 20f;
+        int target = Math.min(MAX_OBJECTS, density.getValue());
 
-        // Update lanterns
-        for (int i = 0; i < lanternCount; i++) {
-            if (!lalive[i]) continue;
-            float life = (now - lstart[i]) / aliveMs;
-            if (life >= 1f) { lalive[i] = false; continue; }
+        for (int i = 0; i < objectCount; i++) {
+            if (!oalive[i]) continue;
+            if (i >= target || !typeEnabled(otype[i])) {
+                oalive[i] = false;
+                continue;
+            }
+            float life = (now - ostart[i]) / objectLifetime(i, baseLife);
+            if (life >= 1f) {
+                oalive[i] = false;
+                continue;
+            }
 
-            lpy[i] = ly[i];
-            ly[i] += rise;
-            lphase[i] += 0.025f + i * 0.003f;
-            float s = sway * (0.6f + life * 0.4f);
-            lswayX[i] = (float) Math.sin(lphase[i] * 1.1f) * s;
-            lswayZ[i] = (float) Math.cos(lphase[i] * 0.85f + 1.2f) * s;
+            opx[i] = ox[i];
+            opy[i] = oy[i];
+            opz[i] = oz[i];
+            ophase[i] += (0.055f + oseed[i] * 0.025f) * anim;
+            float wave = (float) Math.sin(ophase[i]);
+            float cross = (float) Math.cos(ophase[i] * 0.73f + oseed[i] * 4f);
 
-            // Spawn embers from this lantern's flame position
-            if (showEmbers.enabled) {
-                float flameY = ly[i] - 0.57f * (0.35f + 0.4f); // approx lantern base
-                int emberRate = (int)(2 + fp * 3); // 2-5 per tick depending on flame power
-                for (int e = 0; e < emberRate; e++) {
-                    spawnEmber(lx[i] + lswayX[i], flameY, lz[i] + lswayZ[i], now);
+            switch (otype[i]) {
+                case SkyLanternRenderer.TYPE_LANTERN -> {
+                    oy[i] += speed * 0.72f;
+                    ox[i] += windX + wave * drift.getValue() * 0.006f;
+                    oz[i] += windZ + cross * drift.getValue() * 0.006f;
+                    oyaw[i] += wave * 0.004f;
+                    if (showEmbers.enabled && tickCounter % particleStep() == 0) {
+                        spawnParticle(i, 0.8f, true, now);
+                    }
+                }
+                case SkyLanternRenderer.TYPE_KOI -> {
+                    ox[i] += ovx[i] + windX * 0.35f;
+                    oz[i] += ovz[i] + windZ * 0.35f;
+                    oy[i] += wave * drift.getValue() * 0.009f + ovy[i];
+                    oyaw[i] = (float) Math.atan2(ovx[i], ovz[i]);
+                    if (showTrails.enabled && tickCounter % particleStep() == 0) {
+                        spawnParticle(i, 1.2f, false, now);
+                    }
+                }
+                case SkyLanternRenderer.TYPE_CRANE -> {
+                    ox[i] += ovx[i] + windX;
+                    oz[i] += ovz[i] + windZ;
+                    oy[i] += wave * drift.getValue() * 0.005f + ovy[i];
+                    oyaw[i] = (float) Math.atan2(ovx[i] + windX, ovz[i] + windZ);
+                    if (showStardust.enabled && tickCounter % (particleStep() * 2) == 0) {
+                        spawnParticle(i, 0.65f, false, now);
+                    }
+                }
+                case SkyLanternRenderer.TYPE_BUTTERFLY -> {
+                    ox[i] += ovx[i] + cross * 0.008f * drift.getValue() + windX * 0.45f;
+                    oz[i] += ovz[i] + wave * 0.008f * drift.getValue() + windZ * 0.45f;
+                    oy[i] += (wave + cross * 0.5f) * 0.012f * drift.getValue();
+                    oyaw[i] = (float) Math.atan2(ovx[i] + cross * 0.008f, ovz[i] + wave * 0.008f);
+                    if (showStardust.enabled && tickCounter % particleStep() == 0) {
+                        spawnParticle(i, 0.75f, false, now);
+                    }
+                }
+                case SkyLanternRenderer.TYPE_STAR -> {
+                    ox[i] += ovx[i] * 3.2f + windX;
+                    oy[i] += ovy[i] * 3.2f;
+                    oz[i] += ovz[i] * 3.2f + windZ;
+                    oyaw[i] = (float) Math.atan2(ovx[i], ovz[i]);
+                    if (showTrails.enabled) {
+                        spawnParticle(i, 1.8f, false, now);
+                        if (quality.is("Extravagant")) spawnParticle(i, 1.25f, false, now);
+                    }
                 }
             }
         }
 
-        // Update embers
-        for (int i = 0; i < MAX_EMBERS; i++) {
-            if (!emberAlive[i]) continue;
-            float age = (now - emberTime[i]) / (float) EMBER_LIFETIME;
-            if (age >= 1f) { emberAlive[i] = false; emberCount--; continue; }
-            emberX[i] += emberVX[i];
-            emberY[i] += emberVY[i];
-            emberZ[i] += emberVZ[i];
-            // Slight upward acceleration (hot air)
-            emberVY[i] += 0.0003f;
-        }
-
-        compactLanterns();
+        updateParticles(now);
+        compactObjects();
 
         tickCounter++;
-        if (tickCounter % Math.max(1, (int)(spawnDelay.getValue() * 20f)) == 0) {
-            spawnLantern(now);
+        int interval = Math.max(1, (int) (spawnDelay.getValue() * 20f));
+        int burst = objectCount == 0 ? Math.min(target, 10) : 1;
+        if (objectCount < target && (tickCounter % interval == 0 || objectCount == 0)) {
+            for (int i = 0; i < burst && objectCount < target; i++) spawnObject(now);
         }
     }
-
-    // ── Render ───────────────────────────────────────────────────
 
     @EventTarget
     public void onRender3D(Render3DEvent event) {
-        if (lanternCount == 0 || mc.player == null) return;
+        if (objectCount == 0 || mc.player == null) return;
 
-        float pTicks = event.partialTick();
         long now = System.currentTimeMillis();
-        float aliveMs = maxAliveMs.getValue();
+        float partialTick = event.partialTick();
+        float baseLife = lifetime.getValue();
+        float globalAlpha = opacity.getValue();
+        float glow = glowPower.getValue();
         float fp = flamePower.getValue();
-        boolean embers = showEmbers.enabled;
-
-        int argb = paperColor.getColor();
-        float cr = ((argb >> 16) & 0xFF) / 255f;
-        float cg = ((argb >> 8)  & 0xFF) / 255f;
-        float cb = ( argb        & 0xFF) / 255f;
-
+        float maxDist = renderDistance.getValue();
         FrameCtx ctx = new FrameCtx();
 
-        int bodyN = 0, innerN = 0, outerN = 0, glowN = 0, emberN = 0;
+        int lanternN = 0;
+        int flyerN = 0;
+        int innerN = 0;
+        int outerN = 0;
+        int glowN = 0;
 
-        for (int i = 0; i < lanternCount; i++) {
-            if (!lalive[i]) continue;
-
-            float life = (now - lstart[i]) / aliveMs;
-            float alpha = computeAlpha(life);
+        for (int i = 0; i < objectCount; i++) {
+            if (!oalive[i]) continue;
+            float life = (now - ostart[i]) / objectLifetime(i, baseLife);
+            float alpha = computeAlpha(life) * globalAlpha;
             if (alpha <= 0.001f) continue;
 
-            // Interpolated position
-            float bx = lx[i] + lswayX[i];
-            float by = lpy[i] + (ly[i] - lpy[i]) * pTicks;
-            float bz = lz[i] + lswayZ[i];
+            float x = Mth.lerp(partialTick, opx[i], ox[i]);
+            float y = Mth.lerp(partialTick, opy[i], oy[i]);
+            float z = Mth.lerp(partialTick, opz[i], oz[i]);
+            float dx = x - ctx.camX;
+            float dy = y - ctx.camY;
+            float dz = z - ctx.camZ;
+            float distSq = dx * dx + dy * dy + dz * dz;
+            if (distSq > maxDist * maxDist) continue;
+            float distance = (float) Math.sqrt(distSq);
+            float nearFade = Mth.clamp((distance - 1.25f) / 2.75f, 0f, 1f);
+            alpha *= nearFade;
+            if (alpha <= 0.001f) continue;
 
-            // Distance-based size attenuation
-            float dx = bx - ctx.camX, dy = by - ctx.camY, dz = bz - ctx.camZ;
-            float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
-            float size = 0.35f + 0.4f * Mth.clamp(1f - dist / 30f, 0f, 1f);
+            float size = objectSize.getValue() * oscale[i];
+            float[] color = objectColor(i, now);
 
-            // Flame base position (bottom of lantern)
-            float flameY = by - 0.57f * size;
+            if (otype[i] == SkyLanternRenderer.TYPE_LANTERN) {
+                int o = lanternN++ * 8;
+                put8(lanternBatch, o, x, y, z, size, color[0], color[1], color[2], alpha);
 
-            // ── Lantern body batch ──
-            int bo = bodyN * 8;
-            bodyBatch[bo] = bx; bodyBatch[bo+1] = by; bodyBatch[bo+2] = bz;
-            bodyBatch[bo+3] = size;
-            bodyBatch[bo+4] = cr; bodyBatch[bo+5] = cg; bodyBatch[bo+6] = cb;
-            bodyBatch[bo+7] = alpha;
-            bodyN++;
-
-            // ── Inner flame (small white-yellow core) ──
-            {
-                float flicker = 0.8f + (float)Math.sin(now*0.025 + i*3.1f)*0.15f
-                                    + (float)Math.cos(now*0.037 - i*2.3f)*0.1f;
-                float iSize  = size * 0.08f * fp * flicker;     // world-space
-                float iAlpha = alpha * flicker * Mth.clamp(fp, 0.3f, 1f);
-                int io = innerN * 8;
-                innerBatch[io] = bx; innerBatch[io+1] = flameY; innerBatch[io+2] = bz;
-                innerBatch[io+3] = iSize;
-                innerBatch[io+4] = 1f;     innerBatch[io+5] = 0.92f; innerBatch[io+6] = 0.55f;
-                innerBatch[io+7] = iAlpha;
-                innerN++;
+                float flameY = y - 0.62f * size;
+                float flicker = 0.82f
+                        + (float) Math.sin(now * 0.024 + ophase[i] * 2.1f) * 0.13f
+                        + (float) Math.cos(now * 0.039 - oseed[i] * 7f) * 0.08f;
+                int io = innerN++ * 8;
+                put8(innerBatch, io, x, flameY, z, size * 0.085f * fp * flicker,
+                        1f, 0.94f, 0.62f, alpha * flicker);
+                int oo = outerN++ * 8;
+                put8(outerBatch, oo, x, flameY + size * 0.025f, z,
+                        size * 0.16f * fp * flicker, 1f, 0.36f, 0.06f, alpha * 0.82f);
+            } else {
+                int o = flyerN++ * 12;
+                flyerBatch[o] = x;
+                flyerBatch[o + 1] = y;
+                flyerBatch[o + 2] = z;
+                flyerBatch[o + 3] = size;
+                flyerBatch[o + 4] = oyaw[i];
+                flyerBatch[o + 5] = (float) Math.sin(ophase[i] * 0.7f) * 0.16f;
+                flyerBatch[o + 6] = color[0];
+                flyerBatch[o + 7] = color[1];
+                flyerBatch[o + 8] = color[2];
+                flyerBatch[o + 9] = alpha;
+                flyerBatch[o + 10] = otype[i];
+                flyerBatch[o + 11] = ophase[i];
             }
 
-            // ── Outer flame (medium orange-red with drift) ──
-            {
-                float flicker = 0.7f + (float)Math.sin(now*0.018 + i*1.7f)*0.2f
-                                    + (float)Math.cos(now*0.029 - i*2.1f)*0.15f;
-                float oSize  = size * 0.14f * fp * flicker;     // world-space
-                float oAlpha = alpha * 0.75f * flicker * Mth.clamp(fp, 0.3f, 1f);
-                int oo = outerN * 8;
-                outerBatch[oo] = bx; outerBatch[oo+1] = flameY + oSize * 0.3f; outerBatch[oo+2] = bz;
-                outerBatch[oo+3] = oSize;
-                outerBatch[oo+4] = 1f;     outerBatch[oo+5] = 0.55f; outerBatch[oo+6] = 0.10f;
-                outerBatch[oo+7] = oAlpha;
-                outerN++;
-            }
-
-            // ── Glow sprite (large radial halo) ──
-            {
-                float gSize  = size * 0.6f * fp;                // world-space
-                float gAlpha = alpha * 0.12f * fp;
-                int go = glowN * 8;
-                glowBatch[go] = bx; glowBatch[go+1] = flameY; glowBatch[go+2] = bz;
-                glowBatch[go+3] = gSize;
-                glowBatch[go+4] = 1f;      glowBatch[go+5] = 0.65f; glowBatch[go+6] = 0.15f;
-                glowBatch[go+7] = gAlpha;
-                glowN++;
+            if (halos.enabled && glow > 0.01f) {
+                float haloScale = otype[i] == SkyLanternRenderer.TYPE_STAR ? 1.1f : 0.62f;
+                int go = glowN++ * 8;
+                float haloSize = Math.min(size * haloScale * glow, 1.35f);
+                put8(glowBatch, go, x, y, z, haloSize,
+                        color[0], color[1], color[2], alpha * 0.12f * glow);
             }
         }
 
-        // ── Embers ──
-        if (embers) {
-            for (int i = 0; i < MAX_EMBERS && emberN < MAX_EMBERS; i++) {
-                if (!emberAlive[i]) continue;
-                float age = (now - emberTime[i]) / (float) EMBER_LIFETIME;
-                if (age >= 1f) continue;
-                float eAlpha = (1f - age) * 0.8f;
-                float eSize = 0.015f * (1f - age * 0.5f);
-                int eo = emberN * 8;
-                emberBatch[eo] = emberX[i]; emberBatch[eo+1] = emberY[i]; emberBatch[eo+2] = emberZ[i];
-                emberBatch[eo+3] = eSize;
-                // Cool from yellow to orange-red
-                emberBatch[eo+4] = 1f;
-                emberBatch[eo+5] = 0.7f - age * 0.5f;
-                emberBatch[eo+6] = 0.2f - age * 0.15f;
-                emberBatch[eo+7] = eAlpha;
-                emberN++;
-            }
-        }
-
-        // ── Issue draws (5-6 calls total, independent of particle count) ──
-        SkyLanternRenderer.drawLanterns(bodyBatch, bodyN, ctx);
+        int particleN = buildParticleBatch(now, globalAlpha);
+        SkyLanternRenderer.drawLanterns(lanternBatch, lanternN, ctx);
+        SkyLanternRenderer.drawFlyingObjects(flyerBatch, flyerN, ctx);
         SkyLanternRenderer.drawFlameInner(innerBatch, innerN, ctx);
         SkyLanternRenderer.drawFlameOuter(outerBatch, outerN, ctx);
         SkyLanternRenderer.drawGlowSprites(glowBatch, glowN, ctx);
-        if (emberN > 0) SkyLanternRenderer.drawEmbers(emberBatch, emberN, ctx);
+        SkyLanternRenderer.drawEmbers(particleBatch, particleN, ctx);
     }
 
-    // ── Internal ─────────────────────────────────────────────────
+    private void spawnObject(long now) {
+        if (mc.player == null || objectCount >= MAX_OBJECTS) return;
+        int type = chooseType();
+        if (type < 0) return;
 
-    private void spawnLantern(long now) {
-        if (mc.player == null) return;
-        if (lanternCount >= MAX_LANTERNS) return;
-        int i = lanternCount++;
-        lalive[i] = true;
-        lstart[i] = now;
+        int i = objectCount++;
+        oalive[i] = true;
+        otype[i] = (byte) type;
+        ostart[i] = now;
+        oseed[i] = rand(0f, 1f);
+        ophase[i] = rand(0f, (float) (Math.PI * 2));
+        oscale[i] = 1f + rand(-sizeVariation.getValue(), sizeVariation.getValue());
+
         var p = mc.player.position();
-        lx[i] = (float)(p.x + rand(-8.0, 8.0));
-        ly[i] = lpy[i] = (float)(p.y + rand(1.0, 3.5));
-        lz[i] = (float)(p.z + rand(-8.0, 8.0));
-        lswayX[i] = 0; lswayZ[i] = 0;
-        lphase[i] = rand(0f, (float)(Math.PI * 2));
-    }
+        float radius = spawnRadius.getValue();
+        float angle = rand(0f, (float) (Math.PI * 2));
+        float radial = (float) Math.sqrt(Math.random()) * radius;
+        ox[i] = opx[i] = (float) p.x + (float) Math.cos(angle) * radial;
+        oz[i] = opz[i] = (float) p.z + (float) Math.sin(angle) * radial;
+        float low = Math.min(minHeight.getValue(), maxHeight.getValue());
+        float high = Math.max(minHeight.getValue(), maxHeight.getValue());
+        oy[i] = opy[i] = (float) p.y + rand(low, high);
 
-    private void spawnEmber(float x, float y, float z, long now) {
-        if (emberCount >= MAX_EMBERS) return;
-        // Find a free slot
-        int slot = emberHead;
-        for (int tries = 0; tries < MAX_EMBERS; tries++) {
-            if (!emberAlive[slot]) break;
-            slot = (slot + 1) % MAX_EMBERS;
+        float heading = rand(0f, (float) (Math.PI * 2));
+        float speed = flightSpeed.getValue() / 20f;
+        ovx[i] = (float) Math.sin(heading) * speed;
+        ovz[i] = (float) Math.cos(heading) * speed;
+        ovy[i] = rand(-0.003f, 0.006f);
+        oyaw[i] = heading;
+
+        if (type == SkyLanternRenderer.TYPE_STAR) {
+            float starHeading = (float) Math.toRadians(windDirection.getValue() + rand(-22f, 22f));
+            ovx[i] = (float) Math.cos(starHeading) * speed;
+            ovz[i] = (float) Math.sin(starHeading) * speed;
+            ovy[i] = -speed * rand(0.18f, 0.42f);
+            oy[i] = opy[i] = (float) p.y + rand(Math.max(8f, low), Math.max(12f, high));
         }
-        if (emberAlive[slot]) return; // full
-
-        emberAlive[slot] = true;
-        emberCount++;
-        emberHead = (slot + 1) % MAX_EMBERS;
-
-        emberX[slot] = x + rand(-0.02f, 0.02f);
-        emberY[slot] = y;
-        emberZ[slot] = z + rand(-0.02f, 0.02f);
-        emberVX[slot] = rand(-0.008f, 0.008f);
-        emberVY[slot] = rand(0.015f, 0.04f);
-        emberVZ[slot] = rand(-0.008f, 0.008f);
-        emberTime[slot] = now;
     }
 
-    private void compactLanterns() {
-        int w = 0;
-        for (int r = 0; r < lanternCount; r++) {
-            if (!lalive[r]) continue;
-            if (r != w) {
-                lx[w]=lx[r]; ly[w]=ly[r]; lz[w]=lz[r];
-                lpy[w]=lpy[r]; lswayX[w]=lswayX[r]; lswayZ[w]=lswayZ[r];
-                lphase[w]=lphase[r]; lstart[w]=lstart[r];
-                lalive[w]=true; lalive[r]=false;
+    private int chooseType() {
+        int[] candidates = new int[5];
+        int n = 0;
+        if (typeEnabled(SkyLanternRenderer.TYPE_LANTERN)) candidates[n++] = SkyLanternRenderer.TYPE_LANTERN;
+        if (typeEnabled(SkyLanternRenderer.TYPE_KOI)) candidates[n++] = SkyLanternRenderer.TYPE_KOI;
+        if (typeEnabled(SkyLanternRenderer.TYPE_CRANE)) candidates[n++] = SkyLanternRenderer.TYPE_CRANE;
+        if (typeEnabled(SkyLanternRenderer.TYPE_BUTTERFLY)) candidates[n++] = SkyLanternRenderer.TYPE_BUTTERFLY;
+        if (typeEnabled(SkyLanternRenderer.TYPE_STAR)) candidates[n++] = SkyLanternRenderer.TYPE_STAR;
+        if (n == 0) return -1;
+
+        // Stars stay rare in mixed scenes so they remain a visual accent.
+        int picked = candidates[(int) (Math.random() * n)];
+        if (picked == SkyLanternRenderer.TYPE_STAR && n > 1 && Math.random() < 0.68) {
+            picked = candidates[(int) (Math.random() * (n - 1))];
+        }
+        return picked;
+    }
+
+    private boolean typeEnabled(int type) {
+        if (scene.is("Custom")) {
+            return switch (type) {
+                case SkyLanternRenderer.TYPE_LANTERN -> lanterns.enabled;
+                case SkyLanternRenderer.TYPE_KOI -> spiritKoi.enabled;
+                case SkyLanternRenderer.TYPE_CRANE -> paperCranes.enabled;
+                case SkyLanternRenderer.TYPE_BUTTERFLY -> moonButterflies.enabled;
+                case SkyLanternRenderer.TYPE_STAR -> shootingStars.enabled;
+                default -> false;
+            };
+        }
+        return switch (scene.get()) {
+            case "Festival" -> type == SkyLanternRenderer.TYPE_LANTERN
+                    || type == SkyLanternRenderer.TYPE_CRANE
+                    || type == SkyLanternRenderer.TYPE_BUTTERFLY;
+            case "Celestial" -> type == SkyLanternRenderer.TYPE_KOI
+                    || type == SkyLanternRenderer.TYPE_BUTTERFLY
+                    || type == SkyLanternRenderer.TYPE_STAR;
+            case "Dream Garden" -> type == SkyLanternRenderer.TYPE_KOI
+                    || type == SkyLanternRenderer.TYPE_CRANE
+                    || type == SkyLanternRenderer.TYPE_BUTTERFLY;
+            default -> true;
+        };
+    }
+
+    private void spawnParticle(int object, float sizeMultiplier, boolean ember, long now) {
+        int limit = particleLimit();
+        int slot = particleHead % limit;
+        for (int tries = 0; tries < limit; tries++) {
+            if (!particleAlive[slot]) break;
+            slot = (slot + 1) % limit;
+        }
+        if (particleAlive[slot]) {
+            slot = particleHead % limit; // Replace the oldest ring entry.
+        }
+        particleHead = (slot + 1) % limit;
+        particleAlive[slot] = true;
+
+        float[] c = objectColor(object, now);
+        particleX[slot] = ox[object] + rand(-0.035f, 0.035f);
+        particleY[slot] = oy[object] - oscale[object] * objectSize.getValue() * 0.18f;
+        particleZ[slot] = oz[object] + rand(-0.035f, 0.035f);
+        particleVX[slot] = ember ? rand(-0.004f, 0.004f) : -ovx[object] * rand(0.08f, 0.2f);
+        particleVY[slot] = ember ? rand(0.009f, 0.025f) : rand(-0.002f, 0.005f);
+        particleVZ[slot] = ember ? rand(-0.004f, 0.004f) : -ovz[object] * rand(0.08f, 0.2f);
+        particleR[slot] = ember ? 1f : c[0];
+        particleG[slot] = ember ? rand(0.35f, 0.75f) : c[1];
+        particleB[slot] = ember ? 0.08f : c[2];
+        particleSize[slot] = objectSize.getValue() * 0.035f * sizeMultiplier;
+        particleTime[slot] = now;
+        particleLife[slot] = ember ? 900 : (otype[object] == SkyLanternRenderer.TYPE_STAR ? 1300 : 1050);
+    }
+
+    private void updateParticles(long now) {
+        int limit = particleLimit();
+        for (int i = 0; i < limit; i++) {
+            if (!particleAlive[i]) continue;
+            if (now - particleTime[i] >= particleLife[i]) {
+                particleAlive[i] = false;
+                continue;
             }
+            particleX[i] += particleVX[i];
+            particleY[i] += particleVY[i];
+            particleZ[i] += particleVZ[i];
+            particleVX[i] *= 0.985f;
+            particleVZ[i] *= 0.985f;
+            particleVY[i] += 0.00015f;
+        }
+    }
+
+    private int buildParticleBatch(long now, float globalAlpha) {
+        int n = 0;
+        int limit = particleLimit();
+        for (int i = 0; i < limit; i++) {
+            if (!particleAlive[i]) continue;
+            float age = (now - particleTime[i]) / (float) particleLife[i];
+            if (age >= 1f) continue;
+            float fade = (1f - age) * (1f - age);
+            int o = n++ * 8;
+            put8(particleBatch, o,
+                    particleX[i], particleY[i], particleZ[i],
+                    particleSize[i] * (0.65f + fade * 0.7f),
+                    particleR[i], particleG[i], particleB[i],
+                    fade * globalAlpha * 0.88f);
+        }
+        return n;
+    }
+
+    private float[] objectColor(int object, long now) {
+        float seed = colorVariation.enabled ? oseed[object] : 0.35f;
+        int a;
+        int b;
+        int c;
+        switch (palette.get()) {
+            case "Sakura" -> {
+                a = 0xFFFF8FB4;
+                b = 0xFFFFC4D9;
+                c = 0xFFFFF0C9;
+            }
+            case "Aurora" -> {
+                a = 0xFF55F4C4;
+                b = 0xFF7A8CFF;
+                c = 0xFFC46DFF;
+            }
+            case "Celestial" -> {
+                a = 0xFF76C9FF;
+                b = 0xFF8F78FF;
+                c = 0xFFFFE29A;
+            }
+            case "Rainbow" -> {
+                float hue = (seed + now * 0.000025f) % 1f;
+                return hsv(hue, 0.68f, 1f);
+            }
+            case "Custom" -> {
+                a = primaryColor.getColor();
+                b = secondaryColor.getColor();
+                c = accentColor.getColor();
+            }
+            default -> {
+                a = 0xFFFF9A3D;
+                b = 0xFFFF4F70;
+                c = 0xFFFFE7A3;
+            }
+        }
+
+        float[] ca = rgb(a);
+        float[] cb = rgb(b);
+        float[] cc = rgb(c);
+        if (seed < 0.5f) return mix(ca, cb, seed * 2f);
+        return mix(cb, cc, (seed - 0.5f) * 2f);
+    }
+
+    private int particleLimit() {
+        return switch (quality.get()) {
+            case "Low" -> 128;
+            case "Medium" -> 288;
+            case "Extravagant" -> MAX_PARTICLES;
+            default -> 512;
+        };
+    }
+
+    private int particleStep() {
+        return switch (quality.get()) {
+            case "Low" -> 4;
+            case "Medium" -> 2;
+            default -> 1;
+        };
+    }
+
+    private float objectLifetime(int i, float baseLife) {
+        float variation = 0.8f + oseed[i] * 0.4f;
+        if (otype[i] == SkyLanternRenderer.TYPE_STAR) return baseLife * 0.24f * variation;
+        return baseLife * variation;
+    }
+
+    private void compactObjects() {
+        int w = 0;
+        for (int r = 0; r < objectCount; r++) {
+            if (!oalive[r]) continue;
+            if (r != w) copyObject(r, w);
             w++;
         }
-        lanternCount = w;
+        for (int i = w; i < objectCount; i++) oalive[i] = false;
+        objectCount = w;
+    }
+
+    private void copyObject(int from, int to) {
+        ox[to] = ox[from];
+        oy[to] = oy[from];
+        oz[to] = oz[from];
+        opx[to] = opx[from];
+        opy[to] = opy[from];
+        opz[to] = opz[from];
+        ovx[to] = ovx[from];
+        ovy[to] = ovy[from];
+        ovz[to] = ovz[from];
+        ophase[to] = ophase[from];
+        oscale[to] = oscale[from];
+        oyaw[to] = oyaw[from];
+        oseed[to] = oseed[from];
+        ostart[to] = ostart[from];
+        otype[to] = otype[from];
+        oalive[to] = true;
+    }
+
+    private static void put8(float[] array, int o, float x, float y, float z, float size,
+                             float r, float g, float b, float alpha) {
+        array[o] = x;
+        array[o + 1] = y;
+        array[o + 2] = z;
+        array[o + 3] = size;
+        array[o + 4] = r;
+        array[o + 5] = g;
+        array[o + 6] = b;
+        array[o + 7] = alpha;
     }
 
     private static float computeAlpha(float life) {
         if (life >= 1f) return 0f;
-        if (life < 0.06f) return life / 0.06f;
-        if (life < 0.78f) return 1f;
-        return 1f - (life - 0.78f) / 0.22f;
+        if (life < 0.08f) return life / 0.08f;
+        if (life < 0.76f) return 1f;
+        return 1f - (life - 0.76f) / 0.24f;
     }
 
-    private static float rand(double min, double max) {
-        return (float)(min + Math.random() * (max - min));
+    private static float[] rgb(int argb) {
+        return new float[]{
+                ((argb >> 16) & 0xFF) / 255f,
+                ((argb >> 8) & 0xFF) / 255f,
+                (argb & 0xFF) / 255f
+        };
+    }
+
+    private static float[] mix(float[] a, float[] b, float t) {
+        return new float[]{
+                Mth.lerp(t, a[0], b[0]),
+                Mth.lerp(t, a[1], b[1]),
+                Mth.lerp(t, a[2], b[2])
+        };
+    }
+
+    private static float[] hsv(float hue, float saturation, float value) {
+        float h = (hue - (float) Math.floor(hue)) * 6f;
+        int sector = (int) h;
+        float f = h - sector;
+        float p = value * (1f - saturation);
+        float q = value * (1f - saturation * f);
+        float t = value * (1f - saturation * (1f - f));
+        return switch (sector) {
+            case 0 -> new float[]{value, t, p};
+            case 1 -> new float[]{q, value, p};
+            case 2 -> new float[]{p, value, t};
+            case 3 -> new float[]{p, q, value};
+            case 4 -> new float[]{t, p, value};
+            default -> new float[]{value, p, q};
+        };
+    }
+
+    private static float rand(float min, float max) {
+        return min + (float) Math.random() * (max - min);
     }
 }

@@ -92,6 +92,24 @@ public final class SdfUIRenderer {
             .withCull(false)
             .build();
 
+    /** Anti-aliased Material 3 icon primitives (heart, chevron, check, close). */
+    public static final RenderPipeline SDF_ICON_PIPELINE = RenderPipeline.builder(
+                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+            .withLocation(getIdentifier("pipeline/sdf_md3_icon"))
+            .withVertexShader(getIdentifier("core/sdf_rounded"))
+            .withFragmentShader(getIdentifier("core/sdf_md3_icon"))
+            .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+            .withVertexFormat(SDF_FORMAT, VertexFormat.Mode.QUADS)
+            .withCull(false)
+            .build();
+
+    public static final int ICON_HEART_FILLED = 0;
+    public static final int ICON_HEART_OUTLINE = 1;
+    public static final int ICON_CHEVRON_DOWN = 2;
+    public static final int ICON_CHEVRON_UP = 3;
+    public static final int ICON_CHECK = 4;
+    public static final int ICON_CLOSE = 5;
+
     /**
      * 波浪振幅（GUI px）—— 进度带中线沿径向的 excursion。
      * 必须与 {@code core/sdf_wavy_ring.fsh} 的 {@code AMPLITUDE} 常量保持一致：
@@ -108,6 +126,7 @@ public final class SdfUIRenderer {
         registry.accept(SDF_RECT_PIPELINE);
         registry.accept(SDF_SHADOW_PIPELINE);
         registry.accept(SDF_WAVY_RING_PIPELINE);
+        registry.accept(SDF_ICON_PIPELINE);
     }
 
     // ========================
@@ -181,6 +200,30 @@ public final class SdfUIRenderer {
                 qx0, qy0, qx1, qy1,
                 -AA_MARGIN, -AA_MARGIN, d + AA_MARGIN, d + AA_MARGIN,
                 d, d, (d + 1) / 2, 0,
+                color, color, color, color,
+                gui.peekScissorStack()));
+    }
+
+    /**
+     * Draws a resolution-independent icon from an analytic signed distance
+     * field. The quad includes the same AA margin as other SDF primitives.
+     */
+    public static void drawIcon(GuiGraphicsExtractor gui, float cx, float cy,
+                                int size, int iconType, int color) {
+        if (size <= 0 || (color >>> 24) == 0) return;
+        if (iconType < ICON_HEART_FILLED || iconType > ICON_CLOSE) return;
+
+        float half = size / 2f;
+        float qx0 = cx - half - AA_MARGIN;
+        float qy0 = cy - half - AA_MARGIN;
+        float qx1 = cx + half + AA_MARGIN;
+        float qy1 = cy + half + AA_MARGIN;
+
+        gui.submitGuiElementRenderState(new SdfQuadState(
+                SDF_ICON_PIPELINE, new Matrix3x2f(gui.pose()),
+                qx0, qy0, qx1, qy1,
+                -AA_MARGIN, -AA_MARGIN, size + AA_MARGIN, size + AA_MARGIN,
+                size, size, iconType, 0,
                 color, color, color, color,
                 gui.peekScissorStack()));
     }

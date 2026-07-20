@@ -67,8 +67,8 @@ void main() {
     if (t1 <= t0) { discard; return; }
 
     // ── Temperature palette (heat-shifted) ───────────────────────
-    vec3 coreCol = mix(vec3(1.00, 0.55, 0.15), vec3(1.00, 0.98, 0.92), heat);
-    vec3 rimCol  = mix(vec3(0.45, 0.06, 0.02), vec3(1.00, 0.45, 0.10), heat);
+    vec3 coreCol = mix(vec3(1.00, 0.55, 0.15), vec3(0.88, 0.96, 1.18), heat);
+    vec3 rimCol  = mix(vec3(0.45, 0.06, 0.02), vec3(1.08, 0.32, 0.08), heat);
 
     // ── Front-to-back volumetric integration ─────────────────────
     const int STEPS = 12;
@@ -87,6 +87,14 @@ void main() {
                       + exp(-dd * 5.0)  * 1.0
                       + exp(-dd * 1.5)  * 0.28;
 
+        // Boiling stellar convection and a thin outward-moving ignition shell.
+        float boil = 0.84 + 0.16 * sin(p.x * 5.7 + p.y * 7.3 - p.z * 4.9
+                                     + progress * 34.0 + float(i) * 0.7);
+        float shellRadius = 0.24 + progress * 0.58;
+        float shell = exp(-pow(d - shellRadius, 2.0) * 120.0)
+                    * (1.0 - smoothstep(0.82, 1.0, progress));
+        density = density * boil + shell * 1.15;
+
         // Temperature falls toward the limb
         vec3 sampleCol = mix(coreCol, rimCol, smoothstep(0.0, 0.85, d));
 
@@ -96,7 +104,8 @@ void main() {
     acc *= 0.5; // both shell hemispheres share the same integral
 
     // Subtle organic boiling
-    float flicker = 1.0 + 0.06 * sin(progress * 40.0 + vViewPos.x * 3.0);
+    float flicker = 1.0 + 0.10 * sin(progress * 46.0 + vViewPos.x * 3.0)
+                         + 0.04 * sin(progress * 91.0 + vViewPos.y * 5.0);
 
     vec3 rgb = acc * intensity * flicker;
     float lum = dot(rgb, vec3(0.299, 0.587, 0.114));

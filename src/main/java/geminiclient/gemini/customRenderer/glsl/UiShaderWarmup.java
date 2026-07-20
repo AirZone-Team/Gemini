@@ -80,6 +80,7 @@ public final class UiShaderWarmup {
         precompile("sdf_rounded_rect", SdfUIRenderer.SDF_RECT_PIPELINE);
         precompile("sdf_rounded_shadow", SdfUIRenderer.SDF_SHADOW_PIPELINE);
         precompile("sdf_wavy_ring", SdfUIRenderer.SDF_WAVY_RING_PIPELINE);
+        precompile("sdf_md3_icon", SdfUIRenderer.SDF_ICON_PIPELINE);
 
         // ── Custom region blur pipeline ──
         try {

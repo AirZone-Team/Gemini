@@ -82,7 +82,7 @@ vec2 applyLensing(vec2 uv, float rs, float time, float stage) {
 
     // Stronger lensing during accretion/collapse stages
     float stageBoost = 1.0;
-    if (stage > 2.5 && stage < 4.5) stageBoost = 1.4;  // accretion
+    if (stage > 3.5 && stage < 4.5) stageBoost = 1.4;  // accretion
     if (stage > 4.5)                 stageBoost = 1.8;  // collapse
 
     alpha *= criticalBoost * stageBoost;
@@ -102,82 +102,57 @@ vec2 applyLensing(vec2 uv, float rs, float time, float stage) {
 // ══════════════════════════════════════════════════════════════════
 
 vec2 accretionDisk(vec2 uvLensed, float rs, float angle, float time, float stage) {
-    float dLens = length(uvLensed);
-    float shadowRadius = rs * 2.6;  // apparent shadow (light capture radius)
+    float safeRs = max(rs, 0.012);
+    float shadowRadius = safeRs * 2.6;
+    float innerRadius = safeRs * 2.75;
+    float outerRadius = safeRs * 4.35;
 
-    // Disk exists outside the ISCO (innermost stable circular orbit ≈ 3Rs)
-    float iscoRadius = rs * 3.0;
-    // Disk extends outward
-    float diskOuter = rs * 8.0;
+    // A strongly inclined ellipse reads as a disk instead of another halo.
+    vec2 diskUv = vec2(uvLensed.x, (uvLensed.y + safeRs * 0.04) / 0.24);
+    float diskR = length(diskUv);
+    float n = diskR / safeRs;
+    float diskAngle = atan(diskUv.y, diskUv.x);
 
-    // ── Front of disk (directly visible, below the shadow) ────────
-    // The disk plane maps to a horizontal line at y ≈ -shadowRadius * 0.3
-    // (We view it slightly above the equatorial plane)
-    float diskPlaneY = -shadowRadius * 0.25;
-    float diskFront = 0.0;
-    float diskTemp = 0.0;
+    float diskMask = smoothstep(innerRadius * 0.88, innerRadius, diskR)
+                   * (1.0 - smoothstep(outerRadius * 0.88, outerRadius, diskR));
 
-    // Sample the lensed UV at the disk plane
-    float diskY = uvLensed.y;
-    float diskX = uvLensed.x;
-    float diskR = length(vec2(diskX, diskY - diskPlaneY));
+    // Preserve phase across stage boundaries while accelerating toward collapse.
+    float phase = time;
+    if (stage > 3.5 && stage < 4.5) phase = 1.0 + time * 1.65;
+    if (stage > 4.5) phase = 2.65 + time * 2.25;
+    float omega = 6.2 * pow(max(n, 1.0), -1.5);
+    float rotatingAngle = diskAngle - phase * omega;
 
-    // Front disk: visible directly below the shadow
-    if (diskY < diskPlaneY && diskR > iscoRadius * 0.5 && diskR < diskOuter) {
-        // Disk density: peaks at ISCO, falls off outward
-        float profile = exp(-abs(diskR - iscoRadius) * 0.8 / rs);
-        profile += exp(-abs(diskR - iscoRadius * 1.8) * 0.5 / rs) * 0.5;
-        profile += exp(-abs(diskR - iscoRadius * 3.0) * 0.3 / rs) * 0.25;
-        profile = clamp(profile, 0.0, 1.0);
+    // Layered gas lanes: two main spiral arms, fine filaments, and dark gaps.
+    float armA = 0.5 + 0.5 * sin(rotatingAngle * 2.0 + log(max(n, 1.01)) * 11.0);
+    float armB = 0.5 + 0.5 * sin(rotatingAngle * 5.0 - log(max(n, 1.01)) * 7.0 + 1.7);
+    float turbulence = fbm(vec2(rotatingAngle * 2.3, n * 3.8) + vec2(phase * 0.18, 0.0));
+    float filaments = smoothstep(0.42, 0.78, armA * 0.55 + armB * 0.20 + turbulence * 0.55);
+    float dustLanes = smoothstep(0.30, 0.62,
+            fbm(vec2(rotatingAngle * 4.0 + 7.0, n * 7.0 - phase * 0.25)));
 
-        // Spiral turbulence
-        float spiralAngle = atan(diskX, diskY - diskPlaneY);
-        float spiral = sin(spiralAngle * 3.0 + log(diskR + 0.1) * 10.0 - time * 4.0) * 0.5 + 0.5;
-        float turb = fbm(vec2(spiralAngle * 3.0, diskR * 5.0) + time * 0.3) * 0.4;
+    float emissivity = exp(-max(n - 2.8, 0.0) * 0.72);
+    emissivity += exp(-abs(n - 3.35) * 2.8) * 0.50;
+    emissivity += exp(-abs(n - 4.15) * 3.5) * 0.24;
+    float diskFront = diskMask * emissivity
+                    * (0.20 + filaments * 1.10 + turbulence * 0.38)
+                    * mix(0.62, 1.0, dustLanes);
 
-        diskFront = profile * (spiral * 0.6 + turb * 0.4 + 0.3);
+    // The far side is bent above the horizon into a thin Einstein arc.
+    vec2 arcUv = vec2(uvLensed.x, uvLensed.y * 0.78);
+    float arcR = length(arcUv);
+    float farArc = exp(-abs(arcR - shadowRadius * 1.34) * 34.0 / safeRs);
+    farArc *= smoothstep(-safeRs * 0.25, safeRs * 0.75, uvLensed.y);
+    farArc *= 0.28 + 0.72 * smoothstep(0.0, shadowRadius * 1.5, abs(uvLensed.x));
+    farArc *= 0.48 + turbulence * 0.40;
 
-        // Temperature: hotter near ISCO (inner), cooler outward
-        diskTemp = clamp((diskR - iscoRadius) / (diskOuter - iscoRadius), 0.0, 1.0);
-    }
+    float stageGain = 1.0;
+    if (stage > 2.5 && stage < 3.5) stageGain = smoothstep(0.10, 0.78, time);
+    if (stage > 3.5 && stage < 4.5) stageGain = 1.38;
+    if (stage > 4.5) stageGain = (1.38 + time * 1.6) * (1.0 - smoothstep(0.78, 1.0, time));
 
-    // ── Back of disk (gravitationally lensed over the top) ─────────
-    // Light from the back of the disk is bent around the black hole
-    // and appears as arcs above the shadow
-    float diskBack = 0.0;
-    float diskBackTemp = 0.0;
-
-    // The back of the disk appears at y > 0 (lensed over the top)
-    if (diskY > -shadowRadius * 0.5 && dLens > shadowRadius * 0.7) {
-        // Lensed image of the back disk
-        float backY = diskY;
-        float backX = diskX;
-        float backR = length(vec2(backX, backY));
-
-        // The back disk image is stretched and appears at various radii
-        float backProfile = exp(-abs(backR - shadowRadius * 1.5) * 2.0 / rs);
-        backProfile += exp(-abs(backR - shadowRadius * 2.0) * 1.5 / rs) * 0.6;
-
-        // Fade at extreme angles
-        float angleFade = 1.0 - abs(uvLensed.y) / (shadowRadius * 3.0 + 0.01);
-        angleFade = clamp(angleFade, 0.0, 1.0);
-
-        // Only visible when the lensed ray traces back to the disk plane
-        float backVisibility = smoothstep(shadowRadius * 0.8, shadowRadius * 1.2, backR);
-        backVisibility *= smoothstep(diskOuter, iscoRadius, backR);
-
-        diskBack = backProfile * angleFade * backVisibility * 0.7;
-        diskBackTemp = clamp((backR - shadowRadius) / (shadowRadius * 3.0), 0.0, 1.0);
-    }
-
-    float totalDisk = diskFront + diskBack;
-    // Blend temperatures: front provides primary temp, back is cooler (redshifted)
-    float blendedTemp = diskFront > 0.01 ? diskTemp : diskBackTemp;
-    if (diskFront > 0.01 && diskBack > 0.01) {
-        blendedTemp = mix(diskTemp, diskBackTemp, diskBack / (diskFront + diskBack));
-    }
-
-    return vec2(totalDisk, blendedTemp);
+    float diskTemp = clamp((diskR - innerRadius) / max(outerRadius - innerRadius, 0.001), 0.0, 1.0);
+    return vec2((diskFront + farArc) * stageGain, diskTemp);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -199,7 +174,7 @@ void main() {
     // Event horizon and shadow evolve with stage
     float shadowRadius = rs * 2.6; // apparent black hole shadow
 
-    if (stage < 2.5) {
+    if (stage > 2.5 && stage < 3.5) {
         // Stage 3 (forming): grow from nothing via smoothstep
         float formT = easeOutExpo(time);
         rs     *= formT;
@@ -391,7 +366,7 @@ void main() {
 
     float transitionAlpha = alpha;
 
-    if (stage < 2.5) {
+    if (stage > 2.5 && stage < 3.5) {
         // Stage 3 (forming): fade in from nothing
         // Use easeOutExpo for a dramatic "snap into existence" feel
         float formAlpha = easeOutExpo(time * 1.2); // slightly faster than linear
@@ -423,10 +398,8 @@ void main() {
                       + photonGlow * 0.3;
 
     // Inside the shadow: pure black, no emission
-    effectAlpha *= insideShadow;
-
-    // Penumbra darkening
-    effectAlpha *= penumbra;
+    // The world-space pipeline is additive, so only emissive structures
+    // contribute here. The screen-space pass supplies the opaque black shadow.
 
     // Ensure photon ring is always visible if present
     effectAlpha = max(effectAlpha, photonRing * 0.9);

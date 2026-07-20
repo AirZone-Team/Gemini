@@ -21,52 +21,54 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Material Design 3 ClickGui rendered as a draggable floating window.
+ * Material Design 3 ClickGui rendered as a draggable floating pane.
  *
- * <p>The left navigation rail is icon-only by default and expands on hover
- * to reveal labels, sitting visually above the content area.</p>
+ * <p>The layout follows the desktop MD3 pattern: a top app bar, persistent
+ * navigation rail, expressive section header, then a vertically scrolling
+ * collection of filled cards.</p>
  */
 public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Overlay.Host {
 
-    private static final int DEFAULT_W = 720;
-    private static final int DEFAULT_H = 440;
-    private static final int TITLE_H = 24;
+    private static final int DEFAULT_W = 780;
+    private static final int DEFAULT_H = 500;
+    private static final int MIN_W = 560;
+    private static final int MIN_H = 340;
+
+    private static final int APP_BAR_H = 56;
     private static final int SEARCH_HEIGHT = 40;
-    private static final int RAIL_COLLAPSED_W = 48;
-    private static final int HERO_HEIGHT = 84;
-    private static final int GAP = 10;
-    private static final int ROW_SPACING = 6;
-    private static final int PADDING = 10;
-    private static final float SCROLL_SPEED = 24f;
+    private static final int HERO_HEIGHT = 104;
+    private static final int SECTION_HEADER_H = 26;
+    private static final int CONTENT_PADDING = 16;
+    private static final int GAP = 12;
+    private static final int ROW_SPACING = 8;
+    private static final float SCROLL_SPEED = 28f;
     private static final long OPEN_KEY_IGNORE_MS = 180;
 
     private final Md3SearchBar searchBar;
     private final Md3NavigationRail rail;
     private final Md3HeroCard heroCard;
     private final List<Md3ModuleComponent> allModules = new ArrayList<>();
+    private final List<Md3ModuleComponent> visibleRows = new ArrayList<>();
 
     private Md3Overlay openOverlay;
 
     private int winX, winY, winW, winH;
-    /** Render-time window Y including the open-animation rise offset. */
     private int renderWinY;
-    private boolean dragging = false;
+    private boolean dragging;
     private double dragOffsetX, dragOffsetY;
 
     private final Md3Anim scrollAnim = Md3Anim.mediumAnim();
-    private float scrollTarget = 0f;
-    private float scrollCurrent = 0f;
-    private float maxScroll = 0f;
-
-    /** Window entrance animation (rise + scrim fade), started on open. */
+    private float scrollTarget;
+    private float scrollCurrent;
+    private float maxScroll;
     private final Md3Anim openAnim = new Md3Anim(280);
 
-    // Ignore character keys briefly after opening to avoid echoing the ClickGui hotkey
-    private long ignoreKeyCharsUntil = 0;
+    private long ignoreKeyCharsUntil;
 
-    // Cached layout
+    // Cached layout coordinates.
+    private int contentX, contentWidth;
+    private int sectionHeaderY;
     private int listX, listY, listWidth, listBottom;
-    private final List<Md3ModuleComponent> visibleRows = new ArrayList<>();
 
     public MD3ClickGuiScreen() {
         super(Component.literal("Gemini ClickGUI"));
@@ -88,50 +90,47 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
             winW = Math.min(DEFAULT_W, this.width);
             winH = Math.min(DEFAULT_H, this.height);
             winX = (this.width - winW) / 2;
-            winY = (this.height - winH) / 4;
+            winY = (this.height - winH) / 2;
         }
     }
 
-    // ── Layout ──────────────────────────────────────────
-
     private void layout() {
-        // Clamp window size to the screen (min 420x280 when the screen allows it)
         winW = Math.min(winW, this.width);
         winH = Math.min(winH, this.height);
-        winW = Math.max(Math.min(420, this.width), winW);
-        winH = Math.max(Math.min(280, this.height), winH);
+        winW = Math.max(Math.min(MIN_W, this.width), winW);
+        winH = Math.max(Math.min(MIN_H, this.height), winH);
         winX = Math.max(0, Math.min(winX, this.width - winW));
         winY = Math.max(0, Math.min(winY, this.height - winH));
         renderWinY = winY + openOffsetY();
 
-        int titleBottom = renderWinY + TITLE_H;
+        contentX = winX + Md3NavigationRail.WIDTH + CONTENT_PADDING;
+        contentWidth = winW - Md3NavigationRail.WIDTH - CONTENT_PADDING * 2;
 
-        // Rail sits flush against the left edge of the window
         rail.x = winX;
-        rail.y = titleBottom;
+        rail.y = renderWinY + APP_BAR_H;
+        rail.height = winH - APP_BAR_H;
 
-        searchBar.x = winX + RAIL_COLLAPSED_W + GAP;
-        searchBar.y = titleBottom + PADDING / 2;
-        searchBar.width = winW - RAIL_COLLAPSED_W - GAP * 2;
+        int searchX = Math.max(winX + 190, contentX);
+        searchBar.x = searchX;
+        searchBar.y = renderWinY + (APP_BAR_H - SEARCH_HEIGHT) / 2;
+        searchBar.width = Math.max(140, winX + winW - 54 - searchX);
         searchBar.height = SEARCH_HEIGHT;
 
-        int top = searchBar.y + SEARCH_HEIGHT + GAP;
-        listX = searchBar.x;
-        listWidth = searchBar.width;
-
-        heroCard.x = listX;
-        heroCard.y = top;
-        heroCard.width = listWidth;
+        heroCard.x = contentX;
+        heroCard.y = renderWinY + APP_BAR_H + CONTENT_PADDING;
+        heroCard.width = contentWidth;
         heroCard.height = HERO_HEIGHT;
 
-        listY = top + HERO_HEIGHT + GAP;
-        listBottom = renderWinY + winH - PADDING;
+        sectionHeaderY = heroCard.y + HERO_HEIGHT + GAP;
+        listX = contentX;
+        listY = sectionHeaderY + SECTION_HEADER_H;
+        listWidth = contentWidth;
+        listBottom = renderWinY + winH - CONTENT_PADDING;
     }
 
-    /** Window rise offset during the entrance animation (0 when settled). */
     private int openOffsetY() {
-        float p = openAnim.getValue();
-        return (int) ((1.0f - Md3Anim.easeOutCubic(p)) * 12);
+        float progress = openAnim.getValue();
+        return (int) ((1.0f - Md3Anim.easeOutCubic(progress)) * 14);
     }
 
     private void rebuildVisibleRows() {
@@ -144,53 +143,42 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
                 .filter(row -> searchBar.hasFilter()
                         ? SearchFilterModel.matches(row.module, filter)
                         : (favorites ? row.module.favorite : row.module.getModuleEnum() == category))
-                .sorted(Comparator.comparing((Md3ModuleComponent r) -> !r.module.favorite)
-                        .thenComparing(r -> r.module.getName()))
+                .sorted(Comparator.comparing((Md3ModuleComponent row) -> !row.module.favorite)
+                        .thenComparing(row -> row.module.getName()))
                 .collect(Collectors.toList()));
     }
 
     private int layoutRows() {
-        int currentY = listY - (int) scrollCurrent;
+        int currentY = listY - Math.round(scrollCurrent);
         for (Md3ModuleComponent row : visibleRows) {
             row.x = listX;
             row.y = currentY;
             row.width = listWidth;
             currentY += row.getTotalHeight() + ROW_SPACING;
         }
-        return currentY - (listY - (int) scrollCurrent) - ROW_SPACING;
+        return Math.max(0, currentY - (listY - Math.round(scrollCurrent)) - ROW_SPACING);
     }
 
-    // ── Render ──────────────────────────────────────────
-
     @Override
-    public void extractRenderState(@NotNull GuiGraphicsExtractor gui, int mouseX, int mouseY, float partialTicks) {
+    public void extractRenderState(@NotNull GuiGraphicsExtractor gui, int mouseX, int mouseY,
+                                   float partialTicks) {
         layout();
         rebuildVisibleRows();
-        rail.updateHover(mouseX, mouseY);
 
         float openT = Md3Anim.easeOutCubic(openAnim.getValue());
-
-        // Background scrim (fades in with the entrance animation)
         gui.fill(0, 0, this.width, this.height,
-                Md3Theme.withAlpha(0x000000, 0.35f * openT));
+                Md3Theme.withAlpha(0x000000, 0.42f * openT));
 
-        // Window shadow + background
-        Md3Theme.elevation2(gui, winX, renderWinY, winW, winH, Md3Theme.R_CARD);
+        // Main floating surface.
+        Md3Theme.elevation3(gui, winX, renderWinY, winW, winH, Md3Theme.R_EXTRA_LARGE);
         CustomRoundedRectRenderer.drawRoundedRect(gui, winX, renderWinY, winW, winH,
-                Md3Theme.R_CARD, Md3Theme.SURFACE_CONTAINER_LOW);
+                Md3Theme.R_EXTRA_LARGE, Md3Theme.SURFACE_CONTAINER_LOW);
 
-        // Title bar
-        CustomRoundedRectRenderer.drawRoundedRect(gui, winX, renderWinY, winW, TITLE_H,
-                Md3Theme.R_CARD, Md3Theme.SURFACE_CONTAINER);
-        var titleFont = Md3Fonts.title();
-        Md3Fonts.drawText(gui, titleFont, "Gemini ClickGUI",
-                winX + PADDING, renderWinY + (TITLE_H - Md3Fonts.lineHeight(titleFont)) / 2f,
-                Md3Theme.ON_SURFACE);
+        renderTopAppBar(gui, mouseX, mouseY);
+        rail.render(gui, mouseX, mouseY, partialTicks);
 
-        // Scroll animation
         scrollAnim.setTarget(scrollTarget);
         scrollCurrent = scrollAnim.getValue();
-
         for (Md3ModuleComponent row : visibleRows) {
             row.advanceAnimation(partialTicks);
         }
@@ -199,65 +187,149 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
         maxScroll = Math.max(0, contentHeight - (listBottom - listY));
         scrollTarget = Math.max(0, Math.min(scrollTarget, maxScroll));
 
-        // Search + content
-        searchBar.render(gui, mouseX, mouseY, partialTicks);
+        int enabledCount = (int) visibleRows.stream().filter(row -> row.module.enabled).count();
         heroCard.render(gui, searchBar.hasFilter() ? null : rail.getSelectedCategory(),
-                visibleRows.size());
+                visibleRows.size(), enabledCount,
+                !searchBar.hasFilter() && rail.isFavoritesSelected());
 
-        // Module list clipped to content area
-        gui.enableScissor(listX, listY, listX + listWidth, listBottom);
-        for (Md3ModuleComponent row : visibleRows) {
-            if (row.y + row.getTotalHeight() < listY || row.y > listBottom) continue;
-            row.render(gui, mouseX, mouseY, partialTicks);
-        }
-        gui.disableScissor();
+        renderSectionHeader(gui);
+        renderModuleList(gui, mouseX, mouseY, partialTicks, contentHeight);
 
-        // Scrollbar hint
-        if (maxScroll > 4) {
-            int trackH = listBottom - listY;
-            int thumbH = Math.min(trackH, Math.max(24, (int) (trackH * (trackH / (float) (contentHeight)))));
-            int thumbY = listY + (int) ((trackH - thumbH) * (scrollCurrent / maxScroll));
-            CustomRoundedRectRenderer.drawRoundedRect(gui,
-                    listX + listWidth - 6, thumbY, 4, thumbH, 2,
-                    Md3Theme.withAlpha(Md3Theme.OUTLINE, 0.5f));
-        }
-
-        // Rail rendered last so the expanded panel overlaps content
-        rail.render(gui, mouseX, mouseY, partialTicks);
-
-        // Overlay above everything
         if (openOverlay != null) {
+            // Modal state layer separates menus/pickers from content without
+            // obscuring the destination context.
+            gui.fill(winX, renderWinY + APP_BAR_H, winX + winW, renderWinY + winH,
+                    Md3Theme.withAlpha(Md3Theme.ON_SURFACE, 0.05f));
             openOverlay.render(gui, mouseX, mouseY, partialTicks);
         }
     }
 
-    // ── Hit helpers ─────────────────────────────────────
+    private void renderTopAppBar(GuiGraphicsExtractor gui, int mouseX, int mouseY) {
+        int radius = Md3Theme.R_EXTRA_LARGE;
+        CustomRoundedRectRenderer.drawRoundedRect(gui, winX + 1, renderWinY + 1,
+                winW - 2, APP_BAR_H, radius - 1, Md3Theme.SURFACE);
+        // Square the lower app-bar corners while preserving the outer top shape.
+        gui.fill(winX + 1, renderWinY + radius, winX + winW - 1,
+                renderWinY + APP_BAR_H, Md3Theme.SURFACE);
+        gui.fill(winX + 16, renderWinY + APP_BAR_H - 1, winX + winW - 16,
+                renderWinY + APP_BAR_H, Md3Theme.withAlpha(Md3Theme.OUTLINE_VARIANT, 0.55f));
 
-    private boolean inWindow(double mx, double my) {
-        return mx >= winX && mx <= winX + winW && my >= renderWinY && my <= renderWinY + winH;
+        int brandX = winX + 28;
+        int brandY = renderWinY + APP_BAR_H / 2;
+        CustomRoundedRectRenderer.drawCircle(gui, brandX, brandY, 32,
+                Md3Theme.PRIMARY_CONTAINER);
+        Md3RenderUtils.drawSparkle(gui, brandX, brandY, 14, Md3Theme.PRIMARY);
+
+        var titleFont = Md3Fonts.title();
+        var labelFont = Md3Fonts.label();
+        Md3Fonts.drawText(gui, titleFont, "Gemini", winX + 50, renderWinY + 13,
+                Md3Theme.ON_SURFACE);
+        Md3Fonts.drawText(gui, labelFont, "CONTROL CENTER", winX + 50, renderWinY + 31,
+                Md3Theme.ON_SURFACE_VARIANT);
+
+        searchBar.render(gui, mouseX, mouseY, 0f);
+
+        if (isOverClose(mouseX, mouseY)) {
+            CustomRoundedRectRenderer.drawRoundedRect(gui, winX + winW - 46,
+                    renderWinY + 8, 40, 40, 20,
+                    Md3Theme.hoverState(Md3Theme.ON_SURFACE));
+        }
+        Md3RenderUtils.drawClose(gui, winX + winW - 26, renderWinY + APP_BAR_H / 2,
+                10, Md3Theme.ON_SURFACE_VARIANT);
     }
 
-    private boolean inTitleBar(double mx, double my) {
-        return mx >= winX && mx <= winX + winW && my >= renderWinY && my <= renderWinY + TITLE_H;
+    private void renderSectionHeader(GuiGraphicsExtractor gui) {
+        var titleFont = Md3Fonts.title();
+        var labelFont = Md3Fonts.label();
+        String heading = searchBar.hasFilter() ? "Matching modules" : "Modules";
+        Md3Fonts.drawText(gui, titleFont, heading, listX, sectionHeaderY + 2,
+                Md3Theme.ON_SURFACE);
+
+        String count = visibleRows.size() + " shown";
+        float countW = Md3Fonts.width(labelFont, count);
+        Md3Fonts.drawText(gui, labelFont, count, listX + listWidth - countW,
+                sectionHeaderY + 5, Md3Theme.ON_SURFACE_VARIANT);
     }
 
-    // ── Input ───────────────────────────────────────────
+    private void renderModuleList(GuiGraphicsExtractor gui, int mouseX, int mouseY,
+                                  float partialTicks, int contentHeight) {
+        gui.enableScissor(listX, listY, listX + listWidth, listBottom);
+        if (visibleRows.isEmpty()) {
+            renderEmptyState(gui);
+        } else {
+            for (Md3ModuleComponent row : visibleRows) {
+                if (row.y + row.getTotalHeight() < listY || row.y > listBottom) continue;
+                row.render(gui, mouseX, mouseY, partialTicks);
+            }
+        }
+        gui.disableScissor();
+
+        if (maxScroll > 4) {
+            int trackH = listBottom - listY;
+            int thumbH = Math.min(trackH,
+                    Math.max(28, (int) (trackH * (trackH / (float) contentHeight))));
+            int thumbY = listY + (int) ((trackH - thumbH) * (scrollCurrent / maxScroll));
+            CustomRoundedRectRenderer.drawRoundedRect(gui, listX + listWidth - 4,
+                    thumbY, 3, thumbH, 2,
+                    Md3Theme.withAlpha(Md3Theme.ON_SURFACE_VARIANT, 0.34f));
+        }
+    }
+
+    private void renderEmptyState(GuiGraphicsExtractor gui) {
+        int centerX = listX + listWidth / 2;
+        int centerY = listY + Math.max(50, (listBottom - listY) / 2 - 12);
+        CustomRoundedRectRenderer.drawCircle(gui, centerX, centerY - 14, 44,
+                Md3Theme.SECONDARY_CONTAINER);
+
+        if (!searchBar.hasFilter() && rail.isFavoritesSelected()) {
+            Md3RenderUtils.drawHeartPlusIcon(gui, centerX, centerY - 14,
+                    22, Md3Theme.ON_SECONDARY_CONTAINER);
+        } else {
+            Md3RenderUtils.drawSearchIcon(gui, centerX - 7, centerY - 21, 15,
+                    Md3Theme.ON_SECONDARY_CONTAINER);
+        }
+
+        var titleFont = Md3Fonts.title();
+        var labelFont = Md3Fonts.label();
+        String title = searchBar.hasFilter() ? "No modules found" : "No favorites yet";
+        String message = searchBar.hasFilter()
+                ? "Try a shorter or different module name"
+                : "Select the heart on a module to pin it here";
+        float titleW = Md3Fonts.width(titleFont, title);
+        float messageW = Md3Fonts.width(labelFont, message);
+        Md3Fonts.drawText(gui, titleFont, title, centerX - titleW / 2f, centerY + 16,
+                Md3Theme.ON_SURFACE);
+        Md3Fonts.drawText(gui, labelFont, message, centerX - messageW / 2f, centerY + 34,
+                Md3Theme.ON_SURFACE_VARIANT);
+    }
+
+    private boolean inWindow(double mouseX, double mouseY) {
+        return mouseX >= winX && mouseX <= winX + winW
+                && mouseY >= renderWinY && mouseY <= renderWinY + winH;
+    }
+
+    private boolean inAppBar(double mouseX, double mouseY) {
+        return mouseX >= winX && mouseX <= winX + winW
+                && mouseY >= renderWinY && mouseY <= renderWinY + APP_BAR_H;
+    }
+
+    private boolean isOverClose(double mouseX, double mouseY) {
+        return mouseX >= winX + winW - 50 && mouseX <= winX + winW
+                && mouseY >= renderWinY && mouseY <= renderWinY + APP_BAR_H;
+    }
+
+    private boolean isOverList(double mouseX, double mouseY) {
+        return mouseX >= listX && mouseX <= listX + listWidth
+                && mouseY >= listY && mouseY <= listBottom;
+    }
 
     @Override
     public boolean mouseClicked(@NotNull MouseButtonEvent mouse, boolean idk) {
-        double mx = mouse.x(), my = mouse.y();
+        double mouseX = mouse.x();
+        double mouseY = mouse.y();
         int button = mouse.button();
 
-        if (button == 0 && inTitleBar(mx, my)) {
-            dragging = true;
-            // Finish the entrance animation so the window tracks the cursor 1:1
-            openAnim.snap(1f);
-            dragOffsetX = mx - winX;
-            dragOffsetY = my - winY;
-            return true;
-        }
-
-        if (!inWindow(mx, my)) {
+        if (!inWindow(mouseX, mouseY)) {
             if (openOverlay != null) {
                 openOverlay = null;
                 return true;
@@ -266,37 +338,41 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
         }
 
         if (openOverlay != null) {
-            if (openOverlay.contains(mx, my)) {
-                openOverlay.mouseClicked(mx, my, button);
+            if (openOverlay.contains(mouseX, mouseY)) {
+                openOverlay.mouseClicked(mouseX, mouseY, button);
             } else {
                 openOverlay = null;
             }
             return true;
         }
 
-        // Search bar (but rail has priority when expanded and under the cursor)
-        if (rail.isExpanded() && mx <= winX + rail.getCurrentWidth()) {
-            if (rail.mouseClicked(mx, my, button)) {
-                scrollTarget = 0f;
-                scrollAnim.snap(0f);
-                return true;
-            }
-        }
-
-        if (searchBar.mouseClicked(mx, my, button)) {
+        if (button == 0 && isOverClose(mouseX, mouseY)) {
+            onClose();
             return true;
         }
 
-        // Rail
-        if (rail.mouseClicked(mx, my, button)) {
-            scrollTarget = 0f;
-            scrollAnim.snap(0f);
+        if (searchBar.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
 
-        for (Md3ModuleComponent row : visibleRows) {
-            if (row.mouseClicked(mx, my, button)) {
-                return true;
+        if (button == 0 && inAppBar(mouseX, mouseY)) {
+            dragging = true;
+            openAnim.snap(1f);
+            dragOffsetX = mouseX - winX;
+            dragOffsetY = mouseY - winY;
+            return true;
+        }
+
+        if (rail.mouseClicked(mouseX, mouseY, button)) {
+            resetScroll();
+            return true;
+        }
+
+        if (isOverList(mouseX, mouseY)) {
+            for (Md3ModuleComponent row : visibleRows) {
+                if (row.mouseClicked(mouseX, mouseY, button)) {
+                    return true;
+                }
             }
         }
 
@@ -305,7 +381,8 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
 
     @Override
     public boolean mouseReleased(@NotNull MouseButtonEvent mouse) {
-        double mx = mouse.x(), my = mouse.y();
+        double mouseX = mouse.x();
+        double mouseY = mouse.y();
         int button = mouse.button();
 
         if (dragging && button == 0) {
@@ -313,14 +390,12 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
             return true;
         }
 
-        if (openOverlay != null) {
-            if (openOverlay.mouseReleased(mx, my, button)) {
-                return true;
-            }
+        if (openOverlay != null && openOverlay.mouseReleased(mouseX, mouseY, button)) {
+            return true;
         }
 
         for (Md3ModuleComponent row : allModules) {
-            if (row.mouseReleased(mx, my, button)) {
+            if (row.mouseReleased(mouseX, mouseY, button)) {
                 return true;
             }
         }
@@ -343,8 +418,7 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
             openOverlay = null;
             return true;
         }
-        if (mouseX >= listX && mouseX <= listX + listWidth
-                && mouseY >= listY && mouseY <= listBottom) {
+        if (isOverList(mouseX, mouseY)) {
             scrollTarget -= (float) (vScroll * SCROLL_SPEED);
             scrollTarget = Math.max(0, Math.min(scrollTarget, maxScroll));
             return true;
@@ -355,7 +429,7 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
     @Override
     public boolean keyPressed(KeyEvent keyCode) {
         int glfwKey = keyCode.input();
-        int mods = keyCode.modifiers();
+        int modifiers = keyCode.modifiers();
 
         if (glfwKey == GLFW.GLFW_KEY_ESCAPE) {
             if (openOverlay != null) {
@@ -364,14 +438,20 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
             }
             if (searchBar.hasFilter()) {
                 searchBar.clear();
+                resetScroll();
                 return true;
             }
-            this.onClose();
+            onClose();
             return true;
         }
 
-        // For a short period after opening, ignore letter/number keys so the
-        // ClickGui hotkey (e.g. 'o') is not typed into the search bar.
+        boolean control = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+        if (control && (glfwKey == GLFW.GLFW_KEY_K || glfwKey == GLFW.GLFW_KEY_F)) {
+            openOverlay = null;
+            searchBar.focus();
+            return true;
+        }
+
         if (System.currentTimeMillis() < ignoreKeyCharsUntil) {
             boolean isCharKey = (glfwKey >= GLFW.GLFW_KEY_A && glfwKey <= GLFW.GLFW_KEY_Z)
                     || (glfwKey >= GLFW.GLFW_KEY_0 && glfwKey <= GLFW.GLFW_KEY_9)
@@ -381,14 +461,19 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
             }
         }
 
-        if (searchBar.keyPressed(glfwKey, mods)) {
+        if (searchBar.keyPressed(glfwKey, modifiers)) {
+            resetScroll();
             return true;
         }
 
         return super.keyPressed(keyCode);
     }
 
-    // ── Md3Overlay.Host ─────────────────────────────────
+    private void resetScroll() {
+        scrollTarget = 0f;
+        scrollCurrent = 0f;
+        scrollAnim.snap(0f);
+    }
 
     @Override
     public void openOverlay(Md3Overlay overlay) {

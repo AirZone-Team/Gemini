@@ -1,103 +1,52 @@
 #version 330
 
-// ═══════════════════════════════════════════════════════════════════════
-//  Sweep Attack Post-Processing Fragment Shader
-//
-//  Compile-time defines select the active pass:
-//    SWEEP_DISTORT  — space distortion (heat haze / gravitational lensing)
-//    SWEEP_CHROMATIC — RGB channel separation (chromatic aberration)
-//
-//  Uniforms (SweepPostUniforms, std140, 32 bytes = 2 × vec4):
-//    vec4 Params:   fbWidth, fbHeight, time, 0
-//    vec4 Strength: distortStr, chromaticStr, 0, 0
-// ═══════════════════════════════════════════════════════════════════════
-
 uniform sampler2D SceneSampler;
 
 layout(std140) uniform SweepPostUniforms {
-    vec4 Params;     // x=fbW, y=fbH, z=time, w=0
-    vec4 Strength;   // x=distortStr, y=chromaticStr, z=0, w=0
+    vec4 Params;    // framebuffer width, height, time, unused
+    vec4 Strength;  // distortion, chromatic, flash, vignette
+    vec4 Tint;      // effect tint
 };
 
 in vec2 vUv;
 out vec4 fragColor;
 
-// ── Noise ──────────────────────────────────────────────────────
-
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
 
-float noise(vec2 p) {
+float noise2(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1,0)), f.x),
-               mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0)), f.x), f.y);
 }
 
-// ════════════════════════════════════════════════════════════════
-//  SWEEP_DISTORT: Space distortion
-// ════════════════════════════════════════════════════════════════
-
-#ifdef SWEEP_DISTORT
 void main() {
-    float strength = Strength.x * 0.05;
-    float time = Params.z;
+    vec2 centerVector = vUv - 0.5;
+    float distanceToCenter = length(centerVector);
+    vec2 direction = centerVector / max(distanceToCenter, 0.0001);
+    float lens = exp(-distanceToCenter * distanceToCenter * 5.0);
+    float wave = sin(distanceToCenter * 52.0 - Params.z * 13.0);
+    float grain = noise2(vUv * vec2(70.0, 42.0) + Params.z * 0.7) - 0.5;
+    float distortion = Strength.x * 0.018 * lens * (wave * 0.62 + grain * 0.38);
+    vec2 warpedUv = clamp(vUv + direction * distortion, vec2(0.001), vec2(0.999));
 
-    vec2 center = vec2(0.5);
-    vec2 dir = vUv - center;
-    float dist = length(dir);
+    float chromatic = Strength.y * 0.0065 * (0.3 + distanceToCenter) * lens;
+    vec3 scene;
+    scene.r = texture(SceneSampler, clamp(warpedUv + direction * chromatic,
+            vec2(0.001), vec2(0.999))).r;
+    scene.g = texture(SceneSampler, warpedUv).g;
+    scene.b = texture(SceneSampler, clamp(warpedUv - direction * chromatic,
+            vec2(0.001), vec2(0.999))).b;
 
-    // Radial distortion with noise modulation
-    float distort = strength / (dist + 0.1);
-    float n = noise(vUv * 60.0 + time * 0.8) * 0.5 + 0.5;
-    distort *= (0.6 + n * 0.8);
-    distort = min(distort, 0.06);
+    float flashMask = exp(-distanceToCenter * distanceToCenter * 9.0)
+            * (0.78 + 0.22 * sin(Params.z * 17.0));
+    scene += Tint.rgb * Strength.z * flashMask * 0.34;
 
-    vec2 offsetUv = vUv + normalize(dir + 0.001) * distort;
-
-    // Edge fade — stronger near center, faded at screen edges
-    float edgeFade = exp(-dist * dist * 2.0);
-
-    vec3 distorted = texture(SceneSampler, offsetUv).rgb;
-    vec3 original  = texture(SceneSampler, vUv).rgb;
-
-    fragColor = vec4(mix(original, distorted, edgeFade), 1.0);
+    float vignetteMask = smoothstep(0.18, 0.78, distanceToCenter);
+    scene *= 1.0 - Strength.w * vignetteMask * 0.42;
+    scene += Tint.rgb * Strength.w * lens * 0.035;
+    fragColor = vec4(scene, 1.0);
 }
-#endif
-
-// ════════════════════════════════════════════════════════════════
-//  SWEEP_CHROMATIC: RGB channel separation
-// ════════════════════════════════════════════════════════════════
-
-#ifdef SWEEP_CHROMATIC
-void main() {
-    float strength = Strength.y * 0.006;
-    float time = Params.z;
-
-    vec2 center = vec2(0.5);
-    vec2 dir = normalize(vUv - center + 0.001);
-    float dist = length(vUv - center);
-
-    // Scale offset by distance from center
-    float scale = strength * dist;
-
-    // Animate slightly
-    scale *= 1.0 + sin(time * 3.0) * 0.2;
-
-    float r = texture(SceneSampler, vUv + dir * scale).r;
-    float g = texture(SceneSampler, vUv).g;
-    float b = texture(SceneSampler, vUv - dir * scale).b;
-
-    fragColor = vec4(r, g, b, 1.0);
-}
-#endif
-
-// ── Fallback ──────────────────────────────────────────────────
-
-#if !defined(SWEEP_DISTORT) && !defined(SWEEP_CHROMATIC)
-void main() {
-    fragColor = texture(SceneSampler, vUv);
-}
-#endif

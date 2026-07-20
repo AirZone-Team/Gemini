@@ -1,10 +1,5 @@
 #version 330
 
-// Landing-point ring indicator.
-// UV0 maps the billboard quad 0→1; the ring is a procedural annulus
-// with a central glow.  vertexColor.rgb = ring colour,
-// vertexColor.a       = master opacity.
-
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;
     vec4 ColorModulator;
@@ -17,22 +12,42 @@ in vec2 uvCoord;
 
 out vec4 fragColor;
 
+float ring(float distanceFromCenter, float radius, float width) {
+    return 1.0 - smoothstep(width, width + 0.012, abs(distanceFromCenter - radius));
+}
+
 void main() {
-    vec2 uv = uvCoord - 0.5;
-    float dist = length(uv);
+    int style = int(floor(uvCoord.x + 0.0001));
+    vec2 point = vec2(fract(uvCoord.x), uvCoord.y) - 0.5;
+    float distanceFromCenter = length(point);
+    float shape = ring(distanceFromCenter, 0.39, 0.025);
+    float glow = exp(-abs(distanceFromCenter - 0.39) * 18.0) * 0.42;
 
-    // Ring (annulus) centred at ~0.40, half-width ~0.06
-    float ringOuter = 0.46;
-    float ringInner = 0.34;
-    float ring = 1.0 - smoothstep(ringInner, ringInner + 0.04, dist)
-               - 1.0 + smoothstep(ringOuter - 0.04, ringOuter, dist);
-    ring = clamp(ring, 0.0, 1.0);
+    if (style >= 1) {
+        float crosshair = max(
+            step(abs(point.x), 0.013) * step(0.18, abs(point.y)),
+            step(abs(point.y), 0.013) * step(0.18, abs(point.x))
+        );
+        float corners = ring(distanceFromCenter, 0.29, 0.012)
+            * step(0.72, abs(sin(atan(point.y, point.x) * 4.0)));
+        shape = max(shape, max(crosshair, corners));
+    }
 
-    // Central glow — bright spot that fades radially
-    float glow = exp(-dist * 8.0) * 0.6;
+    if (style >= 2) {
+        float angle = atan(point.y, point.x);
+        float runes = ring(distanceFromCenter, 0.24, 0.010)
+            * step(0.48, sin(angle * 12.0) * 0.5 + 0.5);
+        float spokes = step(0.93, cos(angle * 8.0))
+            * smoothstep(0.12, 0.20, distanceFromCenter)
+            * (1.0 - smoothstep(0.28, 0.34, distanceFromCenter));
+        float center = exp(-distanceFromCenter * 18.0) * 0.78;
+        shape = max(shape, max(runes, max(spokes, center)));
+    }
 
-    float alpha = max(ring, glow) * vertexColor.a;
-    if (alpha < 0.004) discard;
+    float alpha = clamp(shape + glow, 0.0, 1.0) * vertexColor.a;
+    if (alpha < 0.004 || distanceFromCenter > 0.52) discard;
 
-    fragColor = vec4(vertexColor.rgb, alpha) * ColorModulator;
+    vec3 color = vertexColor.rgb * (shape * 1.4 + glow);
+    color += vec3(1.0) * shape * shape * 0.28;
+    fragColor = vec4(color, alpha) * ColorModulator;
 }

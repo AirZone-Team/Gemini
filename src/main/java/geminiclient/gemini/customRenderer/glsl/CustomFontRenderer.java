@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -97,9 +98,10 @@ public class CustomFontRenderer {
     private static final String FALLBACK_FONT_NAME = "SansSerif";
 
     // MSDF generation parameters. MsdfGenerator.RANGE is the single source of
-    // truth for the field range — padding is derived from it (field extent
-    // RANGE/2 + bilinear bleed + clash-detection margin).
-    private static final int SDF_PADDING = (int) MsdfGenerator.RANGE + 8;
+    // truth for the field range. The representable extent is RANGE/2 on
+    // either side of the contour; two extra texels isolate bilinear samples.
+    private static final int SDF_PADDING =
+            (int) Math.ceil(MsdfGenerator.RANGE * 0.5) + 2;
 
     /**
      * Raster resolution targeted when converting outlines to distance fields,
@@ -173,7 +175,7 @@ public class CustomFontRenderer {
 
     static final class AtlasPage {
         final Identifier textureId;
-        DynamicTexture texture;
+        FontAtlasTexture texture;
         NativeImage nativeImage;
         float invW, invH;
 
@@ -184,6 +186,21 @@ public class CustomFontRenderer {
         TextureSetup textureSetup() {
             return TextureSetup.singleTexture(
                     texture.getTextureView(), texture.getSampler());
+        }
+    }
+
+    /**
+     * Linear, clamp-to-edge atlas texture.
+     *
+     * <p>Reflecting {@link DynamicTexture}'s sampler field by name fails in an
+     * obfuscated production jar and silently leaves nearest-neighbour
+     * filtering enabled. Protected-field access is remapped normally.</p>
+     */
+    private static final class FontAtlasTexture extends DynamicTexture {
+        FontAtlasTexture(Identifier textureId, NativeImage image) {
+            super(textureId::toDebugFileName, image);
+            this.sampler = RenderSystem.getSamplerCache()
+                    .getClampToEdge(FilterMode.LINEAR);
         }
     }
 
@@ -282,7 +299,7 @@ public class CustomFontRenderer {
             NativeImage nativeImage = new NativeImage(ATLAS_SIZE, ATLAS_SIZE, true);
             writeMetadataTexel(nativeImage);
             page.nativeImage = nativeImage;
-            page.texture = new DynamicTexture(page.textureId::toDebugFileName, nativeImage);
+            page.texture = new FontAtlasTexture(page.textureId, nativeImage);
             mc.getTextureManager().register(page.textureId, page.texture);
 
             pages.add(page);
@@ -290,9 +307,10 @@ public class CustomFontRenderer {
         }
 
         /**
-         * Writes the self-describing atlas metadata into texel (0,0): the R
-         * channel stores {@code round(RANGE * METADATA_RANGE_SCALE)} (see
-         * {@link MsdfGenerator}). font.fsh reads it back with
+         * Writes the self-describing atlas metadata into texel (0,0):
+         * {@code round(RANGE * METADATA_RANGE_SCALE)} is stored as unsigned
+         * 16-bit fixed point in R (low byte) and G (high byte). font.fsh reads
+         * it back with
          * {@code texelFetch(Sampler0, ivec2(0,0), 0)}, so the shader's
          * {@code pxRange} always matches the generator — no mirrored constant.
          * All other unwritten texels stay 0 = "maximally outside", consistent
@@ -301,8 +319,10 @@ public class CustomFontRenderer {
          */
         private static void writeMetadataTexel(NativeImage image) {
             int encoded = (int) Math.round(MsdfGenerator.RANGE * MsdfGenerator.METADATA_RANGE_SCALE);
+            int low = encoded & 0xFF;
+            int high = (encoded >>> 8) & 0xFF;
             // NativeImage stores ABGR: A=bits31..24, B=23..16, G=15..8, R=7..0
-            image.setPixel(0, 0, (0xFF << 24) | encoded);
+            image.setPixel(0, 0, (0xFF << 24) | (high << 8) | low);
         }
 
         public Glyph getGlyph(int codePoint) {
@@ -410,7 +430,7 @@ public class CustomFontRenderer {
             Shape outline = glyphVector.getOutline(drawX, drawY);
             // Per channel: 0 = RANGE/2 px outside, 128 = on the edge,
             // 255 = RANGE/2 px inside. The shader reads median(R, G, B),
-            // falling back to the true SDF in A where the median saturates.
+            // while A retains the true SDF for effects that require it.
             byte[] msdfPixels = MsdfGenerator.generate(outline, cellWidth, cellHeight);
 
             // Build the Glyph and register in maps BEFORE flushCurrentPage
@@ -484,22 +504,9 @@ public class CustomFontRenderer {
             pendingSlots.clear();
             pendingMsdfData.clear();
             page.texture.upload();
-            setLinearFilter(page.texture);
 
             // Debug: dump atlas to file (uncomment to inspect)
             // dumpAtlasToPng(this, new File("atlas_debug.png"));
-        }
-
-        private static void setLinearFilter(DynamicTexture texture) {
-            try {
-                java.lang.reflect.Field field = texture.getClass().getSuperclass()
-                        .getDeclaredField("sampler");
-                field.setAccessible(true);
-                field.set(texture, com.mojang.blaze3d.systems.RenderSystem.getSamplerCache()
-                        .getRepeat(FilterMode.LINEAR));
-            } catch (Exception e) {
-                LOGGER.warn("Failed to set LINEAR filter on font atlas texture", e);
-            }
         }
 
         void ensureReady() {

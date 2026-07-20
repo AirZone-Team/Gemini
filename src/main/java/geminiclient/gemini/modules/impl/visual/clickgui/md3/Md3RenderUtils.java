@@ -1,45 +1,70 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3;
 
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.customRenderer.glsl.SdfUIRenderer;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.modules.impl.visual.ClickGui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.resources.Identifier;
+
+import java.util.EnumMap;
+import java.util.Map;
+
+import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
- * MD3 control primitives drawn entirely from rounded-rect / fill geometry:
- * switches, sliders, hearts, chevrons, checks, category icons, ripples.
- * No texture assets and no font-glyph dependency.
+ * MD3 control primitives. Category and favorite icons are drawn from the
+ * clickgui texture set; small control affordances remain SDF/geometry based.
  */
 public final class Md3RenderUtils {
+
+    private static final int ICON_TEX_SIZE = 24;
+    private static final Identifier FAVORITE = icon("favorite");
+    private static final Identifier HEART_PLUS = icon("heart_plus");
+    private static final Map<ModuleEnum, Identifier> CATEGORY_ICONS = new EnumMap<>(ModuleEnum.class);
+
+    static {
+        CATEGORY_ICONS.put(ModuleEnum.Combat, icon("swords"));
+        CATEGORY_ICONS.put(ModuleEnum.Movement, icon("accessible_forward"));
+        CATEGORY_ICONS.put(ModuleEnum.Player, icon("person"));
+        CATEGORY_ICONS.put(ModuleEnum.Visual, icon("blur_medium"));
+    }
 
     private Md3RenderUtils() {
     }
 
     // ── Switch ──────────────────────────────────────────
 
-    // Scaled-down MD3 switch (0.75x of the 52x32 spec) to match GUI text scale
-    public static final int SWITCH_W = 40;
-    public static final int SWITCH_H = 24;
+    // Scaled-down MD3 switch (0.75x of the 52x32 spec) to match GUI scale.
+    public static int switchWidth() { return ClickGui.md3SwitchWidth(); }
+
+    public static int switchHeight() { return ClickGui.md3SwitchHeight(); }
 
     /**
      * MD3 switch. {@code progress} is the animated 0..1 on/off value.
      */
     public static void drawSwitch(GuiGraphicsExtractor gui, int x, int y,
                                   float progress, boolean hovered, boolean pressed) {
+        int switchW = switchWidth();
+        int switchH = switchHeight();
         float p = Md3Anim.easeInOutCubic(clamp01(progress));
 
         // Track
         int trackColor = Md3Theme.lerpColor(Md3Theme.SURFACE_CONTAINER_HIGHEST, Md3Theme.PRIMARY, p);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, SWITCH_W, SWITCH_H, SWITCH_H / 2, trackColor);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, switchW, switchH, switchH / 2, trackColor);
         if (p < 0.98f) {
             int outlineCol = Md3Theme.modulateAlpha(Md3Theme.OUTLINE, 1.0f - p);
-            CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, SWITCH_W, SWITCH_H, SWITCH_H / 2, outlineCol, 1);
+            CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, switchW, switchH, switchH / 2, outlineCol, 1);
         }
 
-        // Thumb: diameter 12 -> 17 (pressed widens), travels left -> right
-        float d = 12f + (17f - 12f) * p;
-        if (pressed) d += 3f;
-        float cx = x + SWITCH_H / 2f + (SWITCH_W - SWITCH_H) * p;
-        float cy = y + SWITCH_H / 2f;
+        // Handle: 12px off, 18px on. Pressing grows it like the MD3 state.
+        float offD = switchH * 0.5f;
+        float onD = switchH * 0.75f;
+        float d = offD + (onD - offD) * p;
+        if (pressed) d += switchH * 0.12f;
+        float cx = x + switchH / 2f + (switchW - switchH) * p;
+        float cy = y + switchH / 2f;
 
         // Hover/press state layer halo
         if (hovered || pressed) {
@@ -54,6 +79,13 @@ public final class Md3RenderUtils {
         int di = Math.round(d);
         CustomRoundedRectRenderer.drawRoundedRect(gui,
                 (int) cx - di / 2, (int) cy - di / 2, di, di, di / 2, thumbColor);
+
+        // Selected check appears only after there is enough room in the handle.
+        if (p > 0.62f) {
+            int checkColor = Md3Theme.modulateAlpha(Md3Theme.PRIMARY, (p - 0.62f) / 0.38f);
+            int checkSize = Math.max(8, Math.round(switchH * 0.42f));
+            drawCheck(gui, Math.round(cx) - checkSize / 2, Math.round(cy) - checkSize / 2, checkSize, checkColor);
+        }
     }
 
     // ── Slider ──────────────────────────────────────────
@@ -66,30 +98,41 @@ public final class Md3RenderUtils {
     public static int drawSlider(GuiGraphicsExtractor gui, int x, int y, int w,
                                  float fraction, boolean active) {
         fraction = clamp01(fraction);
-        int trackH = 4;
+        int trackH = ClickGui.md3SliderTrackHeight();
         int trackY = y - trackH / 2;
-        int thumbD = active ? 22 : 20;
+        int thumbD = ClickGui.md3SliderHandleHeight(active);
         int thumbX = x + Math.round(w * fraction);
 
-        // Inactive track (with a gap around the thumb, per MD3)
-        CustomRoundedRectRenderer.drawRoundedRect(gui, x, trackY, w, trackH, trackH / 2,
-                Md3Theme.SURFACE_CONTAINER_HIGHEST);
-
-        // Active track
-        int activeW = Math.max(trackH, thumbX - x);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, x, trackY, activeW, trackH, trackH / 2,
-                Md3Theme.PRIMARY);
+        // Tracks leave a small visual gap around the handle.
+        int gap = Math.max(3, thumbD / 3);
+        int activeEnd = Math.max(x, thumbX - gap);
+        int inactiveStart = Math.min(x + w, thumbX + gap);
+        if (activeEnd > x) {
+            CustomRoundedRectRenderer.drawRoundedRect(gui, x, trackY, activeEnd - x, trackH,
+                    trackH / 2, Md3Theme.PRIMARY);
+        }
+        if (inactiveStart < x + w) {
+            CustomRoundedRectRenderer.drawRoundedRect(gui, inactiveStart, trackY,
+                    x + w - inactiveStart, trackH, trackH / 2,
+                    Md3Theme.SURFACE_CONTAINER_HIGHEST);
+        }
 
         // Stop indicator dot at the max end
         CustomRoundedRectRenderer.drawRoundedRect(gui, x + w - 3, y - 2, 4, 4, 2,
                 Md3Theme.OUTLINE);
 
-        // Thumb: primary ring with surface-colored core (M3 style)
+        if (active) {
+            CustomRoundedRectRenderer.drawRoundedRect(gui,
+                    thumbX - (thumbD + 10) / 2, y - (thumbD + 10) / 2,
+                    thumbD + 10, thumbD + 10, (thumbD + 10) / 2,
+                    Md3Theme.hoverState(Md3Theme.PRIMARY));
+        }
+
+        // The current MD3 handle is a narrow vertical pill.
+        int handleW = active ? 5 : 4;
         CustomRoundedRectRenderer.drawRoundedRect(gui,
-                thumbX - thumbD / 2, y - thumbD / 2, thumbD, thumbD, thumbD / 2, Md3Theme.PRIMARY);
-        int core = thumbD - 10;
-        CustomRoundedRectRenderer.drawRoundedRect(gui,
-                thumbX - core / 2, y - core / 2, core, core, core / 2, Md3Theme.SURFACE);
+                thumbX - handleW / 2, y - thumbD / 2, handleW, thumbD,
+                handleW / 2, Md3Theme.PRIMARY);
 
         return thumbX;
     }
@@ -108,47 +151,17 @@ public final class Md3RenderUtils {
 
     // ── Heart (favorite) ────────────────────────────────
 
-    // 11x9 heart bitmap
-    private static final String[] HEART = {
-            ".XXX...XXX.",
-            "XXXXX.XXXXX",
-            "XXXXXXXXXXX",
-            "XXXXXXXXXXX",
-            ".XXXXXXXXX.",
-            "..XXXXXXX..",
-            "...XXXXX...",
-            "....XXX....",
-            ".....X....."
-    };
+    public static void drawFavoriteIcon(GuiGraphicsExtractor gui, int cx, int cy,
+                                        int size, float favoriteProgress,
+                                        int idleColor, int selectedColor) {
+        float p = Md3Anim.easeInOutCubic(clamp01(favoriteProgress));
+        int idleSize = Math.round(size * (1.0f - 0.10f * p));
+        int selectedSize = Math.round(size * (0.78f + 0.22f * p));
 
-    /**
-     * Heart icon. When {@code filled} is false, draws an outline heart by
-     * stamping the bitmap in {@code color} then erasing the inner cells with
-     * {@code background}.
-     */
-    public static void drawHeart(GuiGraphicsExtractor gui, int x, int y, int cell,
-                                 boolean filled, int color, int background) {
-        stampHeart(gui, x, y, cell, color);
-        if (!filled) {
-            // erase the inner cells -> 1-cell outline
-            stampHeart(gui, x, y, cell, background, 1);
-        }
-    }
-
-    private static void stampHeart(GuiGraphicsExtractor gui, int x, int y, int cell, int color) {
-        stampHeart(gui, x, y, cell, color, 0);
-    }
-
-    private static void stampHeart(GuiGraphicsExtractor gui, int x, int y, int cell, int color, int inset) {
-        for (int row = inset; row < HEART.length - inset; row++) {
-            String line = HEART[row];
-            for (int col = inset; col < line.length() - inset; col++) {
-                if (line.charAt(col) == 'X') {
-                    gui.fill(x + col * cell, y + row * cell,
-                            x + (col + 1) * cell, y + (row + 1) * cell, color);
-                }
-            }
-        }
+        drawTextureIcon(gui, FAVORITE, cx, cy, idleSize,
+                Md3Theme.modulateAlpha(idleColor, 1.0f - p));
+        drawTextureIcon(gui, HEART_PLUS, cx, cy, selectedSize,
+                Md3Theme.modulateAlpha(selectedColor, p));
     }
 
     // ── Search / chevron / check icons ──────────────────
@@ -163,28 +176,19 @@ public final class Md3RenderUtils {
         gui.fill(hx + 3, hy + 3, hx + 6, hy + 5, color);
     }
 
-    /** Chevron pointing down (or up), drawn as a two-armed staircase. */
+    /** Anti-aliased chevron pointing down or up. */
     public static void drawChevron(GuiGraphicsExtractor gui, int cx, int cy, int size,
                                    boolean up, int color) {
-        int half = size / 2;
-        for (int i = 0; i < half; i++) {
-            int yy = up ? cy + half - i : cy - half + i;
-            gui.fill(cx - half + i, yy, cx - half + i + 2, yy + 2, color);
-            gui.fill(cx + half - i - 2, yy, cx + half - i, yy + 2, color);
-        }
+        SdfUIRenderer.drawIcon(gui, cx, cy, Math.max(11, size + 4),
+                up ? SdfUIRenderer.ICON_CHEVRON_UP : SdfUIRenderer.ICON_CHEVRON_DOWN,
+                color);
     }
 
-    /** Check mark (menu selected indicator). */
+    /** Anti-aliased check mark used by menus and selected switches. */
     public static void drawCheck(GuiGraphicsExtractor gui, int x, int y, int size, int color) {
-        int u = Math.max(1, size / 6);
-        // short arm (down-right)
-        for (int i = 0; i < 2; i++) {
-            gui.fill(x + i * u, y + 2 * u + i * u, x + (i + 1) * u, y + 2 * u + (i + 1) * u + u, color);
-        }
-        // long arm (up-right)
-        for (int i = 0; i < 4; i++) {
-            gui.fill(x + (2 + i) * u, y + (4 - i) * u, x + (3 + i) * u, y + (5 - i) * u, color);
-        }
+        int iconSize = Math.max(10, size);
+        SdfUIRenderer.drawIcon(gui, x + size / 2f, y + size / 2f,
+                iconSize, SdfUIRenderer.ICON_CHECK, color);
     }
 
     /** Hamburger menu icon (three horizontal lines). */
@@ -198,53 +202,59 @@ public final class Md3RenderUtils {
         }
     }
 
-    // ── Category icons ──────────────────────────────────
+    /** Anti-aliased close icon. */
+    public static void drawClose(GuiGraphicsExtractor gui, int cx, int cy, int size, int color) {
+        SdfUIRenderer.drawIcon(gui, cx, cy, Math.max(10, size),
+                SdfUIRenderer.ICON_CLOSE, color);
+    }
 
-    /** Simple 24px vector icons per category, composed from fills. */
-    public static void drawCategoryIcon(GuiGraphicsExtractor gui, ModuleEnum category,
-                                        int cx, int cy, int size, int color) {
-        int x = cx - size / 2, y = cy - size / 2;
-        switch (category) {
-            case Combat -> {
-                // Sword: diagonal blade + guard
-                int n = size - 8;
-                for (int i = 0; i < n; i++) {
-                    gui.fill(x + 4 + i, y + size - 6 - i, x + 7 + i, y + size - 3 - i, color);
-                }
-                gui.fill(x + 2, y + size - 8, x + 9, y + size - 5, color);   // guard
-                gui.fill(x, y + size - 4, x + 4, y + size, color);           // pommel
-            }
-            case Movement -> {
-                // Double chevron right
-                drawChevronRight(gui, x + 3, cy, size - 8, color);
-                drawChevronRight(gui, x + size / 2 + 2, cy, size - 8, color);
-            }
-            case Player -> {
-                // Person: head + shoulders
-                int head = size / 3;
-                CustomRoundedRectRenderer.drawRoundedRect(gui,
-                        cx - head / 2, y + 1, head, head, head / 2, color);
-                CustomRoundedRectRenderer.drawRoundedRect(gui,
-                        cx - size / 2 + 3, y + head + 4, size - 6, size - head - 5,
-                        (size - 6) / 2 > 6 ? 6 : (size - 6) / 2, color);
-            }
-            case Visual -> {
-                // Eye: rounded outline + pupil
-                CustomRoundedRectRenderer.drawRoundedRect(gui, x + 1, cy - size / 4,
-                        size - 2, size / 2, size / 4, color);
-                int pupil = size / 4;
-                CustomRoundedRectRenderer.drawRoundedRect(gui, cx - pupil / 2, cy - pupil / 2,
-                        pupil, pupil, pupil / 2, Md3Theme.SURFACE);
-            }
+    /** Four-point Gemini brand sparkle used by the top app bar. */
+    public static void drawSparkle(GuiGraphicsExtractor gui, int cx, int cy, int size, int color) {
+        int half = Math.max(2, size / 2);
+        int bar = Math.max(2, size / 5);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, cx - bar / 2, cy - half,
+                bar, half * 2, bar / 2, color);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, cx - half, cy - bar / 2,
+                half * 2, bar, bar / 2, color);
+
+        int inset = Math.max(1, size / 4);
+        int cut = Md3Theme.PRIMARY_CONTAINER;
+        for (int i = 0; i < inset; i++) {
+            gui.fill(cx - half, cy - half + i, cx - half + inset - i, cy - half + i + 1, cut);
+            gui.fill(cx + half - inset + i, cy - half + i, cx + half, cy - half + i + 1, cut);
+            gui.fill(cx - half, cy + half - i - 1, cx - half + inset - i, cy + half - i, cut);
+            gui.fill(cx + half - inset + i, cy + half - i - 1, cx + half, cy + half - i, cut);
         }
     }
 
-    private static void drawChevronRight(GuiGraphicsExtractor gui, int x, int cy, int size, int color) {
-        int half = size / 2;
-        for (int i = 0; i < half; i++) {
-            gui.fill(x + i, cy - half + i, x + i + 2, cy - half + i + 2, color);
-            gui.fill(x + i, cy + half - i - 2, x + i + 2, cy + half - i, color);
-        }
+    // ── Category icons ──────────────────────────────────
+
+    public static void drawCategoryIcon(GuiGraphicsExtractor gui, ModuleEnum category,
+                                        int cx, int cy, int size, int color) {
+        drawTextureIcon(gui, CATEGORY_ICONS.get(category), cx, cy, size, color);
+    }
+
+    public static void drawHeartPlusIcon(GuiGraphicsExtractor gui, int cx, int cy, int size, int color) {
+        drawTextureIcon(gui, HEART_PLUS, cx, cy, size, color);
+    }
+
+    private static Identifier icon(String name) {
+        return getIdentifier("icon/clickgui/" + name + ".png");
+    }
+
+    private static void drawTextureIcon(GuiGraphicsExtractor gui, Identifier texture,
+                                        int cx, int cy, int size, int color) {
+        if (texture == null || size <= 0 || ((color >>> 24) & 0xFF) == 0) return;
+        var pose = gui.pose();
+        pose.pushMatrix();
+        pose.translate(cx - size / 2f, cy - size / 2f);
+        float scale = size / (float) ICON_TEX_SIZE;
+        pose.scale(scale, scale);
+        gui.blit(RenderPipelines.GUI_TEXTURED, texture,
+                0, 0, 0, 0,
+                ICON_TEX_SIZE, ICON_TEX_SIZE,
+                ICON_TEX_SIZE, ICON_TEX_SIZE, color);
+        pose.popMatrix();
     }
 
     // ── Ripple ──────────────────────────────────────────

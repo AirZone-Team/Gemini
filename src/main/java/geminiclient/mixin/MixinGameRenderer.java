@@ -141,9 +141,9 @@ public class MixinGameRenderer {
             if (stage == KillEffectInstance.STAGE_BLACK_HOLE) {
                 entry = smoothstep01(progress / 0.15f);
             }
-            distort  = 0.7f * entry;
-            godRay   = 0.3f * entry;
-            chromatic = 0.15f * entry;
+            distort  = 0.85f * entry;
+            godRay   = 0.45f * entry;
+            chromatic = 0.20f * entry;
 
             // Distortion decays during collapse as the hole vanishes;
             // god rays and chromatic also wind down to zero so nothing
@@ -161,10 +161,10 @@ public class MixinGameRenderer {
         } else if (stage == KillEffectInstance.STAGE_FLASH) {
             // ── Glow flash: multi-pulse light emission after void ──
             float entry = smoothstep01(progress / 0.10f);
-            bloom    = Math.max(bloom, 2.5f * entry);
-            chromatic = 0.8f * entry;
-            godRay   = 1.0f * entry;
-            radius   = 30f * entry;
+            bloom    = Math.max(bloom, 3.2f * entry);
+            chromatic = 1.0f * entry;
+            godRay   = 1.35f * entry;
+            radius   = 36f * entry;
 
             // Flash intensity: bell-curve pulse
             float t = progress;
@@ -178,15 +178,16 @@ public class MixinGameRenderer {
 
         } else if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
             // ── Hypernova explosion (enhanced) ────────────────────
-            // Blend FROM the flash stage's end values (bloom 2.5, godRay 1.0,
-            // chromatic 0.8, radius 30) INTO hypernova's own — the entry ramp
+            // Blend from the flash into a sustained, more violent detonation.
             // interpolates instead of snapping down and back up.
             float entry = smoothstep01(progress / 0.05f);
-            bloom    = Math.max(bloom, 2.5f + (2.0f - 2.5f) * entry);
-            godRay   = 1.0f + (1.2f - 1.0f) * entry;
-            chromatic = 0.8f + (0.5f - 0.8f) * entry;
-            distort  = 0.6f * entry;
-            radius   = 30f + (24f - 30f) * entry;
+            float pulse = 0.90f + 0.10f
+                    * Math.abs((float)Math.sin(progress * Math.PI * 7.0f));
+            bloom    = Math.max(bloom, (3.2f + (3.0f - 3.2f) * entry) * pulse);
+            godRay   = 1.35f + (1.75f - 1.35f) * entry;
+            chromatic = 1.0f + (0.72f - 1.0f) * entry;
+            distort  = 0.88f * entry;
+            radius   = 36f + (40f - 36f) * entry;
 
             bhStage     = 8;
             bhProgress  = progress;    // → SHOCKWAVE / FLASH_SCREEN / AFTERIMAGE progress
@@ -194,18 +195,17 @@ public class MixinGameRenderer {
 
         } else if (stage == KillEffectInstance.STAGE_AFTERGLOW) {
             // ── Afterglow: decay FROM hypernova's end values ─────────
-            // Start exactly where stage 8 left off (bloom 2.0, distort 0.6,
-            // godRay 1.2, chromatic 0.5, radius 24) so the boundary is
+            // Start exactly where stage 8 left off so the boundary is
             // continuous; godRay keeps a 0.35 floor that the fade-out
             // stage then carries to zero.
             float d1 = 1.0f - progress;
             float decay = d1 * d1;
 
-            bloom    = Math.max(killEffect.getBloomStrength() * mergeMult * 1.4f, 2.0f) * decay;
-            distort  = 0.6f * decay;
-            godRay   = 0.35f + 0.85f * decay;
-            chromatic = 0.5f * decay;
-            radius   = 24f * decay;
+            bloom    = Math.max(killEffect.getBloomStrength() * mergeMult * 1.4f, 2.7f) * decay;
+            distort  = 0.88f * decay;
+            godRay   = 0.35f + 1.40f * decay;
+            chromatic = 0.72f * decay;
+            radius   = 40f * decay;
 
             // No black hole / flash / shockwave passes during afterglow
             bhStage     = 0;
@@ -252,44 +252,45 @@ public class MixinGameRenderer {
                 // doesn't snap on at the tower→BH boundary.
                 float entry = (stage == KillEffectInstance.STAGE_BLACK_HOLE)
                         ? smoothstep01(progress / 0.15f) : 1f;
-                li  = 0.5f * entry;
-                lr  = 20f;
+                li  = 0.75f * entry;
+                lr  = 24f;
                 lcR = 1f; lcG = 0.55f; lcB = 0.15f;
             } else if (stage == KillEffectInstance.STAGE_COLLAPSE) {
                 // Energy builds as the hole collapses, then dies with it —
                 // fade the light out over the last 30% so the transition
                 // into the silent VOID stage has no light pop.
                 float dieOut = 1f - smoothstep01((progress - 0.7f) / 0.3f);
-                li  = (0.5f + progress * 0.8f) * dieOut;
-                lr  = 20f + progress * 8f;
+                li  = (0.75f + progress * 1.05f) * dieOut;
+                lr  = 24f + progress * 10f;
                 lcR = 1f; lcG = 0.60f; lcB = 0.20f;
             } else if (stage == KillEffectInstance.STAGE_FLASH) {
                 // Pulse with the flash bell curve, white-hot
-                li  = 2.0f * bhIntensity;
-                lr  = 34f;
+                li  = 2.8f * bhIntensity;
+                lr  = 42f;
                 lcR = 1f; lcG = 0.97f; lcB = 0.90f;
             } else if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
                 // Blinding at detonation, slow ease-out decay
                 float entry = smoothstep01(progress / 0.05f);
-                li  = 2.8f * (1f - progress * 0.45f) * entry;
-                lr  = 44f;
+                float stellarPulse = 0.90f + 0.10f
+                        * Math.abs((float)Math.sin(progress * Math.PI * 7.0f));
+                li  = 4.2f * (1f - progress * 0.35f) * entry * stellarPulse;
+                lr  = 54f;
                 lcR = 1f; lcG = 0.95f; lcB = 0.85f;
             } else if (stage == KillEffectInstance.STAGE_AFTERGLOW) {
-                // Residual ember. Starts exactly at hypernova's end
-                // (li 1.54, lr 44, color 1.0/0.95/0.85) and decays to the
+                // Residual ember starts at the sustained hypernova's endpoint.
                 // fade-out stage's entry (li 0.5, lr 26, color 1.0/0.60/0.28).
                 float d1 = 1.0f - progress;
                 float decay = d1 * d1;
-                li  = 0.5f + 1.04f * decay;
-                lr  = 26f + 18f * decay;
+                li  = 0.55f + 1.91f * decay;
+                lr  = 28f + 26f * decay;
                 lcR = 1f; lcG = 0.60f + 0.35f * decay; lcB = 0.28f + 0.57f * decay;
             } else if (stage == KillEffectInstance.STAGE_FADE_OUT) {
                 // Last ember dying out with the fade-out smoothstep —
                 // starts at the afterglow floor (0.5) and falls to zero.
                 float t = progress;
                 float fade = 1f - t * t * (3f - 2f * t);
-                li  = 0.5f * fade;
-                lr  = 16f + 10f * fade;
+                li  = 0.55f * fade;
+                lr  = 17f + 11f * fade;
                 lcR = 1f; lcG = 0.50f + 0.10f * fade; lcB = 0.22f + 0.06f * fade;
             }
             // STAGE_VOID (6): li stays 0 — dead silence, no light.
@@ -304,9 +305,13 @@ public class MixinGameRenderer {
                 lightColor = new float[]{lcR, lcG, lcB, li};
                 // SSRT only during flash/hypernova; fade it out across the
                 // hypernova stage so it doesn't cut at the afterglow boundary.
-                ssrIntensity = stage == KillEffectInstance.STAGE_FLASH ? 0.7f
-                        : stage == KillEffectInstance.STAGE_HYPERNOVA ? 0.7f * (1f - progress)
+                ssrIntensity = stage == KillEffectInstance.STAGE_FLASH ? 0.9f
+                        : stage == KillEffectInstance.STAGE_HYPERNOVA
+                        ? 0.9f * (1f - smoothstep01((progress - 0.35f) / 0.50f))
                         : 0f;
+                if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
+                    volumetricSteps = 24;
+                }
             }
         }
 

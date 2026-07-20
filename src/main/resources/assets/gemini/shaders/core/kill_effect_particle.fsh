@@ -49,6 +49,12 @@ void main() {
     bool skyMode   = vertexColor.g > 0.75;
     bool burstMode = vertexColor.g > 0.24 && vertexColor.g <= 0.75;
 
+    // Sky motes get a tiny diffraction cross; hot debris gets a broader halo.
+    float diffraction = (exp(-abs(p.x) * 30.0) * exp(-abs(p.y) * 3.5)
+                       + exp(-abs(p.y) * 30.0) * exp(-abs(p.x) * 3.5)) * 0.28;
+    if (skyMode) brightness += diffraction;
+    if (burstMode) brightness += exp(-d * d * 1.15) * 0.18;
+
     vec3 color;
     if (skyMode) {
         // ── Sky particle mode: cool celestial tones ─────────────

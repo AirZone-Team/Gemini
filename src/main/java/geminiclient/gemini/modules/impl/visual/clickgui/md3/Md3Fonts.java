@@ -5,6 +5,8 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.Nullable;
 
+import java.awt.Font;
+
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
@@ -22,8 +24,8 @@ public final class Md3Fonts {
 
     private static final Identifier GOOGLE_SANS = getIdentifier("font/googlesans-regular.ttf");
 
-    private static final float SIZE_DISPLAY = 18f;  // hero card title
-    private static final float SIZE_TITLE   = 12f;  // module row name
+    private static final float SIZE_DISPLAY = 22f;  // hero card headline
+    private static final float SIZE_TITLE   = 12f;  // module/title medium
     private static final float SIZE_BODY    = 10f;  // value labels, menu items
     private static final float SIZE_LABEL   = 9f;   // rail labels, supporting text, chips
     private static final float SIZE_SEARCH  = 11f;  // search bar text
@@ -43,8 +45,10 @@ public final class Md3Fonts {
     private static CustomFontRenderer.@Nullable GlyphFont get(int which) {
         try {
             return switch (which) {
-                case 0 -> display != null ? display : (display = CustomFontRenderer.loadFont(GOOGLE_SANS, SIZE_DISPLAY));
-                case 1 -> title   != null ? title   : (title   = CustomFontRenderer.loadFont(GOOGLE_SANS, SIZE_TITLE));
+                case 0 -> display != null ? display : (display = CustomFontRenderer.loadFont(
+                        GOOGLE_SANS, SIZE_DISPLAY, Font.BOLD));
+                case 1 -> title   != null ? title   : (title   = CustomFontRenderer.loadFont(
+                        GOOGLE_SANS, SIZE_TITLE, Font.BOLD));
                 case 2 -> body    != null ? body    : (body    = CustomFontRenderer.loadFont(GOOGLE_SANS, SIZE_BODY));
                 case 3 -> label   != null ? label   : (label   = CustomFontRenderer.loadFont(GOOGLE_SANS, SIZE_LABEL));
                 default -> search != null ? search : (search = CustomFontRenderer.loadFont(GOOGLE_SANS, SIZE_SEARCH));

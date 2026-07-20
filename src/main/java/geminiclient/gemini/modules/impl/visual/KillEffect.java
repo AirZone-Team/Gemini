@@ -16,7 +16,7 @@ import geminiclient.gemini.values.impl.FloatValue;
 /**
  * Hypernova Kill Effect (极超新星击杀特效)
  *
- * <h3>Cinematic 10-stage death effect (~14.5s total)</h3>
+ * <h3>Cinematic 10-stage death effect (~17.2s total)</h3>
  * <ol>
  *   <li>Magic Circle Birth   (0.0–0.8s) — golden rune circle emerges, sky particles begin appearing</li>
  *   <li>Magic Tower          (0.8–2.4s) — 12 stacked circles rise, more particles emerge in sky</li>
@@ -25,9 +25,9 @@ import geminiclient.gemini.values.impl.FloatValue;
  *   <li>Collapse             (5.0–6.0s) — hole shrinks, extreme particle pull, energy builds</li>
  *   <li>Void                 (6.0–7.5s) — dead silence, all particles consumed, tension builds</li>
  *   <li>Flash                (7.5–8.2s) — dramatic multi-ring light pulse from the singularity</li>
- *   <li>Hypernova            (8.2–10.5s) — enhanced shockwave, fireball, nebula, lightning</li>
- *   <li>Afterglow            (10.5–12.5s) — smooth fade-out with lingering glow</li>
- *   <li>Fade-out             (12.5–14.5s) — post-afterglow smooth dissolve; all intersecting
+ *   <li>Hypernova            (8.2–12.5s) — sustained shockwaves, fireball, nebula, lightning</li>
+ *   <li>Afterglow            (12.5–15.0s) — cooling remnant with lingering glow</li>
+ *   <li>Fade-out             (15.0–17.2s) — post-afterglow smooth dissolve; all intersecting
  *       planes (billboard + horizontal + vertical cross) fade via reversed smoothstep alpha,
  *       eliminating any abrupt visual cutoff</li>
  * </ol>
@@ -189,13 +189,13 @@ public class KillEffect extends Module {
             if (cameraShake.enabled) {
                 if (stage == KillEffectInstance.STAGE_COLLAPSE) {
                     float progress = inst.stageProgress(nowMs);
-                    shakeIntensity = Math.max(shakeIntensity, progress * 3.0f);
+                    shakeIntensity = Math.max(shakeIntensity, progress * 4.0f);
                 } else if (stage == KillEffectInstance.STAGE_VOID) {
                     // Continue from collapse's 3.0 peak, quadratic decay —
                     // no step down at the boundary
                     float progress = inst.stageProgress(nowMs);
                     float d = 1f - progress;
-                    shakeIntensity = Math.max(shakeIntensity, 3.0f * d * d);
+                    shakeIntensity = Math.max(shakeIntensity, 4.0f * d * d);
                 } else if (stage == KillEffectInstance.STAGE_FLASH) {
                     float progress = inst.stageProgress(nowMs);
                     // Bell-curve attack/release, synced with the light pulse —
@@ -204,13 +204,16 @@ public class KillEffect extends Module {
                     float bell = t < 0.4f
                         ? (float)Math.exp(-((t - 0.4f) * (t - 0.4f)) / 0.04f)
                         : (float)Math.exp(-((t - 0.4f) * (t - 0.4f)) / 0.12f);
-                    shakeIntensity = Math.max(shakeIntensity, 6.0f * bell);
+                    shakeIntensity = Math.max(shakeIntensity, 8.5f * bell);
                 } else if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
                     float progress = inst.stageProgress(nowMs);
-                    // Smooth attack over the first ~115ms, then linear decay
+                    // Sustained sub-bass rumble with several diminishing blast pulses.
                     float attack = Math.min(progress / 0.05f, 1f);
                     attack = attack * attack * (3f - 2f * attack);
-                    float novaShake = (1f - progress) * 5.0f * attack;
+                    float sustain = 1.0f - progress * 0.62f;
+                    float pulse = 0.82f + 0.18f
+                            * Math.abs((float)Math.sin(progress * Math.PI * 7.0f));
+                    float novaShake = sustain * pulse * 7.5f * attack;
                     shakeIntensity = Math.max(shakeIntensity, novaShake);
                 }
             }

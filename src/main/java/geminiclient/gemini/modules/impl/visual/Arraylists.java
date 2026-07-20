@@ -284,6 +284,9 @@ public class Arraylists extends Module {
     public void onRender2D(Render2DEvent event) {
         initFontIfNeeded();
 
+        if (mc.player == null)
+            return;
+
         List<Module> modules = Gemini.moduleManager.getModules();
         if (modules == null || modules.isEmpty()) return;
 

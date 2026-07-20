@@ -69,18 +69,20 @@ public final class MaterialEffectRenderer {
     //  Layout (GUI px)
     // ========================
 
-    private static final int   CARD_HEIGHT    = 40;
-    private static final int   SPACING_Y      = CARD_HEIGHT + 6;
+    private static final int   CARD_HEIGHT    = 44;
+    private static final int   SPACING_Y      = CARD_HEIGHT + 7;
     private static final float PADDING_X      = 12.0F; // anchor ↔ stack gap (Classic parity)
     private static final int   PAD_LEFT       = 10;
-    private static final int   DISC_SIZE      = 24;   // tonal icon container
+    private static final int   DISC_SIZE      = 26;   // tonal icon container
     private static final int   SPRITE_SIZE    = 16;   // potion sprite inside the disc
     private static final int   TEXT_GAP       = 8;
+    private static final int   TIME_GAP       = 8;
     private static final int   TEXT_RIGHT_PAD = 10;
-    private static final int   MIN_TEXT_WIDTH = 48;
-    private static final float LINE_SPACING   = 1.5f;
+    private static final int   MIN_CARD_WIDTH = 132;
+    private static final int   PILL_PAD_X     = 7;
+    private static final int   PILL_HEIGHT    = 16;
     private static final int   PROGRESS_H     = 3;    // MD3 linear progress indicator
-    private static final int   PROGRESS_INSET = 10;
+    private static final int   PROGRESS_INSET = 12;
     private static final int   PROGRESS_BOT   = 6;    // card bottom → indicator gap
 
     // ========================
@@ -186,9 +188,10 @@ public final class MaterialEffectRenderer {
 
     /** Full card width for the given effect name / duration strings. */
     public static float cardWidth(String name, String duration) {
-        float textW = Math.max(nameWidth(name), durationWidth(duration));
-        textW = Math.max(textW, MIN_TEXT_WIDTH);
-        return PAD_LEFT + DISC_SIZE + TEXT_GAP + textW + TEXT_RIGHT_PAD;
+        float pillW = durationPillWidth(duration);
+        float w = PAD_LEFT + DISC_SIZE + TEXT_GAP + nameWidth(name)
+                + TIME_GAP + pillW + TEXT_RIGHT_PAD;
+        return Math.max(w, MIN_CARD_WIDTH);
     }
 
     // ========================
@@ -321,24 +324,31 @@ public final class MaterialEffectRenderer {
         // ---- 2. Card surface ----
         CustomRoundedRectRenderer.drawRoundedRect(gui, ix, iy, iw, CARD_HEIGHT,
                 radius, scaleAlpha(surface, alpha));
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, ix, iy, iw, CARD_HEIGHT,
+                radius, scaleAlpha(mixRgb(surface, 0xFF000000, 0.12f), alpha), 1);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, ix + radius, iy + 1,
+                Math.max(0, iw - radius * 2), 1, 1,
+                scaleAlpha(0x66FFFFFF, alpha));
 
         // ---- 3. Tonal icon container + potion sprite ----
         int disc = scaleAlpha(withAlpha(mixRgb(accent, surface, DISC_TONE)), alpha);
         int discX = ix + PAD_LEFT;
 
-        // ---- 4. Title + duration (Google Sans, MSDF pipeline) ----
+        // ---- 4. Icon + title + duration pill (Google Sans, MSDF pipeline) ----
         float textX = ix + PAD_LEFT + DISC_SIZE + TEXT_GAP;
         float titleH = titleLineHeight();
-        float durationH = durationLineHeight();
-        float blockH = titleH + LINE_SPACING + durationH;
+        String name = getDisplayName(effect.value(), info).getString();
+        String duration = durationText(info);
+        int pillW = (int) Math.ceil(durationPillWidth(duration));
+        int pillX = ix + iw - TEXT_RIGHT_PAD - pillW;
 
-        // Centre the icon+text block as a unit above the progress bar,
-        // keeping the disc centre and the text-block centre on the same y.
+        // Centre the icon, title and time pill as one row above the progress bar.
         float availableH = CARD_HEIGHT - PROGRESS_BOT - PROGRESS_H;
-        float contentH = Math.max(DISC_SIZE, blockH);
+        float contentH = Math.max(DISC_SIZE, Math.max(titleH, PILL_HEIGHT));
         float contentTop = iy + (availableH - contentH) / 2f;
         float discY = contentTop + (contentH - DISC_SIZE) / 2f;
-        float titleY = contentTop + (contentH - blockH) / 2f;
+        float titleY = contentTop + (contentH - titleH) / 2f - 0.5f;
+        int pillY = (int) (contentTop + (contentH - PILL_HEIGHT) / 2f);
 
         CustomRoundedRectRenderer.drawRoundedRect(gui, discX, (int) discY,
                 DISC_SIZE, DISC_SIZE, DISC_SIZE / 2, disc);
@@ -351,11 +361,15 @@ public final class MaterialEffectRenderer {
                     SPRITE_SIZE, SPRITE_SIZE, (a8 << 24) | 0xFFFFFF);
         }
 
-        String name = getDisplayName(effect.value(), info).getString();
         drawText(gui, true, name, textX, titleY,
                 scaleAlpha(module.titleColor.getColor(), alpha));
-        drawText(gui, false, durationText(info), textX,
-                titleY + titleH + LINE_SPACING,
+
+        int pillBg = scaleAlpha(withAlpha(mixRgb(accent, surface, 0.72f)), alpha);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, pillX, pillY,
+                pillW, PILL_HEIGHT, PILL_HEIGHT / 2, pillBg);
+        float durationX = pillX + (pillW - durationWidth(duration)) / 2f;
+        float durationY = pillY + (PILL_HEIGHT - durationLineHeight()) / 2f - 0.5f;
+        drawText(gui, false, duration, durationX, durationY,
                 scaleAlpha(withAlpha(mixRgb(accent, 0xFF000000, TEXT_TONE)), alpha));
 
         // ---- 5. MD3 linear progress indicator ----
@@ -414,7 +428,7 @@ public final class MaterialEffectRenderer {
         float originX = module.hudX;
         float originY = module.hudY;
 
-        float totalW = Math.max(cardWidth("Speed II", "12:34"), 100f) + PADDING_X * 2;
+        float totalW = cardWidth("Speed II", "12:34") + PADDING_X * 2;
         float x = rightAligned ? originX - totalW : originX;
         int radius = Math.min(module.cardRadius.getValue(), CARD_HEIGHT / 2);
 
@@ -431,7 +445,7 @@ public final class MaterialEffectRenderer {
         float originX = module.hudX;
         float originY = module.hudY;
 
-        float cardW = Math.max(cardWidth("Speed II", "12:34"), 100f);
+        float cardW = cardWidth("Speed II", "12:34");
         float totalW = cardW + PADDING_X * 2;
         float x = rightAligned ? originX - totalW : originX;
         int ix = (int) x + (int) PADDING_X;
@@ -452,6 +466,10 @@ public final class MaterialEffectRenderer {
         }
         CustomRoundedRectRenderer.drawRoundedRect(graphics, ix, iy,
                 (int) cardW, CARD_HEIGHT, radius, surface);
+        CustomRoundedRectRenderer.drawRoundedOutline(graphics, ix, iy, (int) cardW, CARD_HEIGHT,
+                radius, mixRgb(surface, 0xFF000000, 0.12f), 1);
+        CustomRoundedRectRenderer.drawRoundedRect(graphics, ix + radius, iy + 1,
+                Math.max(0, (int) cardW - radius * 2), 1, 1, 0x66FFFFFF);
 
         // Tonal disc (empty — no live sprite in the editor)
         int discX = ix + PAD_LEFT;
@@ -459,23 +477,29 @@ public final class MaterialEffectRenderer {
         // Dummy text
         float textX = ix + PAD_LEFT + DISC_SIZE + TEXT_GAP;
         float titleH = titleLineHeight();
-        float durationH = durationLineHeight();
-        float blockH = titleH + LINE_SPACING + durationH;
+        String duration = "12:34";
+        int pillW = (int) Math.ceil(durationPillWidth(duration));
+        int pillX = ix + (int) cardW - TEXT_RIGHT_PAD - pillW;
 
-        // Centre the icon+text block as a unit above the progress bar,
-        // keeping the disc centre and the text-block centre on the same y.
+        // Centre the icon, title and time pill as one row above the progress bar.
         float availableH = CARD_HEIGHT - PROGRESS_BOT - PROGRESS_H;
-        float contentH = Math.max(DISC_SIZE, blockH);
+        float contentH = Math.max(DISC_SIZE, Math.max(titleH, PILL_HEIGHT));
         float contentTop = iy + (availableH - contentH) / 2f;
         int discY = (int) (contentTop + (contentH - DISC_SIZE) / 2f);
-        float titleY = contentTop + (contentH - blockH) / 2f;
+        float titleY = contentTop + (contentH - titleH) / 2f - 0.5f;
+        int pillY = (int) (contentTop + (contentH - PILL_HEIGHT) / 2f);
 
         CustomRoundedRectRenderer.drawRoundedRect(graphics, discX, discY,
                 DISC_SIZE, DISC_SIZE, DISC_SIZE / 2,
                 withAlpha(mixRgb(accent, surface, DISC_TONE)));
         drawText(graphics, true, "Speed II", textX, titleY, module.titleColor.getColor());
-        drawText(graphics, false, "12:34", textX,
-                titleY + titleH + LINE_SPACING,
+
+        CustomRoundedRectRenderer.drawRoundedRect(graphics, pillX, pillY,
+                pillW, PILL_HEIGHT, PILL_HEIGHT / 2,
+                withAlpha(mixRgb(accent, surface, 0.72f)));
+        drawText(graphics, false, duration,
+                pillX + (pillW - durationWidth(duration)) / 2f,
+                pillY + (PILL_HEIGHT - durationLineHeight()) / 2f - 0.5f,
                 withAlpha(mixRgb(accent, 0xFF000000, TEXT_TONE)));
 
         // Dummy progress at 60 %
@@ -516,6 +540,10 @@ public final class MaterialEffectRenderer {
 
     private static String durationText(MaterialEffectInfo info) {
         return info.infinite ? "∞" : StringUtil.formatTickDuration(info.duration, 20);
+    }
+
+    private static float durationPillWidth(String text) {
+        return durationWidth(text) + PILL_PAD_X * 2;
     }
 
     private static Component getDisplayName(MobEffect effect, MaterialEffectInfo info) {

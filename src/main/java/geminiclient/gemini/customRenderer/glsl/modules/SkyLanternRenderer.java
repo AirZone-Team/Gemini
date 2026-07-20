@@ -43,6 +43,97 @@ public final class SkyLanternRenderer {
 
     private SkyLanternRenderer() {}
 
+    public static final int TYPE_LANTERN = 0;
+    public static final int TYPE_KOI = 1;
+    public static final int TYPE_CRANE = 2;
+    public static final int TYPE_BUTTERFLY = 3;
+    public static final int TYPE_STAR = 4;
+
+    /**
+     * Lightweight procedural meshes used by the airborne festival. The final
+     * number in every vertex tuple is a material role:
+     * 0=primary, 1=pearl highlight, 2=accent.
+     */
+    private record DecorMesh(float[] positions, int[] materials) {}
+
+    private static DecorMesh mesh(float... packed) {
+        int vertices = packed.length / 4;
+        float[] positions = new float[vertices * 3];
+        int[] materials = new int[vertices];
+        for (int i = 0; i < vertices; i++) {
+            positions[i * 3] = packed[i * 4];
+            positions[i * 3 + 1] = packed[i * 4 + 1];
+            positions[i * 3 + 2] = packed[i * 4 + 2];
+            materials[i] = (int) packed[i * 4 + 3];
+        }
+        return new DecorMesh(positions, materials);
+    }
+
+    private static final DecorMesh KOI_MESH = mesh(
+            // Luminous body, two crossed diamond planes.
+             0.00f, 0.36f,  0.00f, 1,  -0.33f, 0.00f,  0.72f, 0,
+             0.00f,-0.28f,  0.00f, 0,   0.33f, 0.00f,  0.72f, 1,
+            -0.34f, 0.00f,  0.00f, 0,   0.00f, 0.26f,  0.70f, 1,
+             0.34f, 0.00f,  0.00f, 0,   0.00f,-0.20f,  0.70f, 1,
+            // Flowing forked tail.
+            -0.06f, 0.00f, -0.58f, 0,  -0.48f, 0.42f, -1.18f, 2,
+             0.00f, 0.05f, -0.92f, 1,   0.00f,-0.08f, -0.55f, 0,
+             0.00f, 0.05f, -0.92f, 1,   0.48f, 0.42f, -1.18f, 2,
+             0.06f, 0.00f, -0.58f, 0,   0.00f,-0.08f, -0.55f, 0,
+            // Side fins.
+            -0.20f, 0.02f,  0.08f, 0,  -0.72f, 0.08f, -0.22f, 2,
+            -0.24f,-0.06f, -0.35f, 1,  -0.12f,-0.04f, -0.20f, 0,
+             0.20f, 0.02f,  0.08f, 0,   0.72f, 0.08f, -0.22f, 2,
+             0.24f,-0.06f, -0.35f, 1,   0.12f,-0.04f, -0.20f, 0
+    );
+
+    private static final DecorMesh CRANE_MESH = mesh(
+            // Folded body.
+             0.00f, 0.18f,  0.64f, 1,  -0.24f, 0.00f, -0.18f, 0,
+             0.00f,-0.12f, -0.48f, 2,   0.24f, 0.00f, -0.18f, 0,
+            // Wide origami wings.
+            -0.08f, 0.04f, 0.12f, 0,  -1.25f, 0.02f, -0.30f, 1,
+            -0.68f,-0.04f,-0.62f, 2,  -0.04f,-0.04f, -0.28f, 0,
+             0.08f, 0.04f, 0.12f, 0,   1.25f, 0.02f, -0.30f, 1,
+             0.68f,-0.04f,-0.62f, 2,   0.04f,-0.04f, -0.28f, 0,
+            // Neck, head and long tail fold.
+            -0.05f, 0.06f, 0.44f, 0,  -0.05f, 0.28f,  0.86f, 1,
+             0.05f, 0.28f, 0.86f, 1,   0.05f, 0.06f,  0.44f, 0,
+            -0.10f, 0.02f,-0.32f, 0,   0.00f, 0.04f, -1.06f, 2,
+             0.10f, 0.02f,-0.32f, 0,   0.00f,-0.07f, -0.52f, 0
+    );
+
+    private static final DecorMesh BUTTERFLY_MESH = mesh(
+            // Upper wings.
+            -0.04f, 0.02f, 0.18f, 2,  -0.92f, 0.04f, 0.48f, 1,
+            -0.76f, 0.02f,-0.34f, 0,  -0.05f, 0.00f,-0.10f, 2,
+             0.04f, 0.02f, 0.18f, 2,   0.92f, 0.04f, 0.48f, 1,
+             0.76f, 0.02f,-0.34f, 0,   0.05f, 0.00f,-0.10f, 2,
+            // Lower wings.
+            -0.05f, 0.00f,-0.08f, 2,  -0.58f, 0.02f,-0.62f, 0,
+            -0.18f, 0.01f,-0.76f, 1,  -0.01f, 0.00f,-0.28f, 2,
+             0.05f, 0.00f,-0.08f, 2,   0.58f, 0.02f,-0.62f, 0,
+             0.18f, 0.01f,-0.76f, 1,   0.01f, 0.00f,-0.28f, 2,
+            // Glowing body.
+            -0.035f, 0.05f, 0.48f, 1,  -0.035f, 0.05f,-0.48f, 2,
+             0.035f, 0.05f,-0.48f, 2,   0.035f, 0.05f, 0.48f, 1
+    );
+
+    private static final DecorMesh STAR_MESH = mesh(
+            // Four-point crystal star.
+             0.00f, 0.58f, 0.00f, 1,  -0.13f, 0.10f, 0.00f, 2,
+             0.00f, 0.00f, 0.00f, 0,   0.13f, 0.10f, 0.00f, 2,
+             0.58f, 0.00f, 0.00f, 1,   0.10f,-0.13f, 0.00f, 2,
+             0.00f, 0.00f, 0.00f, 0,   0.10f, 0.13f, 0.00f, 2,
+             0.00f,-0.58f, 0.00f, 1,   0.13f,-0.10f, 0.00f, 2,
+             0.00f, 0.00f, 0.00f, 0,  -0.13f,-0.10f, 0.00f, 2,
+            -0.58f, 0.00f, 0.00f, 1,  -0.10f, 0.13f, 0.00f, 2,
+             0.00f, 0.00f, 0.00f, 0,  -0.10f,-0.13f, 0.00f, 2,
+            // A short luminous comet ribbon.
+            -0.11f, 0.08f,-0.04f, 2,  -0.18f, 0.06f,-1.65f, 0,
+             0.12f,-0.04f,-1.05f, 1,   0.11f,-0.08f,-0.04f, 2
+    );
+
     // ════════════════════════════════════════════════════════════════
     //  Lantern mesh — paper shell + bamboo frame + tray + strings
     // ════════════════════════════════════════════════════════════════
@@ -193,8 +284,8 @@ public final class SkyLanternRenderer {
     /** Outer flame — medium orange-red, additive. */
     public static final RenderPipeline FLAME_OUTER = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/flame_outer"))
-            .withVertexShader(getIdentifier("core/fireflies"))
-            .withFragmentShader(getIdentifier("core/fireflies"))
+            .withVertexShader(getIdentifier("core/fireflies_particle"))
+            .withFragmentShader(getIdentifier("core/fireflies_particle"))
             .withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
                     SourceFactor.SRC_ALPHA, DestFactor.ONE,
@@ -206,8 +297,8 @@ public final class SkyLanternRenderer {
     /** Glow sprite — large radial-gradient billboard. */
     public static final RenderPipeline GLOW_SPRITE = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/glow_sprite"))
-            .withVertexShader(getIdentifier("core/fireflies"))
-            .withFragmentShader(getIdentifier("core/fireflies"))
+            .withVertexShader(getIdentifier("core/fireflies_particle"))
+            .withFragmentShader(getIdentifier("core/fireflies_particle"))
             .withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
                     SourceFactor.SRC_ALPHA, DestFactor.ONE,
@@ -219,8 +310,8 @@ public final class SkyLanternRenderer {
     /** Ember spark — tiny bright dot, additive. */
     public static final RenderPipeline EMBER = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/ember"))
-            .withVertexShader(getIdentifier("core/fireflies"))
-            .withFragmentShader(getIdentifier("core/fireflies"))
+            .withVertexShader(getIdentifier("core/fireflies_particle"))
+            .withFragmentShader(getIdentifier("core/fireflies_particle"))
             .withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
                     SourceFactor.SRC_ALPHA, DestFactor.ONE,
@@ -340,6 +431,116 @@ public final class SkyLanternRenderer {
             }
         }
         LANTERN_TYPE.draw(buf.buildOrThrow());
+    }
+
+    /**
+     * Draw all non-lantern sky objects in a single upload.
+     *
+     * @param objects x,y,z,size,yaw,roll,r,g,b,alpha,type,phase per object
+     */
+    public static void drawFlyingObjects(float[] objects, int count, FrameCtx ctx) {
+        if (count == 0) return;
+        BufferBuilder buf = Tesselator.getInstance()
+                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        Matrix4f vm = ctx.viewMatrix;
+        float cx = ctx.camX, cy = ctx.camY, cz = ctx.camZ;
+
+        for (int p = 0; p < count; p++) {
+            int off = p * 12;
+            float px = objects[off];
+            float py = objects[off + 1];
+            float pz = objects[off + 2];
+            float size = objects[off + 3];
+            float yaw = objects[off + 4];
+            float roll = objects[off + 5];
+            float cr = objects[off + 6];
+            float cg = objects[off + 7];
+            float cb = objects[off + 8];
+            float alpha = objects[off + 9];
+            int type = (int) objects[off + 10];
+            float phase = objects[off + 11];
+
+            DecorMesh mesh = switch (type) {
+                case TYPE_KOI -> KOI_MESH;
+                case TYPE_CRANE -> CRANE_MESH;
+                case TYPE_BUTTERFLY -> BUTTERFLY_MESH;
+                case TYPE_STAR -> STAR_MESH;
+                default -> null;
+            };
+            if (mesh == null) continue;
+
+            float cosYaw = (float) Math.cos(yaw);
+            float sinYaw = (float) Math.sin(yaw);
+            float cosRoll = (float) Math.cos(roll);
+            float sinRoll = (float) Math.sin(roll);
+            int vertices = mesh.materials.length;
+
+            for (int v = 0; v < vertices; v++) {
+                int vo = v * 3;
+                float lx = mesh.positions[vo];
+                float ly = mesh.positions[vo + 1];
+                float lz = mesh.positions[vo + 2];
+
+                // Mesh-specific living motion. This happens during batching and
+                // keeps the world state compact.
+                if (type == TYPE_KOI && lz < -0.45f) {
+                    lx += (float) Math.sin(phase * 1.35f - lz * 3.2f)
+                            * 0.20f * (-lz - 0.35f);
+                } else if (type == TYPE_CRANE && Math.abs(lx) > 0.2f) {
+                    ly += (float) Math.sin(phase * 1.75f) * Math.abs(lx) * 0.32f;
+                } else if (type == TYPE_BUTTERFLY && Math.abs(lx) > 0.08f) {
+                    ly += (float) Math.sin(phase * 3.4f) * Math.abs(lx) * 0.62f;
+                } else if (type == TYPE_STAR) {
+                    float spin = phase * 0.65f;
+                    float cs = (float) Math.cos(spin);
+                    float ss = (float) Math.sin(spin);
+                    float sx = lx * cs - ly * ss;
+                    ly = lx * ss + ly * cs;
+                    lx = sx;
+                }
+
+                // Roll in the local flight plane, then yaw into travel direction.
+                float rolledX = lx * cosRoll - ly * sinRoll;
+                float rolledY = lx * sinRoll + ly * cosRoll;
+                float worldX = rolledX * cosYaw + lz * sinYaw;
+                float worldZ = -rolledX * sinYaw + lz * cosYaw;
+
+                int material = mesh.materials[v];
+                float vr;
+                float vg;
+                float vb;
+                if (material == 1) {
+                    vr = cr * 0.38f + 0.62f;
+                    vg = cg * 0.38f + 0.62f;
+                    vb = cb * 0.38f + 0.62f;
+                } else if (material == 2) {
+                    // A hue-shifted accent derived from the selected palette.
+                    vr = Math.min(1f, cr * 0.58f + cb * 0.50f + 0.12f);
+                    vg = Math.min(1f, cg * 0.76f + cr * 0.18f);
+                    vb = Math.min(1f, cb * 0.62f + cr * 0.42f + 0.08f);
+                } else {
+                    vr = cr;
+                    vg = cg;
+                    vb = cb;
+                }
+
+                int rgba = packColor(vr, vg, vb, alpha);
+                buf.addVertex(vm,
+                                px + worldX * size - cx,
+                                py + rolledY * size - cy,
+                                pz + worldZ * size - cz)
+                        .setColor(rgba);
+            }
+        }
+        LANTERN_TYPE.draw(buf.buildOrThrow());
+    }
+
+    private static int packColor(float r, float g, float b, float a) {
+        int ir = (int) (Math.max(0f, Math.min(1f, r)) * 255f);
+        int ig = (int) (Math.max(0f, Math.min(1f, g)) * 255f);
+        int ib = (int) (Math.max(0f, Math.min(1f, b)) * 255f);
+        int ia = (int) (Math.max(0f, Math.min(1f, a)) * 255f);
+        return (ia << 24) | (ir << 16) | (ig << 8) | ib;
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -7,7 +7,7 @@ import java.util.Random;
 /**
  * Per-entity-death state for the Hypernova Kill Effect.
  *
- * <h3>Timeline (10 stages, ~14.5s total)</h3>
+ * <h3>Timeline (10 stages, ~17.2s total)</h3>
  * <pre>
  * Stage 1: Magic Circle Birth   0.0 – 0.8s   — particles begin emerging in sky
  * Stage 2: Magic Tower          0.8 – 2.4s   — sky particles continue appearing
@@ -16,9 +16,9 @@ import java.util.Random;
  * Stage 5: Collapse             5.0 – 6.0s   — extreme pull, rapid consumption
  * Stage 6: Void                 6.0 – 7.5s   — dead silence, tension builds, BH gone
  * Stage 7: Flash                7.5 – 8.2s   — dramatic multi-ring light pulse
- * Stage 8: Hypernova            8.2 –10.5s   — enhanced shockwave + fireball + nebula
- * Stage 9: Afterglow           10.5 –12.5s   — smooth fade-out transition
- * Stage 10: Fade-out           12.5 –14.5s   — post-afterglow dissolve; all planes fade
+ * Stage 8: Hypernova            8.2 –12.5s   — sustained shockwaves + fireball + nebula
+ * Stage 9: Afterglow           12.5 –15.0s   — cooling stellar remnant
+ * Stage 10: Fade-out           15.0 –17.2s   — post-afterglow dissolve; all planes fade
  *                                              via reversed smoothstep alpha to zero
  * </pre>
  */
@@ -44,9 +44,9 @@ public class KillEffectInstance {
     private static final double T_COLLAPSE_END  = 6.0;
     private static final double T_VOID_END      = 7.5;   // silence before flash
     private static final double T_FLASH_END     = 8.2;   // enhanced: 0.7s pulse
-    private static final double T_NOVA_END      = 10.5;  // enhanced: 2.3s explosion
-    private static final double T_AFTERGLOW_END = 12.5;  // enhanced: 2.0s fade
-    private static final double T_FADE_OUT_END  = 14.5;  // 2.0s post-afterglow dissolve
+    private static final double T_NOVA_END      = 12.5;  // cinematic: 4.3s sustained explosion
+    private static final double T_AFTERGLOW_END = 15.0;  // 2.5s cooling remnant
+    private static final double T_FADE_OUT_END  = 17.2;  // 2.2s post-afterglow dissolve
 
     // ── Core state ─────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ public class KillEffectInstance {
 
     // ── Burst particle system (hypernova explosion debris) ─────────
 
-    private static final int MAX_BURST = 1200;
+    private static final int MAX_BURST = 1800;
 
     /** [x, y, z, vx, vy, vz, life, maxLife] × MAX_BURST */
     private final float[] burstData = new float[MAX_BURST * 8];
@@ -338,19 +338,19 @@ public class KillEffectInstance {
         // Three-layer radius distribution (weighted toward inner, hotter regions)
         double radius;
         float layerPick = RNG.nextFloat();
-        if (layerPick < 0.35f) {
+        if (layerPick < 0.42f) {
             // Inner hot ring: tight around ISCO
-            radius = 0.3 + RNG.nextDouble() * 1.8;
-        } else if (layerPick < 0.75f) {
+            radius = 0.75 + RNG.nextDouble() * 1.55;
+        } else if (layerPick < 0.82f) {
             // Mid warm ring: main disk body
-            radius = 1.5 + RNG.nextDouble() * 3.5;
+            radius = 1.8 + RNG.nextDouble() * 3.8;
         } else {
             // Outer cool ring: extended disk
-            radius = 4.0 + RNG.nextDouble() * 4.0;
+            radius = 5.0 + RNG.nextDouble() * 4.5;
         }
 
         // ── Flat disk (XZ plane) with very thin vertical scatter ──
-        float diskThickness = 0.15f + (float)(radius * 0.04); // thicker at edges
+        float diskThickness = 0.08f + (float)(radius * 0.028); // thin inner disk, subtly flared rim
         float yOffset = (RNG.nextFloat() - 0.5f) * 2f * diskThickness;
 
         particleData[off]     = cx + (float)(Math.cos(theta) * radius);
@@ -359,19 +359,19 @@ public class KillEffectInstance {
 
         // ── Keplerian orbital velocity (tangential, ∝ 1/√r) ──
         // Inner particles orbit faster, creating differential rotation
-        double orbitalSpeed = 0.8 / Math.sqrt(Math.max(radius, 0.2)) * 4.0;
+        double orbitalSpeed = 5.2 / Math.sqrt(Math.max(radius, 0.35));
         // Tangential direction: perpendicular to radial in XZ plane
         double vx = -Math.sin(theta) * orbitalSpeed;
         double vz =  Math.cos(theta) * orbitalSpeed;
         // Small radial drift inward (accretion flow)
-        double radialDrift = -0.15 / Math.max(radius, 0.3);
+        double radialDrift = -0.32 / Math.max(radius, 0.45);
 
         particleData[off + 3] = (float)(vx + Math.cos(theta) * radialDrift);
         particleData[off + 4] = (float)(RNG.nextDouble() * 0.2 - 0.1); // tiny vertical bounce
         particleData[off + 5] = (float)(vz + Math.sin(theta) * radialDrift);
 
         particleData[off + 6] = 0f;
-        particleData[off + 7] = 1.2f + RNG.nextFloat() * 2.0f; // 1.2–3.2s life
+        particleData[off + 7] = 2.2f + RNG.nextFloat() * 3.2f;
 
         particleIsSky[index] = false;
     }
@@ -490,9 +490,31 @@ public class KillEffectInstance {
                 float targetSpeed = Math.min(speedCap, accelMag * dist * 0.3f);
                 float blend = Math.clamp(accelBase * dt * 0.15f, 0.01f, 0.3f);
 
-                float tvx = dirX * targetSpeed;
-                float tvy = dirY * targetSpeed;
-                float tvz = dirZ * targetSpeed;
+                float tvx;
+                float tvy;
+                float tvz;
+
+                if (!particleIsSky[i] && stage != STAGE_COLLAPSE) {
+                    // Preserve a Keplerian orbit once matter has joined the disk.
+                    float horizontalRadius = (float)Math.sqrt(dx * dx + dz * dz);
+                    float invHorizontal = 1.0f / Math.max(horizontalRadius, 0.05f);
+                    float radialX = -dx * invHorizontal;
+                    float radialZ = -dz * invHorizontal;
+                    float tangentX = -radialZ;
+                    float tangentZ = radialX;
+                    float orbitSpeed = 5.8f / (float)Math.sqrt(Math.max(horizontalRadius, 0.4f));
+                    float inwardSpeed = 0.45f + 0.65f / Math.max(horizontalRadius, 0.6f);
+
+                    tvx = tangentX * orbitSpeed - radialX * inwardSpeed;
+                    tvy = dy * 2.8f;
+                    tvz = tangentZ * orbitSpeed - radialZ * inwardSpeed;
+                    blend = Math.clamp(dt * 3.8f, 0.04f, 0.22f);
+                } else {
+                    // Sky streams and the final collapse plunge toward the horizon.
+                    tvx = dirX * targetSpeed;
+                    tvy = dirY * targetSpeed;
+                    tvz = dirZ * targetSpeed;
+                }
 
                 particleData[off + 3] = vx + (tvx - vx) * blend;
                 particleData[off + 4] = vy + (tvy - vy) * blend;
@@ -508,7 +530,7 @@ public class KillEffectInstance {
                     (particleData[off] - cx) * (particleData[off] - cx) +
                     (particleData[off + 1] - cy) * (particleData[off + 1] - cy) +
                     (particleData[off + 2] - cz) * (particleData[off + 2] - cz));
-                if (d < 0.25f) {
+                if (d < 0.38f) {
                     particleData[off + 6] = particleData[off + 7]; // expire
                 }
             }
@@ -546,7 +568,7 @@ public class KillEffectInstance {
                 batch[bo]     = particleData[off];     // x
                 batch[bo + 1] = particleData[off + 1]; // y
                 batch[bo + 2] = particleData[off + 2]; // z
-                batch[bo + 3] = 0.03f * (1f - lifeRatio * 0.7f); // original size
+                batch[bo + 3] = 0.045f * (1f - lifeRatio * 0.55f);
                 batch[bo + 4] = lifeRatio;             // R → lifeRatio (GPU warm color ramp)
                 batch[bo + 5] = 0f;                    // G → accretion mode
                 batch[bo + 6] = 0f;                    // B → reserved
@@ -588,8 +610,8 @@ public class KillEffectInstance {
         }
         if (burstCount == 0) return;
 
-        float drag = (float) Math.exp(-1.9 * dt);
-        float grav = 2.2f * dt; // gentle pull-down for ember arcs
+        float drag = (float) Math.exp(-1.15 * dt);
+        float grav = 1.65f * dt; // long, cinematic ember arcs
 
         for (int i = 0; i < burstCount; i++) {
             int off = i * 8;
@@ -615,7 +637,7 @@ public class KillEffectInstance {
     private void spawnBurst(float mergeScale) {
         burstSpawned = true;
         float clampedScale = Math.min(mergeScale, 3f);
-        int count = Math.min(MAX_BURST, 650 + (int)(clampedScale * 120f));
+        int count = Math.min(MAX_BURST, 1050 + (int)(clampedScale * 220f));
         float speedScale = (float) Math.sqrt(clampedScale);
 
         float cx = (float) position.x;
@@ -634,7 +656,7 @@ public class KillEffectInstance {
             float dz = (float)(sinPhi * Math.sin(theta));
 
             // Quadratic distribution: r² speeds → many slow, few fast
-            float speed = (5.0f + RNG.nextFloat() * RNG.nextFloat() * 24.0f) * speedScale;
+            float speed = (6.5f + RNG.nextFloat() * RNG.nextFloat() * 31.0f) * speedScale;
 
             burstData[off]     = cx + dx * 0.3f;
             burstData[off + 1] = cy + dy * 0.3f;
@@ -643,7 +665,7 @@ public class KillEffectInstance {
             burstData[off + 4] = dy * speed;
             burstData[off + 5] = dz * speed;
             burstData[off + 6] = 0f;
-            burstData[off + 7] = 1.3f + RNG.nextFloat() * 1.9f; // 1.3–3.2s
+            burstData[off + 7] = 3.4f + RNG.nextFloat() * 2.4f;
         }
         burstCount = count;
     }
@@ -669,7 +691,7 @@ public class KillEffectInstance {
             float pAlpha = Math.min(alpha * decay * decay, 1f);
             if (pAlpha < 0.004f) continue;
 
-            float size = 0.045f * (1f + lifeRatio * 1.4f);
+            float size = 0.055f * (1f + lifeRatio * 1.6f);
 
             int bo = count * 8;
             batch[bo]     = burstData[off];

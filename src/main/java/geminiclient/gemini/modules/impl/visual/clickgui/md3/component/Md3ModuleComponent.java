@@ -15,55 +15,47 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * MD3 module card: elevated rounded card holding the module row (title +
- * supporting text, favorite heart, switch) and, when expanded, an inline
- * tonal container with the module's value components. All transitions use
- * fixed-duration Material standard easing — no spring physics.
+ * Filled Material 3 card for a module and its settings.
  */
 public class Md3ModuleComponent {
 
-    public static final int ROW_HEIGHT = 46;
+    public static final int ROW_HEIGHT = 58;
     private static final int PAD_H = 12;
-    private static final int VALUE_PADDING = 10;
-    private static final int VALUE_SPACING = 3;
-    private static final int EXPAND_GAP = 6;
+    private static final int VALUE_PADDING = 12;
+    private static final int VALUE_SPACING = 4;
+    private static final int EXPAND_GAP = 8;
 
     public final Module module;
     public int x, y, width;
 
     private final List<Md3ValueComponent> valueComponents = new ArrayList<>();
-    private final Md3Overlay.Host overlayHost;
-
-    private boolean expanded = false;
+    private boolean expanded;
 
     private final Md3Anim expandAnim = Md3Anim.mediumAnim();
     private final Md3Anim switchAnim = Md3Anim.shortAnim();
     private final Md3Anim favAnim = Md3Anim.shortAnim();
     private final Md3Anim hoverAnim = Md3Anim.shortAnim();
 
-    private boolean switchPressed = false;
-
+    private boolean switchPressed;
     private final List<Md3RenderUtils.Ripple> ripples = new ArrayList<>();
 
     public Md3ModuleComponent(Module module, Md3Overlay.Host overlayHost) {
         this.module = module;
-        this.overlayHost = overlayHost;
         for (ValueParent value : module.getValues()) {
             Md3ValueComponent component = Md3ValueComponentFactory.create(value, width, overlayHost);
             if (component != null) {
                 valueComponents.add(component);
             }
         }
-        expandAnim.snap(0);
+        expandAnim.snap(0f);
+        switchAnim.snap(module.enabled ? 1f : 0f);
+        favAnim.snap(module.favorite ? 1f : 0f);
     }
 
-    // ── Animation / layout ──────────────────────────────
-
-    /** Update animation targets; call once per frame before layout. */
     public void advanceAnimation(float partialTicks) {
-        expandAnim.setTarget(expanded ? 1.0f : 0.0f);
-        switchAnim.setTarget(module.enabled ? 1.0f : 0.0f);
-        favAnim.setTarget(module.favorite ? 1.0f : 0.0f);
+        expandAnim.setTarget(expanded ? 1f : 0f);
+        switchAnim.setTarget(module.enabled ? 1f : 0f);
+        favAnim.setTarget(module.favorite ? 1f : 0f);
     }
 
     private float expandProgress() {
@@ -72,9 +64,9 @@ public class Md3ModuleComponent {
 
     public int getTotalHeight() {
         int total = ROW_HEIGHT;
-        float p = expandProgress();
-        if (p > 0.005f) {
-            total += (int) ((computeContentHeight() + EXPAND_GAP) * p);
+        float progress = expandProgress();
+        if (progress > 0.005f) {
+            total += (int) ((computeContentHeight() + EXPAND_GAP) * progress);
         }
         return total;
     }
@@ -82,11 +74,11 @@ public class Md3ModuleComponent {
     private int computeContentHeight() {
         List<Md3ValueComponent> visible = getVisibleComponents();
         if (visible.isEmpty()) return 0;
-        int h = VALUE_PADDING * 2;
-        for (Md3ValueComponent c : visible) {
-            h += c.getTotalHeight() + VALUE_SPACING;
+        int height = VALUE_PADDING * 2;
+        for (Md3ValueComponent component : visible) {
+            height += component.getTotalHeight() + VALUE_SPACING;
         }
-        return h - VALUE_SPACING;
+        return height - VALUE_SPACING;
     }
 
     private List<Md3ValueComponent> getVisibleComponents() {
@@ -95,99 +87,118 @@ public class Md3ModuleComponent {
                 .collect(Collectors.toList());
     }
 
-    // ── Render ──────────────────────────────────────────
-
     public void render(GuiGraphicsExtractor gui, int mouseX, int mouseY, float partialTicks) {
-        int cardH = getTotalHeight();
-        int r = Md3Theme.R_ROW;
+        int cardHeight = getTotalHeight();
+        float enabledT = switchAnim.getValue();
+        int cardColor = Md3Theme.lerpColor(Md3Theme.SURFACE_CONTAINER_LOWEST,
+                Md3Theme.PRIMARY_CONTAINER, enabledT * 0.30f);
 
-        // ── Card: tonal fill + subtle outline instead of heavy shadow ─────────
-        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, width, cardH, r,
-                Md3Theme.SURFACE);
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, width, cardH, r,
-                Md3Theme.OUTLINE_VARIANT, 1);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, width, cardHeight,
+                Md3Theme.R_ROW, cardColor);
 
-        // Hover state layer over the row zone (animated fade)
-        hoverAnim.setTarget(isOverRow(mouseX, mouseY) ? 1.0f : 0.0f);
+        hoverAnim.setTarget(isOverRow(mouseX, mouseY) ? 1f : 0f);
         float hoverT = hoverAnim.getValue();
         if (hoverT > 0.01f) {
-            CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, width, cardH, r,
+            CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, width, ROW_HEIGHT,
+                    Md3Theme.R_ROW,
                     Md3Theme.modulateAlpha(Md3Theme.hoverState(Md3Theme.ON_SURFACE), hoverT));
         }
 
-        // Ripples (clipped to the card)
         ripples.removeIf(Md3RenderUtils.Ripple::isFinished);
         if (!ripples.isEmpty()) {
-            gui.enableScissor(x, y, x + width, y + cardH);
+            gui.enableScissor(x, y, x + width, y + ROW_HEIGHT);
             for (Md3RenderUtils.Ripple ripple : ripples) {
-                ripple.render(gui, width * 0.6f, Md3Theme.ON_SURFACE);
+                ripple.render(gui, width * 0.5f, Md3Theme.PRIMARY);
             }
             gui.disableScissor();
         }
 
-        // ── Title + supporting text ─────────────────────
-        var titleFont = Md3Fonts.title();
-        float titleLh = Md3Fonts.lineHeight(titleFont);
-        var labelFont = Md3Fonts.label();
-        float labelLh = Md3Fonts.lineHeight(labelFont);
-
-        String description = Md3ModuleDescriptions.get(module.getName());
-        String supporting = "Category · " + formatCategory();
-        if (!description.isEmpty()) {
-            supporting += "  —  " + description;
-        }
-
-        float textBlockH = titleLh + 2 + labelLh;
-        float titleY = y + (ROW_HEIGHT - textBlockH) / 2f;
-        Md3Fonts.drawText(gui, titleFont, module.getName(), x + PAD_H, titleY, Md3Theme.ON_SURFACE);
-        Md3Fonts.drawText(gui, labelFont, supporting, x + PAD_H, titleY + titleLh + 2,
-                Md3Theme.ON_SURFACE_VARIANT);
-
-        // ── Favorite heart (colour cross-fades with the favourite state) ──
-        int cell = 2;
-        int heartW = 11 * cell, heartH = 9 * cell;
-        int heartX = heartCenterX() - heartW / 2;
-        int heartY = y + (ROW_HEIGHT - heartH) / 2;
-        boolean favHovered = isOverHeart(mouseX, mouseY);
-        float favT = favAnim.getValue();
-        int unfavColor = favHovered ? Md3Theme.ON_SURFACE : Md3Theme.ON_SURFACE_VARIANT;
-        int heartColor = Md3Theme.lerpColor(unfavColor, Md3Theme.PRIMARY, favT);
-        Md3RenderUtils.drawHeart(gui, heartX, heartY, cell, module.favorite,
-                heartColor, Md3Theme.SURFACE);
-
-        // ── Switch ──────────────────────────────────────
-        int swX = switchX();
-        int swY = y + (ROW_HEIGHT - Md3RenderUtils.SWITCH_H) / 2;
-        Md3RenderUtils.drawSwitch(gui, swX, swY, switchAnim.getValue(),
-                isOverSwitch(mouseX, mouseY), switchPressed);
-
-        // ── Expanded value area (inside the same card) ──
-        float p = expandProgress();
-        if (p > 0.005f) {
-            int contentH = computeContentHeight();
-            int visibleH = (int) ((contentH + EXPAND_GAP) * p);
-            int areaY = y + ROW_HEIGHT + EXPAND_GAP / 2;
-
-            gui.enableScissor(x, y + ROW_HEIGHT, x + width, y + ROW_HEIGHT + visibleH);
-            CustomRoundedRectRenderer.drawRoundedRect(gui, x + 6, areaY, width - 12, contentH,
-                    Md3Theme.R_CONTROL, Md3Theme.SURFACE_CONTAINER_LOW);
-            CustomRoundedRectRenderer.drawRoundedOutline(gui, x + 6, areaY, width - 12, contentH,
-                    Md3Theme.R_CONTROL, Md3Theme.OUTLINE_VARIANT, 1);
-
-            int currentY = areaY + VALUE_PADDING;
-            for (Md3ValueComponent component : getVisibleComponents()) {
-                layoutComponent(component, currentY);
-                component.render(gui, mouseX, mouseY, partialTicks);
-                currentY += component.getTotalHeight() + VALUE_SPACING;
-            }
-            gui.disableScissor();
-        }
+        renderLeadingIcon(gui, enabledT);
+        renderText(gui);
+        renderTrailingActions(gui, mouseX, mouseY);
+        renderExpandedSettings(gui, mouseX, mouseY, partialTicks);
     }
 
-    private void layoutComponent(Md3ValueComponent component, int compY) {
-        component.x = x + 6 + VALUE_PADDING;
-        component.y = compY;
-        component.width = width - 12 - VALUE_PADDING * 2;
+    private void renderLeadingIcon(GuiGraphicsExtractor gui, float enabledT) {
+        int iconSize = 32;
+        int iconX = x + PAD_H;
+        int iconY = y + (ROW_HEIGHT - iconSize) / 2;
+        int container = Md3Theme.lerpColor(Md3Theme.SURFACE_CONTAINER_HIGH,
+                Md3Theme.SECONDARY_CONTAINER, enabledT);
+        int content = Md3Theme.lerpColor(Md3Theme.ON_SURFACE_VARIANT,
+                Md3Theme.ON_SECONDARY_CONTAINER, enabledT);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, iconX, iconY, iconSize, iconSize,
+                Md3Theme.R_MEDIUM, container);
+        Md3RenderUtils.drawCategoryIcon(gui, module.getModuleEnum(),
+                iconX + iconSize / 2, iconY + iconSize / 2, 17, content);
+    }
+
+    private void renderText(GuiGraphicsExtractor gui) {
+        int textX = x + PAD_H + 42;
+        var titleFont = Md3Fonts.title();
+        var labelFont = Md3Fonts.label();
+
+        Md3Fonts.drawText(gui, titleFont, module.getName(), textX, y + 12,
+                Md3Theme.ON_SURFACE);
+
+        int settingCount = getVisibleComponents().size();
+        String supporting = formatCategory() + " · " + settingCount
+                + (settingCount == 1 ? " setting" : " settings");
+        String description = Md3ModuleDescriptions.get(module.getName());
+        if (!description.isEmpty()) {
+            supporting += " — " + description;
+        }
+        Md3Fonts.drawText(gui, labelFont, supporting, textX, y + 34,
+                Md3Theme.ON_SURFACE_VARIANT);
+    }
+
+    private void renderTrailingActions(GuiGraphicsExtractor gui, int mouseX, int mouseY) {
+        if (!valueComponents.isEmpty()) {
+            Md3RenderUtils.drawChevron(gui, heartCenterX() - 25, y + ROW_HEIGHT / 2,
+                    7, !expanded, Md3Theme.ON_SURFACE_VARIANT);
+        }
+
+        float favoriteT = favAnim.getValue();
+        int idle = isOverHeart(mouseX, mouseY)
+                ? Md3Theme.ON_SURFACE : Md3Theme.ON_SURFACE_VARIANT;
+        Md3RenderUtils.drawFavoriteIcon(gui, heartCenterX(), y + ROW_HEIGHT / 2,
+                20, favoriteT, idle, Md3Theme.PRIMARY);
+
+        int switchX = switchX();
+        int switchY = y + (ROW_HEIGHT - Md3RenderUtils.switchHeight()) / 2;
+        Md3RenderUtils.drawSwitch(gui, switchX, switchY, switchAnim.getValue(),
+                isOverSwitch(mouseX, mouseY), switchPressed);
+    }
+
+    private void renderExpandedSettings(GuiGraphicsExtractor gui, int mouseX, int mouseY,
+                                        float partialTicks) {
+        float progress = expandProgress();
+        if (progress <= 0.005f) return;
+
+        int contentHeight = computeContentHeight();
+        int visibleHeight = (int) ((contentHeight + EXPAND_GAP) * progress);
+        int areaY = y + ROW_HEIGHT + EXPAND_GAP / 2;
+
+        gui.enableScissor(x, y + ROW_HEIGHT, x + width,
+                y + ROW_HEIGHT + visibleHeight);
+        gui.fill(x + 16, y + ROW_HEIGHT, x + width - 16, y + ROW_HEIGHT + 1,
+                Md3Theme.withAlpha(Md3Theme.OUTLINE_VARIANT, 0.70f));
+        CustomRoundedRectRenderer.drawRoundedRect(gui, x + 8, areaY, width - 16,
+                contentHeight, Md3Theme.R_MEDIUM, Md3Theme.SURFACE_CONTAINER);
+
+        int currentY = areaY + VALUE_PADDING;
+        for (Md3ValueComponent component : getVisibleComponents()) {
+            layoutComponent(component, currentY);
+            component.render(gui, mouseX, mouseY, partialTicks);
+            currentY += component.getTotalHeight() + VALUE_SPACING;
+        }
+        gui.disableScissor();
+    }
+
+    private void layoutComponent(Md3ValueComponent component, int componentY) {
+        component.x = x + 8 + VALUE_PADDING;
+        component.y = componentY;
+        component.width = width - 16 - VALUE_PADDING * 2;
     }
 
     private String formatCategory() {
@@ -195,34 +206,34 @@ public class Md3ModuleComponent {
         return name.charAt(0) + name.substring(1).toLowerCase();
     }
 
-    // ── Hit regions ─────────────────────────────────────
-
     private int switchX() {
-        return x + width - PAD_H - Md3RenderUtils.SWITCH_W;
+        return x + width - PAD_H - Md3RenderUtils.switchWidth();
     }
 
     private int heartCenterX() {
-        return switchX() - 24;
+        return switchX() - 25;
     }
 
-    private boolean isOverRow(double mx, double my) {
-        return mx >= x && mx <= x + width && my >= y && my <= y + ROW_HEIGHT;
+    private boolean isOverRow(double mouseX, double mouseY) {
+        return mouseX >= x && mouseX <= x + width
+                && mouseY >= y && mouseY <= y + ROW_HEIGHT;
     }
 
-    private boolean isOverSwitch(double mx, double my) {
-        int swX = switchX();
-        int swY = y + (ROW_HEIGHT - Md3RenderUtils.SWITCH_H) / 2;
-        return mx >= swX - 6 && mx <= swX + Md3RenderUtils.SWITCH_W + 6
-                && my >= swY - 6 && my <= swY + Md3RenderUtils.SWITCH_H + 6;
+    private boolean isOverSwitch(double mouseX, double mouseY) {
+        int switchX = switchX();
+        int switchY = y + (ROW_HEIGHT - Md3RenderUtils.switchHeight()) / 2;
+        return mouseX >= switchX - 6
+                && mouseX <= switchX + Md3RenderUtils.switchWidth() + 6
+                && mouseY >= switchY - 6
+                && mouseY <= switchY + Md3RenderUtils.switchHeight() + 6;
     }
 
-    private boolean isOverHeart(double mx, double my) {
-        int cx = heartCenterX();
-        int cy = y + ROW_HEIGHT / 2;
-        return mx >= cx - 18 && mx <= cx + 18 && my >= cy - 18 && my <= cy + 18;
+    private boolean isOverHeart(double mouseX, double mouseY) {
+        int centerX = heartCenterX();
+        int centerY = y + ROW_HEIGHT / 2;
+        return mouseX >= centerX - 16 && mouseX <= centerX + 16
+                && mouseY >= centerY - 16 && mouseY <= centerY + 16;
     }
-
-    // ── Input ───────────────────────────────────────────
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0 && isOverSwitch(mouseX, mouseY)) {
@@ -242,7 +253,6 @@ public class Md3ModuleComponent {
             return true;
         }
 
-        // Value components (positions mirror render layout)
         if (expandProgress() > 0.01f) {
             int areaY = y + ROW_HEIGHT + EXPAND_GAP / 2;
             int currentY = areaY + VALUE_PADDING;

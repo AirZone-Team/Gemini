@@ -5,45 +5,40 @@ import geminiclient.gemini.modules.ModuleEnum;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 /**
- * Collapsible MD3 NavigationRail.
+ * Persistent Material 3 navigation rail.
  *
- * <p>Default state: a narrow icon-only strip (48dp) showing category icons and
- * the hamburger menu. When the mouse hovers over the strip, it animates open
- * to 80dp, raises above the content with a shadow, and reveals text labels
- * beneath each icon.</p>
+ * <p>Material navigation rails are intentionally stable rather than revealed
+ * on hover: destinations keep a 56dp active indicator and an always-visible
+ * label, so category changes never move the content under the pointer.</p>
  */
 public class Md3NavigationRail {
 
-    private static final int COLLAPSED_W = 48;
-    private static final int EXPANDED_W = 88;
+    public static final int WIDTH = 88;
 
-    private static final int PILL_W = 40;
-    private static final int PILL_H = 28;
-    private static final int ICON_SIZE = 20;
-    private static final int ICON_LABEL_GAP = 2;
-    private static final int BLOCK_HEIGHT = 50;     // icon pill + label
+    private static final int HEADER_HEIGHT = 40;
+    private static final int BLOCK_HEIGHT = 54;
     private static final int BLOCK_SPACING = 2;
-    private static final int HEADER_HEIGHT = 36;
+    private static final int PILL_W = 56;
+    private static final int PILL_H = 30;
+    private static final int ICON_SIZE = 18;
 
-    public int x, y;
-    private int collapsedY;
+    public int x, y, height;
 
     private int selectedIndex = 0;
-    private final Md3Anim widthAnim = Md3Anim.mediumAnim();
-
+    private final Md3Anim selectionAnim = Md3Anim.mediumAnim();
     private final Destination[] destinations;
 
     public Md3NavigationRail(int x, int y) {
         this.x = x;
         this.y = y;
 
-        ModuleEnum[] cats = ModuleEnum.values();
-        destinations = new Destination[cats.length + 1];
-        for (int i = 0; i < cats.length; i++) {
-            destinations[i] = new CategoryDestination(cats[i]);
+        ModuleEnum[] categories = ModuleEnum.values();
+        destinations = new Destination[categories.length + 1];
+        for (int i = 0; i < categories.length; i++) {
+            destinations[i] = new CategoryDestination(categories[i]);
         }
-        destinations[cats.length] = new FavoritesDestination();
-        widthAnim.snap(0);
+        destinations[categories.length] = new FavoritesDestination();
+        selectionAnim.snap(0f);
     }
 
     public int getCollapsedX() {
@@ -51,12 +46,11 @@ public class Md3NavigationRail {
     }
 
     public int getCurrentWidth() {
-        float p = widthAnim.getValue();
-        return (int) (COLLAPSED_W + (EXPANDED_W - COLLAPSED_W) * p);
+        return WIDTH;
     }
 
     public boolean isExpanded() {
-        return widthAnim.getValue() > 0.1f;
+        return true;
     }
 
     public int getSelectedIndex() {
@@ -68,106 +62,90 @@ public class Md3NavigationRail {
     }
 
     public ModuleEnum getSelectedCategory() {
-        Destination d = destinations[selectedIndex];
-        return d instanceof CategoryDestination cd ? cd.category : null;
+        Destination destination = destinations[selectedIndex];
+        return destination instanceof CategoryDestination category ? category.category : null;
     }
 
     private int blockTop(int index) {
-        return y + HEADER_HEIGHT + index * (BLOCK_HEIGHT + BLOCK_SPACING);
+        return y + HEADER_HEIGHT + Math.round(index * blockStep());
     }
 
-    private float pillCenterY(int index) {
-        return blockTop(index) + 2 + PILL_H / 2f;
+    private float pillCenterY(float index) {
+        return y + HEADER_HEIGHT + 3 + PILL_H / 2f
+                + index * blockStep();
     }
 
-    public void updateHover(double mouseX, double mouseY) {
-        boolean hovered = mouseX >= x && mouseX <= x + getCurrentWidth()
-                && mouseY >= y && mouseY <= y + getTotalHeight();
-        widthAnim.setTarget(hovered ? 1.0f : 0.0f);
+    private float blockStep() {
+        if (height <= 0) {
+            return BLOCK_HEIGHT + BLOCK_SPACING;
+        }
+        return Math.min(BLOCK_HEIGHT + BLOCK_SPACING,
+                Math.max(44f, (height - HEADER_HEIGHT) / (float) destinations.length));
     }
 
     /**
-     * Render the rail. Should be drawn AFTER the main content so the expanded
-     * panel visually sits on top.
+     * Retained for the screen's shared component update path. A persistent
+     * navigation rail does not change width on hover.
      */
+    public void updateHover(double mouseX, double mouseY) {
+    }
+
     public void render(GuiGraphicsExtractor gui, int mouseX, int mouseY, float partialTicks) {
-        int currentW = getCurrentWidth();
-        boolean expanded = isExpanded();
-        float p = widthAnim.getValue();
+        int railHeight = getTotalHeight();
 
-        // Elevated surface + shadow when expanded
-        if (expanded) {
-            Md3Theme.elevation2(gui, x, y, currentW, getTotalHeight(), 0);
-            CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, currentW, getTotalHeight(),
-                    0, Md3Theme.SURFACE_CONTAINER);
-        } else {
-            // Collapsed: subtle tonal strip flush with the window background
-            CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, currentW, getTotalHeight(),
-                    0, Md3Theme.SURFACE);
-        }
+        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, WIDTH, railHeight, 0,
+                Md3Theme.SURFACE_CONTAINER_LOW);
+        gui.fill(x + WIDTH - 1, y + 8, x + WIDTH, y + railHeight - 8,
+                Md3Theme.withAlpha(Md3Theme.OUTLINE_VARIANT, 0.55f));
 
-        // Hamburger
-        Md3RenderUtils.drawHamburger(gui, x + COLLAPSED_W / 2, y + HEADER_HEIGHT / 2, 16,
-                Md3Theme.ON_SURFACE_VARIANT);
+        var labelFont = Md3Fonts.label();
+        String browse = "BROWSE";
+        float browseWidth = Md3Fonts.width(labelFont, browse);
+        Md3Fonts.drawText(gui, labelFont, browse, x + (WIDTH - browseWidth) / 2f,
+                y + 13, Md3Theme.ON_SURFACE_VARIANT);
 
-        // Active pill slides with expansion
-        float pos = selectedIndex;
-        float clamped = Math.max(0, Math.min(destinations.length - 1, pos));
-        int lower = (int) Math.floor(clamped);
-        int upper = Math.min(destinations.length - 1, lower + 1);
-        float t = clamped - lower;
-        float activeY = pillCenterY(lower) + (pillCenterY(upper) - pillCenterY(lower)) * t;
-
-        int iconCenterX = x + COLLAPSED_W / 2;
-        int pillX = x + (COLLAPSED_W - PILL_W) / 2;
+        selectionAnim.setTarget(selectedIndex);
+        float activeCenterY = pillCenterY(selectionAnim.getValue());
+        int pillX = x + (WIDTH - PILL_W) / 2;
         CustomRoundedRectRenderer.drawRoundedRect(gui, pillX,
-                (int) (activeY - PILL_H / 2f), PILL_W, PILL_H, PILL_H / 2,
-                Md3Theme.SECONDARY_CONTAINER);
+                Math.round(activeCenterY - PILL_H / 2f), PILL_W, PILL_H,
+                PILL_H / 2, Md3Theme.SECONDARY_CONTAINER);
 
         for (int i = 0; i < destinations.length; i++) {
-            Destination dest = destinations[i];
+            Destination destination = destinations[i];
             boolean selected = i == selectedIndex;
-            boolean blockHovered = isOverBlock(mouseX, mouseY, i);
-            float centerY = pillCenterY(i);
+            boolean hovered = isOverBlock(mouseX, mouseY, i);
+            int centerY = Math.round(pillCenterY(i));
 
-            if (blockHovered && !selected) {
+            if (hovered && !selected) {
                 CustomRoundedRectRenderer.drawRoundedRect(gui, pillX,
-                        (int) (centerY - PILL_H / 2f), PILL_W, PILL_H, PILL_H / 2,
+                        centerY - PILL_H / 2, PILL_W, PILL_H, PILL_H / 2,
                         Md3Theme.hoverState(Md3Theme.ON_SURFACE));
             }
 
-            int contentColor = selected ? Md3Theme.ON_SECONDARY_CONTAINER : Md3Theme.ON_SURFACE_VARIANT;
+            int contentColor = selected
+                    ? Md3Theme.ON_SECONDARY_CONTAINER
+                    : Md3Theme.ON_SURFACE_VARIANT;
 
-            if (dest instanceof CategoryDestination cd) {
-                Md3RenderUtils.drawCategoryIcon(gui, cd.category, iconCenterX, (int) centerY,
-                        ICON_SIZE, contentColor);
+            if (destination instanceof CategoryDestination category) {
+                Md3RenderUtils.drawCategoryIcon(gui, category.category, x + WIDTH / 2,
+                        centerY, ICON_SIZE, contentColor);
             } else {
-                // Favorites heart icon
-                int cell = Math.max(1, ICON_SIZE / 10);
-                int w = 11 * cell, h = 9 * cell;
-                Md3RenderUtils.drawHeart(gui, iconCenterX - w / 2, (int) centerY - h / 2,
-                        cell, true, contentColor, contentColor);
+                Md3RenderUtils.drawHeartPlusIcon(gui, x + WIDTH / 2,
+                        centerY, ICON_SIZE, contentColor);
             }
 
-            // Labels fade in when expanded
-            if (p > 0.05f) {
-                int labelAlpha = (int) (255 * p);
-                var font = Md3Fonts.label();
-                String name = dest.getLabel();
-                float tw = Md3Fonts.width(font, name);
-                int labelColor = Md3Theme.withAlpha(
-                        selected ? Md3Theme.ON_SECONDARY_CONTAINER : Md3Theme.ON_SURFACE_VARIANT,
-                        labelAlpha / 255f);
-                Md3Fonts.drawText(gui, font, name, x + (currentW - tw) / 2f,
-                        centerY + PILL_H / 2f + ICON_LABEL_GAP, labelColor);
-            }
+            String label = destination.getLabel();
+            float labelWidth = Md3Fonts.width(labelFont, label);
+            Md3Fonts.drawText(gui, labelFont, label, x + (WIDTH - labelWidth) / 2f,
+                    centerY + PILL_H / 2f + 2, contentColor);
         }
     }
 
     private boolean isOverBlock(double mouseX, double mouseY, int index) {
         int top = blockTop(index);
-        return mouseX >= x && mouseX <= x + getCurrentWidth()
-                && mouseY >= top && mouseY <= top + BLOCK_HEIGHT;
+        return mouseX >= x && mouseX <= x + WIDTH
+                && mouseY >= top && mouseY <= top + blockStep();
     }
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -182,10 +160,10 @@ public class Md3NavigationRail {
     }
 
     public int getTotalHeight() {
-        return HEADER_HEIGHT + destinations.length * (BLOCK_HEIGHT + BLOCK_SPACING);
+        int contentHeight = HEADER_HEIGHT
+                + destinations.length * (BLOCK_HEIGHT + BLOCK_SPACING);
+        return height > 0 ? height : contentHeight;
     }
-
-    // ── Destination abstraction ─────────────────────────
 
     private interface Destination {
         String getLabel();

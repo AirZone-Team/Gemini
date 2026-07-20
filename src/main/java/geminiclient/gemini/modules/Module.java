@@ -1,7 +1,6 @@
 package geminiclient.gemini.modules;
 
 import geminiclient.gemini.Gemini;
-import geminiclient.gemini.base.JavaToCSharpIPC;
 import geminiclient.gemini.base.MinecraftInstance;
 import geminiclient.gemini.modules.impl.visual.notice.ModuleNotification;
 import geminiclient.gemini.values.ValueParent;
@@ -10,7 +9,6 @@ import geminiclient.gemini.values.impl.CheckboxValue;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class Module implements MinecraftInstance {
@@ -59,7 +57,6 @@ public class Module implements MinecraftInstance {
         for (ValueParent vp : valueParents) {
             // 注册值变更回调：本地值变化时自动向 C# 发送增量
             String moduleName = this.name;
-            vp.setOnChange(() -> JavaToCSharpIPC.sendSettingUpdate(moduleName, vp.getName(), vp));
             values.add(vp);
 
             // CheckboxValue 的子 BoolValue 需要透传变更到父级，使父级 Checkbox 的 onChange 被触发
@@ -76,9 +73,6 @@ public class Module implements MinecraftInstance {
             return;
 
         this.enabled = b;
-
-        // 向 C# 发送模块开关增量
-        JavaToCSharpIPC.sendModuleUpdate(name, this.enabled);
 
         if (b) {
             animationXOffset = 100f;

@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3.component;
 
+import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Anim;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Fonts;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3RenderUtils;
@@ -17,7 +18,6 @@ import java.util.List;
  */
 public class Md3CheckboxValueComponent extends Md3ValueComponent {
 
-    private static final int CHILD_HEIGHT = 34;
 
     private final CheckboxValue checkboxValue;
     private final List<Md3BoolValueComponent> children = new ArrayList<>();
@@ -36,9 +36,13 @@ public class Md3CheckboxValueComponent extends Md3ValueComponent {
         return expandAnim.getValue();
     }
 
+    private int childHeight() {
+        return ClickGui.md3ButtonRowHeight();
+    }
+
     @Override
     public int getExtraHeight() {
-        return (int) (children.size() * CHILD_HEIGHT * expandProgress());
+        return (int) (children.size() * childHeight() * expandProgress());
     }
 
     @Override
@@ -58,7 +62,8 @@ public class Md3CheckboxValueComponent extends Md3ValueComponent {
                 isHovered(mouseX, mouseY) ? Md3Theme.PRIMARY : Md3Theme.ON_SURFACE_VARIANT);
 
         // Children (scissored during animation)
-        int contentH = children.size() * CHILD_HEIGHT;
+        int childHeight = childHeight();
+        int contentH = children.size() * childHeight;
         int visibleH = (int) (contentH * expandProgress());
         if (visibleH > 0) {
             gui.enableScissor(x, y + height, x + width, y + height + visibleH);
@@ -67,9 +72,9 @@ public class Md3CheckboxValueComponent extends Md3ValueComponent {
                 child.x = x + 12;
                 child.y = childY;
                 child.width = width - 12;
-                child.height = CHILD_HEIGHT;
+                child.height = childHeight;
                 child.render(gui, mouseX, mouseY, partialTicks);
-                childY += CHILD_HEIGHT;
+                childY += childHeight;
             }
             gui.disableScissor();
         }
@@ -82,14 +87,15 @@ public class Md3CheckboxValueComponent extends Md3ValueComponent {
             return true;
         }
         if (expandProgress() > 0.01f) {
+            int childHeight = childHeight();
             int childY = y + height;
             for (Md3BoolValueComponent child : children) {
                 child.x = x + 12;
                 child.y = childY;
                 child.width = width - 12;
-                child.height = CHILD_HEIGHT;
+                child.height = childHeight;
                 if (child.mouseClicked(mouseX, mouseY, button)) return true;
-                childY += CHILD_HEIGHT;
+                childY += childHeight;
             }
         }
         return false;

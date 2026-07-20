@@ -2,7 +2,6 @@ package geminiclient.gemini.base;
 
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
-import geminiclient.gemini.base.JavaToCSharpIPC;
 import geminiclient.gemini.event.events.impl.ShutdownEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleManager;
@@ -14,11 +13,15 @@ import org.json.JSONObject;
 import org.json.JSONTokener;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -30,6 +33,9 @@ import java.util.logging.Logger;
  */
 public class FileSystem {
     private static final Logger LOGGER = Logger.getLogger(FileSystem.class.getName());
+    private static final String DEFAULT_CONFIG_NAME = "config";
+    private static final String CONFIG_EXTENSION = ".json";
+    private static final String ALTS_CONFIG_NAME = "alts";
 
     private final ModuleManager moduleManager;
     private final Path configDirectory;
@@ -61,17 +67,98 @@ public class FileSystem {
      * Ensures required directories exist
      */
     private void ensureDirectoriesExist() {
+        ensureDirectory(configDirectory, "config");
+        ensureDirectory(ttfDirectory, "TTF");
+    }
+
+    private boolean ensureDirectory(Path directory, String description) {
         try {
-            Files.createDirectories(configDirectory);
-            LOGGER.info("Config directory ensured: " + configDirectory);
+            if (Files.exists(directory) && !Files.isDirectory(directory)) {
+                LOGGER.severe(description + " path exists but is not a directory: " + directory);
+                return false;
+            }
+
+            Files.createDirectories(directory);
+            LOGGER.info(description + " directory ensured: " + directory);
+            return true;
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to create config directory: " + configDirectory, e);
+            LOGGER.log(Level.SEVERE, "Failed to create " + description + " directory: " + directory, e);
+            return false;
         }
+    }
+
+    private boolean ensureParentDirectory(Path file) {
+        Path parent = file.getParent();
+        return parent == null || ensureDirectory(parent, "parent");
+    }
+
+    private Optional<String> normalizeConfigName(String name) {
+        if (name == null) {
+            return Optional.empty();
+        }
+
+        String normalized = name.trim();
+        if (normalized.toLowerCase(Locale.ROOT).endsWith(CONFIG_EXTENSION)) {
+            normalized = normalized.substring(0, normalized.length() - CONFIG_EXTENSION.length()).trim();
+        }
+
+        if (normalized.isEmpty()
+                || normalized.equals(".")
+                || normalized.equals("..")
+                || normalized.equalsIgnoreCase(ALTS_CONFIG_NAME)
+                || normalized.contains("/")
+                || normalized.contains("\\")
+                || normalized.contains(":")
+                || normalized.indexOf('\0') >= 0) {
+            return Optional.empty();
+        }
+
         try {
-            Files.createDirectories(ttfDirectory);
-            LOGGER.info("TTF directory ensured: " + ttfDirectory);
+            Paths.get(normalized);
+            return Optional.of(normalized);
+        } catch (InvalidPathException e) {
+            LOGGER.log(Level.WARNING, "Invalid config name: " + name, e);
+            return Optional.empty();
+        }
+    }
+
+    private Optional<Path> resolveConfigFile(String name) {
+        Optional<String> configName = normalizeConfigName(name);
+        if (configName.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Path configRoot = configDirectory.toAbsolutePath().normalize();
+        Path configFile = configRoot.resolve(configName.get() + CONFIG_EXTENSION).normalize();
+        if (!configFile.startsWith(configRoot)) {
+            return Optional.empty();
+        }
+
+        return Optional.of(configFile);
+    }
+
+    private boolean writeStringAtomically(Path file, String content) {
+        if (!ensureParentDirectory(file)) {
+            return false;
+        }
+
+        Path tempFile = file.resolveSibling(file.getFileName() + ".tmp");
+        try {
+            Files.writeString(tempFile, content, StandardCharsets.UTF_8);
+            try {
+                Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicMoveError) {
+                Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return true;
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to create TTF directory: " + ttfDirectory, e);
+            LOGGER.log(Level.SEVERE, "Failed to write file: " + file, e);
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (IOException cleanupError) {
+                LOGGER.log(Level.WARNING, "Failed to clean temporary file: " + tempFile, cleanupError);
+            }
+            return false;
         }
     }
 
@@ -108,7 +195,25 @@ public class FileSystem {
         if (name == null || name.isEmpty() || "Default".equals(name)) {
             return null;
         }
-        return ttfDirectory.resolve(name + ".ttf").toFile();
+
+        String fontName = name.trim();
+        if (fontName.isEmpty()
+                || fontName.contains("/")
+                || fontName.contains("\\")
+                || fontName.contains(":")
+                || fontName.indexOf('\0') >= 0) {
+            LOGGER.warning("Attempted to access TTF font with invalid name: " + name);
+            return null;
+        }
+
+        Path fontRoot = ttfDirectory.toAbsolutePath().normalize();
+        Path fontFile = fontRoot.resolve(fontName + ".ttf").normalize();
+        if (!fontFile.startsWith(fontRoot)) {
+            LOGGER.warning("Attempted to access TTF font outside directory: " + name);
+            return null;
+        }
+
+        return fontFile.toFile();
     }
 
     // =========================================================================
@@ -143,7 +248,6 @@ public class FileSystem {
         saveConfig();
         saveConfigName();
         LOGGER.info("Shutdown completed, last config: " + Gemini.lastConfigName);
-        JavaToCSharpIPC.shutdown();
     }
 
     // =========================================================================
@@ -156,22 +260,26 @@ public class FileSystem {
     public void loadConfigName() {
         try {
             if (!Files.exists(configNameFile)) {
-                // Create file with default name if it doesn't exist
-                Files.writeString(configNameFile, "config");
-                Gemini.lastConfigName = "config";
+                Gemini.lastConfigName = DEFAULT_CONFIG_NAME;
+                saveConfigName();
                 LOGGER.info("Created default config name file: " + configNameFile);
                 return;
             }
 
             // Read the config name
-            String configName = Files.readString(configNameFile).trim();
-            if (!configName.isEmpty()) {
-                Gemini.lastConfigName = configName;
-                LOGGER.info("Loaded config name: " + configName);
+            String configName = Files.readString(configNameFile, StandardCharsets.UTF_8).trim();
+            Optional<String> normalizedName = normalizeConfigName(configName);
+            if (normalizedName.isPresent()) {
+                Gemini.lastConfigName = normalizedName.get();
+                LOGGER.info("Loaded config name: " + Gemini.lastConfigName);
+            } else {
+                Gemini.lastConfigName = DEFAULT_CONFIG_NAME;
+                saveConfigName();
+                LOGGER.warning("Invalid saved config name, reset to default: " + configName);
             }
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Failed to load config name from: " + configNameFile, e);
-            Gemini.lastConfigName = "config"; // Fallback
+            Gemini.lastConfigName = DEFAULT_CONFIG_NAME; // Fallback
         }
     }
 
@@ -179,16 +287,18 @@ public class FileSystem {
      * Saves the current config name to file
      */
     public void saveConfigName() {
-        if (Gemini.lastConfigName == null || Gemini.lastConfigName.isEmpty()) {
+        Optional<String> normalizedName = normalizeConfigName(Gemini.lastConfigName);
+        if (normalizedName.isEmpty()) {
+            Gemini.lastConfigName = DEFAULT_CONFIG_NAME;
+            normalizedName = Optional.of(DEFAULT_CONFIG_NAME);
+        }
+
+        if (!writeStringAtomically(configNameFile, normalizedName.get())) {
             return;
         }
 
-        try {
-            Files.writeString(configNameFile, Gemini.lastConfigName);
-            LOGGER.info("Config name saved: " + Gemini.lastConfigName);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to save config name to: " + configNameFile, e);
-        }
+        Gemini.lastConfigName = normalizedName.get();
+        LOGGER.info("Config name saved: " + Gemini.lastConfigName);
     }
 
     // =========================================================================
@@ -199,32 +309,84 @@ public class FileSystem {
      * Saves configuration using the last used config name
      */
     public void saveConfig() {
-        saveConfig(Gemini.lastConfigName);
+        saveConfig(Gemini.lastConfigName == null ? DEFAULT_CONFIG_NAME : Gemini.lastConfigName);
     }
 
     /**
      * Saves configuration with specified name
      */
     public void saveConfig(String name) {
-        if (name == null || name.trim().isEmpty()) {
+        Optional<String> normalizedName = normalizeConfigName(name);
+        Optional<Path> configPath = resolveConfigFile(name);
+        if (normalizedName.isEmpty() || configPath.isEmpty()) {
             LOGGER.warning("Attempted to save config with invalid name: " + name);
             return;
         }
 
-        Path configFile = configDirectory.resolve(name + ".json");
+        Path configFile = configPath.get();
         JSONObject configRoot = buildConfigJson();
+        String jsonContent = configRoot.toString(4);
 
-        try {
-            // Write with pretty printing and UTF-8 encoding
-            String jsonContent = configRoot.toString(4);
-            Files.writeString(configFile, jsonContent);
-            LOGGER.info("Configuration successfully saved: " + configFile);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to save configuration: " + configFile, e);
+        if (!writeStringAtomically(configFile, jsonContent)) {
+            return;
         }
-        Gemini.lastConfigName = name;
-        loadConfig(Gemini.lastConfigName);
-        LOGGER.info("Configuration successfully loaded: " + configFile);
+
+        Gemini.lastConfigName = normalizedName.get();
+        saveConfigName();
+        LOGGER.info("Configuration successfully saved: " + configFile);
+    }
+
+    /**
+     * Creates a config file only when it does not already exist.
+     */
+    public boolean createConfig(String name) {
+        Optional<String> normalizedName = normalizeConfigName(name);
+        Optional<Path> configPath = resolveConfigFile(name);
+        if (normalizedName.isEmpty() || configPath.isEmpty()) {
+            LOGGER.warning("Attempted to create config with invalid name: " + name);
+            return false;
+        }
+
+        Path configFile = configPath.get();
+        if (Files.exists(configFile)) {
+            LOGGER.warning("Config already exists: " + configFile);
+            return false;
+        }
+
+        if (!writeStringAtomically(configFile, buildConfigJson().toString(4))) {
+            return false;
+        }
+
+        Gemini.lastConfigName = normalizedName.get();
+        saveConfigName();
+        LOGGER.info("Configuration successfully created: " + configFile);
+        return true;
+    }
+
+    /**
+     * Deletes a saved config file without allowing paths outside the config directory.
+     */
+    public boolean deleteConfig(String name) {
+        Optional<String> normalizedName = normalizeConfigName(name);
+        Optional<Path> configPath = resolveConfigFile(name);
+        if (normalizedName.isEmpty() || configPath.isEmpty()) {
+            LOGGER.warning("Attempted to delete config with invalid name: " + name);
+            return false;
+        }
+
+        Path configFile = configPath.get();
+        try {
+            boolean deleted = Files.deleteIfExists(configFile);
+            if (deleted && normalizedName.get().equalsIgnoreCase(Gemini.lastConfigName)) {
+                Gemini.lastConfigName = DEFAULT_CONFIG_NAME;
+                saveConfigName();
+            }
+            LOGGER.info((deleted ? "Configuration deleted: " : "Configuration did not exist: ") + configFile);
+            return deleted;
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Failed to delete configuration: " + configFile, e);
+            return false;
+        }
     }
 
     /**
@@ -338,19 +500,21 @@ public class FileSystem {
      * Loads configuration using the last used config name
      */
     public void loadConfig() {
-        loadConfig(Gemini.lastConfigName);
+        loadConfig(Gemini.lastConfigName == null ? DEFAULT_CONFIG_NAME : Gemini.lastConfigName);
     }
 
     /**
      * Loads configuration with specified name
      */
     public void loadConfig(String name) {
-        if (name == null || name.trim().isEmpty()) {
+        Optional<String> normalizedName = normalizeConfigName(name);
+        Optional<Path> configPath = resolveConfigFile(name);
+        if (normalizedName.isEmpty() || configPath.isEmpty()) {
             LOGGER.warning("Attempted to load config with invalid name: " + name);
             return;
         }
 
-        Path configFile = Path.of(configDirectory + File.separator + name + ".json");
+        Path configFile = configPath.get();
         LOGGER.info("Loading configuration from: " + configFile);
 
         if (!Files.exists(configFile)) {
@@ -361,6 +525,8 @@ public class FileSystem {
         try (InputStream inputStream = Files.newInputStream(configFile)) {
             JSONObject configRoot = new JSONObject(new JSONTokener(inputStream));
             applyConfigFromJson(configRoot);
+            Gemini.lastConfigName = normalizedName.get();
+            saveConfigName();
             LOGGER.info("Configuration loaded successfully: " + configFile);
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Failed to read configuration file: " + configFile, e);
@@ -379,7 +545,6 @@ public class FileSystem {
         }
 
         // 加载配置时抑制 IPC 回调，避免模块/值变更时误发增量到 C#
-        JavaToCSharpIPC.setSuppressCallbacks(true);
         try {
             JSONArray modulesArray = configRoot.getJSONArray("modules");
             int loadedCount = 0;
@@ -393,7 +558,6 @@ public class FileSystem {
 
             LOGGER.info("Applied configuration to " + loadedCount + " modules");
         } finally {
-            JavaToCSharpIPC.setSuppressCallbacks(false);
         }
     }
 
@@ -570,11 +734,13 @@ public class FileSystem {
      * 将当前的账号列表保存到 alts.json
      */
     public void saveAlts(JSONArray accounts) {
-        try {
-            Files.writeString(altsFile, accounts.toString(4));
+        if (accounts == null) {
+            LOGGER.warning("Attempted to save null alts list");
+            return;
+        }
+
+        if (writeStringAtomically(altsFile, accounts.toString(4))) {
             LOGGER.info("Alts successfully saved: " + altsFile);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to save alts: " + altsFile, e);
         }
     }
 }

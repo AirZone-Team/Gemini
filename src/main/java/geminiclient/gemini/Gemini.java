@@ -1,6 +1,5 @@
 package geminiclient.gemini;
 
-import geminiclient.gemini.base.JavaToCSharpIPC;
 import geminiclient.gemini.base.RotationManager;
 import geminiclient.gemini.event.EventManager;
 import geminiclient.gemini.base.FileSystem;
@@ -9,7 +8,6 @@ import geminiclient.gemini.base.KeyBindHandler;
 import geminiclient.gemini.modules.ModuleManager;
 import geminiclient.gemini.modules.impl.visual.Arraylists;
 import geminiclient.gemini.modules.HudDragManager;
-import geminiclient.gemini.modules.impl.visual.ExpandClickGui;
 import geminiclient.gemini.modules.impl.visual.notice.NotificationManager;
 
 import java.util.ArrayList;
@@ -53,12 +51,5 @@ public class Gemini {
 
         fileSystem.loadConfigName();
         fileSystem.loadConfig();
-
-        if (moduleManager.getModule(ExpandClickGui.class).enabled) {
-            JavaToCSharpIPC.startExe();
-            JavaToCSharpIPC.toCSAccount();
-            JavaToCSharpIPC.toCS(Gemini.moduleManager);
-            JavaToCSharpIPC.startReceive();
-        }
     }
 }

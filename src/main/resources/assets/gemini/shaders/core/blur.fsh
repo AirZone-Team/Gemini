@@ -38,25 +38,42 @@ float roundRectDistance(vec2 position, vec4 innerRect, vec4 radius) {
 }
 
 vec4 blur() {
-    #define TAU 6.28318530718
-
     vec2 inputResolution = Params1.xy;
-    float Quality = Params1.z;
-    vec2 Radius = Quality / inputResolution.xy;
-
     vec2 uv = gl_FragCoord.xy / inputResolution.xy;
-    vec4 Color = texture(InputSampler, uv);
+    vec4 color = texture(InputSampler, uv);
 
-    float step = TAU / 16.0;
+    // A zero-radius blur is exactly the center sample. Avoid issuing the other
+    // 80 identical texture reads while preserving the result.
+    if (Params1.z <= 0.0) {
+        return color + Color1;
+    }
 
-    for (float d = 0.0; d < TAU; d += step) {
-        for (float i = 0.2; i <= 1.0; i += 0.2) {
-            Color += texture(InputSampler, uv + vec2(cos(d), sin(d)) * Radius * i);
+    vec2 radius = Params1.zz / inputResolution;
+
+    // Eight axes sampled in both directions are the same 16 radial directions
+    // as the previous sin/cos loop. Constants remove per-fragment trigonometry;
+    // the sample count, positions, and weights remain unchanged.
+    const vec2 directions[8] = vec2[](
+        vec2(1.0, 0.0),
+        vec2(0.923879533, 0.382683432),
+        vec2(0.707106781, 0.707106781),
+        vec2(0.382683432, 0.923879533),
+        vec2(0.0, 1.0),
+        vec2(-0.382683432, 0.923879533),
+        vec2(-0.707106781, 0.707106781),
+        vec2(-0.923879533, 0.382683432)
+    );
+
+    for (int d = 0; d < 8; ++d) {
+        vec2 axis = directions[d] * radius;
+        for (int i = 1; i <= 5; ++i) {
+            vec2 offset = axis * (float(i) * 0.2);
+            color += texture(InputSampler, uv + offset);
+            color += texture(InputSampler, uv - offset);
         }
     }
 
-    Color /= 81.0;
-    return (Color + Color1);
+    return color / 81.0 + Color1;
 }
 
 void main() {
@@ -74,6 +91,6 @@ void main() {
     float delta = fwidth(dist);
     float alpha = 1.0 - smoothstep(-delta, delta, dist);
 
-    fragColor = vec4(blur().rgb, alpha);
     if (alpha < 0.001) discard;
+    fragColor = vec4(blur().rgb, alpha);
 }

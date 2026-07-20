@@ -4,6 +4,7 @@ import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Anim;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Fonts;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3RenderUtils;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Theme;
+import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.values.impl.BoolValue;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
@@ -21,7 +22,13 @@ public class Md3BoolValueComponent extends Md3ValueComponent {
     }
 
     @Override
+    public int getTotalHeight() {
+        return ClickGui.md3ButtonRowHeight();
+    }
+
+    @Override
     public void render(GuiGraphicsExtractor gui, int mouseX, int mouseY, float partialTicks) {
+        height = getTotalHeight();
         switchAnim.setTarget(boolValue.enabled ? 1.0f : 0.0f);
 
         // Hover state layer (consistent across all MD3 rows)
@@ -34,8 +41,8 @@ public class Md3BoolValueComponent extends Md3ValueComponent {
                 Md3Theme.ON_SURFACE);
 
         // Trailing switch
-        int swX = x + width - Md3RenderUtils.SWITCH_W;
-        int swY = y + (height - Md3RenderUtils.SWITCH_H) / 2;
+        int swX = x + width - Md3RenderUtils.switchWidth();
+        int swY = y + (height - Md3RenderUtils.switchHeight()) / 2;
         boolean hovered = isHovered(mouseX, mouseY);
         Md3RenderUtils.drawSwitch(gui, swX, swY, switchAnim.getValue(), hovered, false);
     }

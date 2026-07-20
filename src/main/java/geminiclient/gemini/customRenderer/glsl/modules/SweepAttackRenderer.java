@@ -19,7 +19,12 @@ import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTextureView;
-import com.mojang.blaze3d.vertex.*;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
 import org.joml.Matrix4f;
@@ -34,149 +39,129 @@ import static geminiclient.gemini.base.MinecraftInstance.mc;
 import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
- * GPU-accelerated Sweeping Attack VFX renderer.
- *
- * <h3>Render passes</h3>
- * <ol>
- *   <li>Arc — triple-layer SDF energy arc (blue/purple/white)</li>
- *   <li>Speed Lines — radiating ribbon lines</li>
- *   <li>Particles — camera-facing energy billboards</li>
- *   <li>Photon Ring — expanding rainbow ring</li>
- *   <li>Post — distortion + chromatic aberration</li>
- * </ol>
- *
- * <h3>Pipeline architecture</h3>
- * <pre>
- * SWEEP_ARC_PIPE      — arc (sweep_arc shader, QUADS, depth write)
- * SWEEP_RING_PIPE     — photon ring (sweep_arc shader, QUADS, no depth write)
- * SWEEP_PARTICLE_PIPE — particles + speed lines (sweep_particle shader, QUADS)
- * SWEEP_DISTORT_PIPE  — post distortion (sweep_post shader, fullscreen)
- * SWEEP_CHROMATIC_PIPE— post chromatic (sweep_post shader, fullscreen)
- * </pre>
+ * Layered procedural renderer for {@link SweepAttackInstance}. All artistic
+ * controls are supplied per draw through one std140 block, allowing presets
+ * and live customization without rebuilding shader pipelines.
  */
 public final class SweepAttackRenderer {
 
     private SweepAttackRenderer() {}
 
-    // ════════════════════════════════════════════════════════════════
-    //  Pipelines
-    // ════════════════════════════════════════════════════════════════
+    public record Config(
+            int style,
+            int colorMode,
+            int quality,
+            int layers,
+            int echoes,
+            int ringCount,
+            int speedLineCount,
+            boolean arc,
+            boolean speedLines,
+            boolean particles,
+            boolean lightning,
+            boolean ring,
+            boolean coreBurst,
+            float intensity,
+            float opacity,
+            float radius,
+            float thickness,
+            float verticalLift,
+            float glow,
+            float noise,
+            float flowSpeed,
+            float echoSpacing,
+            float ringScale,
+            float ringThickness,
+            float lineLength,
+            float lineWidth,
+            float lightningWidth,
+            float primaryR,
+            float primaryG,
+            float primaryB,
+            float accentR,
+            float accentG,
+            float accentB,
+            float coreR,
+            float coreG,
+            float coreB
+    ) {}
 
-    /** Depth state with depth write enabled (for arc, particles). */
     private static final DepthStencilState DEPTH_WRITE =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, true, -1.0F, -1.0F);
-
-    /** Depth state with depth write disabled (for ring overlay). */
+            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, true, -1f, -1f);
     private static final DepthStencilState DEPTH_NO_WRITE =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -1.0F);
-
+            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false, -1f, -1f);
     private static final ColorTargetState ADDITIVE_BLEND = new ColorTargetState(new BlendFunction(
-            SourceFactor.SRC_ALPHA, DestFactor.ONE,
-            SourceFactor.ONE, DestFactor.ZERO));
+            SourceFactor.SRC_ALPHA, DestFactor.ONE, SourceFactor.ONE, DestFactor.ZERO));
+    private static final ColorTargetState TRANSLUCENT_BLEND =
+            new ColorTargetState(BlendFunction.TRANSLUCENT);
 
-    private static final ColorTargetState TRANSLUCENT_BLEND = new ColorTargetState(BlendFunction.TRANSLUCENT);
-
-    /** Arc pipeline — additive blend, depth-tested + writes depth. */
     public static final RenderPipeline SWEEP_ARC_PIPE = RenderPipeline.builder(
                     RenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sweep_arc"))
             .withVertexShader(getIdentifier("core/sweep_arc"))
             .withFragmentShader(getIdentifier("core/sweep_arc"))
             .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withUniform("SweepUniforms", UniformType.UNIFORM_BUFFER)
             .withDepthStencilState(DEPTH_WRITE)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
             .build();
 
-    /** Particle + Speed line pipeline — additive blend, depth-tested + writes depth. */
     public static final RenderPipeline SWEEP_PARTICLE_PIPE = RenderPipeline.builder(
                     RenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sweep_particle"))
             .withVertexShader(getIdentifier("core/sweep_particle"))
             .withFragmentShader(getIdentifier("core/sweep_particle"))
             .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withUniform("SweepUniforms", UniformType.UNIFORM_BUFFER)
             .withDepthStencilState(DEPTH_WRITE)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
             .build();
 
-    /** Ring pipeline — additive blend, depth-tested but no depth write (overlay). */
     public static final RenderPipeline SWEEP_RING_PIPE = RenderPipeline.builder(
                     RenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sweep_ring"))
             .withVertexShader(getIdentifier("core/sweep_arc"))
             .withFragmentShader(getIdentifier("core/sweep_arc"))
             .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withUniform("SweepUniforms", UniformType.UNIFORM_BUFFER)
             .withDepthStencilState(DEPTH_NO_WRITE)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
             .build();
 
-    /** Distortion post-process pipeline. */
-    public static final RenderPipeline SWEEP_DISTORT_PIPE = RenderPipeline.builder(
+    public static final RenderPipeline SWEEP_POST_PIPE = RenderPipeline.builder(
                     RenderPipelines.POST_PROCESSING_SNIPPET)
-            .withLocation(getIdentifier("pipeline/sweep_distort"))
+            .withLocation(getIdentifier("pipeline/sweep_post"))
             .withVertexShader(getIdentifier("core/sweep_post"))
             .withFragmentShader(getIdentifier("core/sweep_post"))
-            .withShaderDefine("SWEEP_DISTORT")
             .withUniform("SweepPostUniforms", UniformType.UNIFORM_BUFFER)
             .withSampler("SceneSampler")
             .withColorTargetState(TRANSLUCENT_BLEND)
             .withCull(false)
             .build();
-
-    /** Chromatic aberration post-process pipeline. */
-    public static final RenderPipeline SWEEP_CHROMATIC_PIPE = RenderPipeline.builder(
-                    RenderPipelines.POST_PROCESSING_SNIPPET)
-            .withLocation(getIdentifier("pipeline/sweep_chromatic"))
-            .withVertexShader(getIdentifier("core/sweep_post"))
-            .withFragmentShader(getIdentifier("core/sweep_post"))
-            .withShaderDefine("SWEEP_CHROMATIC")
-            .withUniform("SweepPostUniforms", UniformType.UNIFORM_BUFFER)
-            .withSampler("SceneSampler")
-            .withColorTargetState(TRANSLUCENT_BLEND)
-            .withCull(false)
-            .build();
-
-    // ════════════════════════════════════════════════════════════════
-    //  Uniform layout (std140, 64 bytes = 4 × vec4)
-    // ════════════════════════════════════════════════════════════════
 
     private static final int UNIFORM_SIZE = new Std140SizeCalculator()
-            .putVec4()  // Params:    time, sweepProgress, effectProgress, intensity
-            .putVec4()  // DirPack:   dirX, dirZ, arcStart, arcEnd
-            .putVec4()  // RingPack:  ringRadius, particleAlpha, lightningAlpha, 0
-            .putVec4()  // ColorPack: r, g, b, 0
+            .putVec4().putVec4().putVec4().putVec4()
+            .putVec4().putVec4().putVec4().putVec4()
             .get();
-
-    private static final int POST_UNIFORM_SIZE = new Std140SizeCalculator()
-            .putVec4()  // Params:   fbWidth, fbHeight, time, 0
-            .putVec4()  // Strength: distortStr, chromaticStr, 0, 0
-            .get();
-
-    // ════════════════════════════════════════════════════════════════
-    //  Resources
-    // ════════════════════════════════════════════════════════════════
+    private static final int POST_UNIFORM_SIZE =
+            new Std140SizeCalculator().putVec4().putVec4().putVec4().get();
 
     private static GpuBuffer uniforms;
     private static GpuBuffer postUniforms;
     private static TextureTarget sceneCopy;
 
-    // ════════════════════════════════════════════════════════════════
-    //  Registration
-    // ════════════════════════════════════════════════════════════════
+    private static final Vector3f CAM_UP = new Vector3f();
+    private static final Vector3f CAM_RIGHT = new Vector3f();
 
     public static void registerPipeline(Consumer<RenderPipeline> registry) {
         registry.accept(SWEEP_ARC_PIPE);
         registry.accept(SWEEP_PARTICLE_PIPE);
         registry.accept(SWEEP_RING_PIPE);
-        registry.accept(SWEEP_DISTORT_PIPE);
-        registry.accept(SWEEP_CHROMATIC_PIPE);
+        registry.accept(SWEEP_POST_PIPE);
     }
-
-    // ════════════════════════════════════════════════════════════════
-    //  Initialization
-    // ════════════════════════════════════════════════════════════════
 
     private static void ensureInit() {
         if (uniforms == null) {
@@ -193,302 +178,366 @@ public final class SweepAttackRenderer {
         }
     }
 
-    // ════════════════════════════════════════════════════════════════
-    //  Camera vectors
-    // ════════════════════════════════════════════════════════════════
-
-    private static final Vector3f CAM_UP    = new Vector3f();
-    private static final Vector3f CAM_RIGHT = new Vector3f();
-
     private static void updateCameraVectors() {
-        Camera cam = mc.getEntityRenderDispatcher().camera;
-        var rot = cam.rotation();
-        CAM_UP.set(0, 1, 0);
-        rot.transform(CAM_UP);
-        CAM_RIGHT.set(1, 0, 0);
-        rot.transform(CAM_RIGHT);
+        Camera camera = mc.getEntityRenderDispatcher().camera;
+        var rotation = camera.rotation();
+        CAM_UP.set(0f, 1f, 0f);
+        rotation.transform(CAM_UP);
+        CAM_RIGHT.set(1f, 0f, 0f);
+        rotation.transform(CAM_RIGHT);
     }
 
-    // ════════════════════════════════════════════════════════════════
-    //  3D Drawing
-    // ════════════════════════════════════════════════════════════════
-
-    /**
-     * Draw all 3D sweep attack layers.
-     *
-     * @param poseStack current pose stack
-     * @param inst      the attack instance
-     * @param nowMs     current time in milliseconds
-     * @param intensity global intensity multiplier
-     * @param colorR    arc color red (0-1)
-     * @param colorG    arc color green (0-1)
-     * @param colorB    arc color blue (0-1)
-     */
     public static void draw(PoseStack poseStack, SweepAttackInstance inst,
-                            long nowMs, float intensity,
-                            float colorR, float colorG, float colorB) {
+                            long nowMs, Config config) {
         ensureInit();
         updateCameraVectors();
 
-        float sweepProg   = inst.sweepProgress(nowMs);
-        float effectProg  = inst.effectProgress(nowMs);
-        float particleA   = inst.particleAlpha(nowMs);
-        float ringR       = inst.ringRadius(nowMs);
-        float ringA       = inst.ringAlpha(nowMs);
-        float lightningA  = inst.lightningAlpha(nowMs);
-        float arcA        = inst.arcAlpha(nowMs);
+        float sweep = inst.sweepProgress(nowMs);
+        float effect = inst.effectProgress(nowMs);
+        float particleAlpha = inst.particleAlpha(nowMs);
+        float ringProgress = inst.ringProgress(nowMs);
+        float ringAlpha = inst.ringAlpha(nowMs);
+        float lightningAlpha = inst.lightningAlpha(nowMs);
+        float arcAlpha = inst.arcAlpha(nowMs);
+        float burstAlpha = inst.burstAlpha(nowMs);
 
-        // Write shared uniforms
-        float time = nowMs / 1000f;
+        writeUniforms(inst, nowMs, sweep, effect, config);
+
+        if (config.arc()) drawArc(poseStack, inst, sweep, arcAlpha, config);
+        if (config.speedLines()) drawSpeedLines(poseStack, inst, sweep, arcAlpha, config);
+        if (config.particles()) drawParticles(poseStack, inst, particleAlpha, config);
+        if (config.lightning()) drawLightning(poseStack, inst, lightningAlpha, config);
+        if (config.ring()) drawPhotonRings(poseStack, inst, ringProgress, ringAlpha, config);
+        if (config.coreBurst()) drawCoreBurst(poseStack, inst, effect, burstAlpha, config);
+    }
+
+    private static void writeUniforms(SweepAttackInstance inst, long nowMs,
+                                      float sweep, float effect, Config config) {
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
         try (GpuBuffer.MappedView view = encoder.mapBuffer(uniforms, false, true)) {
-            Std140Builder b = Std140Builder.intoBuffer(view.data());
-            b.putVec4(time, sweepProg, effectProg, intensity);
-            b.putVec4(inst.dirX, inst.dirZ, inst.arcStart, inst.arcEnd);
-            b.putVec4(ringR, particleA, lightningA, 0f);
-            b.putVec4(colorR, colorG, colorB, 0f);
+            Std140Builder builder = Std140Builder.intoBuffer(view.data());
+            builder.putVec4(nowMs / 1000f, sweep, effect, config.intensity());
+            builder.putVec4(config.radius(), config.thickness(),
+                    config.verticalLift(), config.glow());
+            builder.putVec4(config.style(), config.colorMode(),
+                    config.layers(), config.noise());
+            builder.putVec4(config.flowSpeed(), config.echoSpacing(),
+                    config.ringThickness(), config.ringCount());
+            builder.putVec4(config.primaryR(), config.primaryG(),
+                    config.primaryB(), config.opacity());
+            builder.putVec4(config.accentR(), config.accentG(), config.accentB(), 0f);
+            builder.putVec4(config.coreR(), config.coreG(), config.coreB(), 0f);
+            builder.putVec4(config.ringScale(), config.lineLength(),
+                    config.lineWidth(), inst.seed);
         }
-
-        // Draw layers
-        drawArc(poseStack, inst, sweepProg, intensity, arcA);
-        drawSpeedLines(poseStack, inst, intensity, arcA);
-        drawParticles(poseStack, inst, particleA, intensity);
-        drawPhotonRing(poseStack, inst, ringR, ringA, intensity);
     }
-
-    // ── Layer 1: Arc ─────────────────────────────────────────────
-
-    private static final int ARC_SEGMENTS = 64;
 
     private static void drawArc(PoseStack poseStack, SweepAttackInstance inst,
-                                float sweepProg, float intensity, float arcAlpha) {
-        if (sweepProg < 0.001f || arcAlpha < 0.005f) return;
+                                float sweepProgress, float arcAlpha, Config config) {
+        if (sweepProgress < 0.001f || arcAlpha < 0.004f) return;
+        Camera camera = mc.getEntityRenderDispatcher().camera;
+        float cameraX = (float) camera.position().x;
+        float cameraY = (float) camera.position().y;
+        float cameraZ = (float) camera.position().z;
+        Matrix4f matrix = poseStack.last().pose();
+        int segments = switch (config.quality()) {
+            case 0 -> 32;
+            case 1 -> 48;
+            case 3 -> 96;
+            default -> 72;
+        };
 
-        Camera cam = mc.getEntityRenderDispatcher().camera;
-        float cx = (float) cam.position().x;
-        float cy = (float) cam.position().y;
-        float cz = (float) cam.position().z;
-        Matrix4f vm = poseStack.last().pose();
-
-        float radius = 2.0f;
-        float arcEnd = inst.arcStart + (inst.arcEnd - inst.arcStart) * sweepProg;
-
-        BufferBuilder buf = Tesselator.getInstance()
+        BufferBuilder buffer = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-        for (int i = 0; i < ARC_SEGMENTS; i++) {
-            float t0 = (float) i / ARC_SEGMENTS;
-            float t1 = (float) (i + 1) / ARC_SEGMENTS;
-            float a0 = inst.arcStart + (arcEnd - inst.arcStart) * t0;
-            float a1 = inst.arcStart + (arcEnd - inst.arcStart) * t1;
+        int echoCount = Math.min(Math.max(config.echoes(), 0), 5);
+        for (int echo = echoCount; echo >= 0; echo--) {
+            float echoProgress = clamp01(sweepProgress - echo * config.echoSpacing());
+            if (echoProgress < 0.002f) continue;
+            float echoFade = echo == 0 ? 1f : (float) Math.pow(0.62f, echo);
+            float radius = config.radius() * (1f - echo * 0.035f);
+            float innerRadius = radius * 0.42f;
+            float outerRadius = radius * 1.22f;
+            float endAngle = inst.arcStart + (inst.arcEnd - inst.arcStart) * echoProgress;
 
-            float innerR = radius * 0.6f;
-            float outerR = radius * 1.2f;
+            for (int i = 0; i < segments; i++) {
+                float t0 = (float) i / segments;
+                float t1 = (float) (i + 1) / segments;
+                float angle0 = inst.arcStart + (endAngle - inst.arcStart) * t0;
+                float angle1 = inst.arcStart + (endAngle - inst.arcStart) * t1;
+                float lift0 = config.verticalLift() * (float) Math.sin(t0 * Math.PI);
+                float lift1 = config.verticalLift() * (float) Math.sin(t1 * Math.PI);
+                int color0 = packColor(0.55f + 0.45f * (float) Math.sin(t0 * Math.PI),
+                        0f, echo / 5f, config.intensity() * arcAlpha * echoFade);
+                int color1 = packColor(0.55f + 0.45f * (float) Math.sin(t1 * Math.PI),
+                        0f, echo / 5f, config.intensity() * arcAlpha * echoFade);
 
-            // Glow multiplier — brighter in the middle of the arc
-            float glow0 = 0.5f + 0.5f * (float) Math.sin(t0 * Math.PI);
-            float glow1 = 0.5f + 0.5f * (float) Math.sin(t1 * Math.PI);
-
-            int rgba0 = packColor(glow0, 0f, 0f, intensity * arcAlpha); // Color.g = 0 → arc mode
-            int rgba1 = packColor(glow1, 0f, 0f, intensity * arcAlpha);
-
-            // Inner-left, inner-right, outer-right, outer-left
-            buf.addVertex(vm,
-                    (float)(inst.x + Math.cos(a0) * innerR) - cx,
-                    (float)(inst.y) - cy,
-                    (float)(inst.z + Math.sin(a0) * innerR) - cz
-            ).setUv(t0, 0f).setColor(rgba0);
-
-            buf.addVertex(vm,
-                    (float)(inst.x + Math.cos(a0) * outerR) - cx,
-                    (float)(inst.y) - cy,
-                    (float)(inst.z + Math.sin(a0) * outerR) - cz
-            ).setUv(t0, 1f).setColor(rgba0);
-
-            buf.addVertex(vm,
-                    (float)(inst.x + Math.cos(a1) * outerR) - cx,
-                    (float)(inst.y) - cy,
-                    (float)(inst.z + Math.sin(a1) * outerR) - cz
-            ).setUv(t1, 1f).setColor(rgba1);
-
-            buf.addVertex(vm,
-                    (float)(inst.x + Math.cos(a1) * innerR) - cx,
-                    (float)(inst.y) - cy,
-                    (float)(inst.z + Math.sin(a1) * innerR) - cz
-            ).setUv(t1, 0f).setColor(rgba1);
+                addArcVertex(buffer, matrix, inst, angle0, innerRadius, lift0,
+                        cameraX, cameraY, cameraZ, t0, 0f, color0);
+                addArcVertex(buffer, matrix, inst, angle0, outerRadius, lift0,
+                        cameraX, cameraY, cameraZ, t0, 1f, color0);
+                addArcVertex(buffer, matrix, inst, angle1, outerRadius, lift1,
+                        cameraX, cameraY, cameraZ, t1, 1f, color1);
+                addArcVertex(buffer, matrix, inst, angle1, innerRadius, lift1,
+                        cameraX, cameraY, cameraZ, t1, 0f, color1);
+            }
         }
 
-        MeshData mesh = buf.buildOrThrow();
-        if (mesh.drawState().vertexCount() == 0) { mesh.close(); return; }
-        drawMesh(mesh, SWEEP_ARC_PIPE, System.currentTimeMillis() / 1000f);
+        drawBuiltMesh(buffer, SWEEP_ARC_PIPE, nowSeconds());
     }
 
-    // ── Layer 2: Speed Lines ─────────────────────────────────────
-
-    private static final int SPEED_LINE_COUNT = 24;
+    private static void addArcVertex(BufferBuilder buffer, Matrix4f matrix,
+                                     SweepAttackInstance inst, float angle, float radius,
+                                     float lift, float cameraX, float cameraY, float cameraZ,
+                                     float u, float v, int color) {
+        buffer.addVertex(matrix,
+                        (float) (inst.x + Math.cos(angle) * radius) - cameraX,
+                        (float) inst.y + lift - cameraY,
+                        (float) (inst.z + Math.sin(angle) * radius) - cameraZ)
+                .setUv(u, v)
+                .setColor(color);
+    }
 
     private static void drawSpeedLines(PoseStack poseStack, SweepAttackInstance inst,
-                                       float intensity, float arcAlpha) {
-        float sweepProg = inst.sweepProgress(System.currentTimeMillis());
-        if (sweepProg < 0.01f || arcAlpha < 0.005f) return;
+                                       float sweepProgress, float arcAlpha, Config config) {
+        int count = Math.min(Math.max(config.speedLineCount(), 0), 64);
+        float alpha = sweepProgress * arcAlpha * config.intensity() * 0.72f;
+        if (count == 0 || alpha < 0.004f) return;
 
-        Camera cam = mc.getEntityRenderDispatcher().camera;
-        float cx = (float) cam.position().x;
-        float cy = (float) cam.position().y;
-        float cz = (float) cam.position().z;
-        Matrix4f vm = poseStack.last().pose();
-
-        float lineAlpha = intensity * sweepProg * 0.6f * arcAlpha;
-        if (lineAlpha < 0.005f) return;
-
-        BufferBuilder buf = Tesselator.getInstance()
+        Camera camera = mc.getEntityRenderDispatcher().camera;
+        float cameraX = (float) camera.position().x;
+        float cameraY = (float) camera.position().y;
+        float cameraZ = (float) camera.position().z;
+        Matrix4f matrix = poseStack.last().pose();
+        float range = positiveAngleRange(inst.arcStart, inst.arcEnd);
+        BufferBuilder buffer = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-        float angleRange = inst.arcEnd - inst.arcStart;
-        if (angleRange < 0) angleRange += (float)(2.0 * Math.PI);
+        for (int i = 0; i < count; i++) {
+            float t = (i + 0.35f) / count;
+            float jitter = (float) Math.sin(inst.seed * 1.7f + i * 12.9898f) * 0.018f;
+            float angle = inst.arcStart + range * clamp01(t + jitter);
+            float radialX = (float) Math.cos(angle);
+            float radialZ = (float) Math.sin(angle);
+            float perpendicularX = -radialZ;
+            float perpendicularZ = radialX;
+            float startRadius = config.radius() * (0.62f + 0.2f * pseudo(i, inst.seed));
+            float length = config.radius() * config.lineLength()
+                    * (0.55f + 0.7f * pseudo(i + 17, inst.seed));
+            float endRadius = startRadius + length;
+            float width = config.lineWidth() * (0.55f + pseudo(i + 41, inst.seed));
+            float y = (float) inst.y
+                    + config.verticalLift() * (float) Math.sin(t * Math.PI);
+            float startX = (float) inst.x + radialX * startRadius;
+            float startZ = (float) inst.z + radialZ * startRadius;
+            float endX = (float) inst.x + radialX * endRadius;
+            float endZ = (float) inst.z + radialZ * endRadius;
+            int color = packColor(pseudo(i + 9, inst.seed), 1f, 0f,
+                    alpha * (0.45f + 0.55f * pseudo(i + 3, inst.seed)));
 
-        for (int i = 0; i < SPEED_LINE_COUNT; i++) {
-            float t = (float) i / SPEED_LINE_COUNT;
-            float angle = inst.arcStart + angleRange * t;
-
-            // Line extends from arc outward
-            float startR = 1.5f;
-            float endR = 3.0f + (float) Math.sin(t * Math.PI * 4.0) * 0.5f;
-            float width = 0.02f + (float) Math.sin(t * Math.PI * 3.0 + 1.0) * 0.01f;
-
-            // Direction perpendicular to the radial direction
-            float perpX = (float) -Math.sin(angle);
-            float perpZ = (float) Math.cos(angle);
-
-            // Radial direction
-            float radX = (float) Math.cos(angle);
-            float radZ = (float) Math.sin(angle);
-
-            float sx = (float)(inst.x + radX * startR);
-            float sz = (float)(inst.z + radZ * startR);
-            float ex = (float)(inst.x + radX * endR);
-            float ez = (float)(inst.z + radZ * endR);
-
-            // Color.g = 1 → speed line mode
-            int rgba = packColor(1f, 1f, 0f, lineAlpha);
-
-            // Quad: start-left, start-right, end-right, end-left
-            buf.addVertex(vm, sx - perpX * width - cx, (float) inst.y - cy, sz - perpZ * width - cz)
-                    .setUv(0f, -1f).setColor(rgba);
-            buf.addVertex(vm, sx + perpX * width - cx, (float) inst.y - cy, sz + perpZ * width - cz)
-                    .setUv(0f, 1f).setColor(rgba);
-            buf.addVertex(vm, ex + perpX * width - cx, (float) inst.y - cy, ez + perpZ * width - cz)
-                    .setUv(1f, 1f).setColor(rgba);
-            buf.addVertex(vm, ex - perpX * width - cx, (float) inst.y - cy, ez - perpZ * width - cz)
-                    .setUv(1f, -1f).setColor(rgba);
+            buffer.addVertex(matrix, startX - perpendicularX * width - cameraX,
+                            y - cameraY, startZ - perpendicularZ * width - cameraZ)
+                    .setUv(0f, -1f).setColor(color);
+            buffer.addVertex(matrix, startX + perpendicularX * width - cameraX,
+                            y - cameraY, startZ + perpendicularZ * width - cameraZ)
+                    .setUv(0f, 1f).setColor(color);
+            buffer.addVertex(matrix, endX + perpendicularX * width - cameraX,
+                            y - cameraY, endZ + perpendicularZ * width - cameraZ)
+                    .setUv(1f, 1f).setColor(color);
+            buffer.addVertex(matrix, endX - perpendicularX * width - cameraX,
+                            y - cameraY, endZ - perpendicularZ * width - cameraZ)
+                    .setUv(1f, -1f).setColor(color);
         }
-
-        MeshData mesh = buf.buildOrThrow();
-        if (mesh.drawState().vertexCount() == 0) { mesh.close(); return; }
-        drawMesh(mesh, SWEEP_PARTICLE_PIPE, System.currentTimeMillis() / 1000f);
+        drawBuiltMesh(buffer, SWEEP_PARTICLE_PIPE, nowSeconds());
     }
-
-    // ── Layer 3: Particles ───────────────────────────────────────
 
     private static void drawParticles(PoseStack poseStack, SweepAttackInstance inst,
-                                      float particleAlpha, float intensity) {
-        if (particleAlpha < 0.005f) return;
-
-        Camera cam = mc.getEntityRenderDispatcher().camera;
-        float cx = (float) cam.position().x;
-        float cy = (float) cam.position().y;
-        float cz = (float) cam.position().z;
-        Matrix4f vm = poseStack.last().pose();
-
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-
-        int drawn = 0;
+                                      float particleAlpha, Config config) {
+        if (particleAlpha < 0.004f || inst.particleCount == 0) return;
+        boolean hasVisibleParticle = false;
         for (int i = 0; i < inst.particleCount; i++) {
-            if (inst.particleLife[i] <= 0) continue;
+            if (inst.particleLife[i] > 0f) {
+                hasVisibleParticle = true;
+                break;
+            }
+        }
+        if (!hasVisibleParticle) return;
+        Camera camera = mc.getEntityRenderDispatcher().camera;
+        float cameraX = (float) camera.position().x;
+        float cameraY = (float) camera.position().y;
+        float cameraZ = (float) camera.position().z;
+        Matrix4f matrix = poseStack.last().pose();
+        BufferBuilder buffer = Tesselator.getInstance()
+                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        int drawn = 0;
 
-            float lifeRatio = inst.particleLife[i] / Math.max(inst.particleMaxLife[i], 0.001f);
-            float fadeAlpha = lifeRatio * lifeRatio * particleAlpha; // pow(life, 2)
-            if (fadeAlpha < 0.005f) continue;
-
+        for (int i = 0; i < inst.particleCount; i++) {
+            if (inst.particleLife[i] <= 0f) continue;
+            float life = inst.particleLife[i] / Math.max(inst.particleMaxLife[i], 0.001f);
+            float alpha = life * life * particleAlpha * config.intensity();
+            if (alpha < 0.004f) continue;
             float halfSize = inst.particleSize[i] * 0.5f;
-            float rx = (float)(inst.particleX[i]) - cx;
-            float ry = (float)(inst.particleY[i]) - cy;
-            float rz = (float)(inst.particleZ[i]) - cz;
+            float x = inst.particleX[i] - cameraX;
+            float y = inst.particleY[i] - cameraY;
+            float z = inst.particleZ[i] - cameraZ;
+            float rightX = CAM_RIGHT.x * halfSize;
+            float rightY = CAM_RIGHT.y * halfSize;
+            float rightZ = CAM_RIGHT.z * halfSize;
+            float upX = CAM_UP.x * halfSize;
+            float upY = CAM_UP.y * halfSize;
+            float upZ = CAM_UP.z * halfSize;
+            int color = packColor(life, 0f, pseudo(i, inst.seed), alpha);
 
-            // Billboard
-            float rpx = CAM_RIGHT.x * halfSize;
-            float rpy = CAM_RIGHT.y * halfSize;
-            float rpz = CAM_RIGHT.z * halfSize;
-            float upx = CAM_UP.x * halfSize;
-            float upy = CAM_UP.y * halfSize;
-            float upz = CAM_UP.z * halfSize;
-
-            // Color.g = 0 → particle mode
-            int rgba = packColor(lifeRatio, 0f, 0f, fadeAlpha * intensity);
-
-            buf.addVertex(vm, rx - rpx - upx, ry - rpy - upy, rz - rpz - upz)
-                    .setUv(0f, 0f).setColor(rgba);
-            buf.addVertex(vm, rx - rpx + upx, ry - rpy + upy, rz - rpz + upz)
-                    .setUv(0f, 1f).setColor(rgba);
-            buf.addVertex(vm, rx + rpx + upx, ry + rpy + upy, rz + rpz + upz)
-                    .setUv(1f, 1f).setColor(rgba);
-            buf.addVertex(vm, rx + rpx - upx, ry + rpy - upy, rz + rpz - upz)
-                    .setUv(1f, 0f).setColor(rgba);
-
+            buffer.addVertex(matrix, x - rightX - upX, y - rightY - upY, z - rightZ - upZ)
+                    .setUv(0f, 0f).setColor(color);
+            buffer.addVertex(matrix, x - rightX + upX, y - rightY + upY, z - rightZ + upZ)
+                    .setUv(0f, 1f).setColor(color);
+            buffer.addVertex(matrix, x + rightX + upX, y + rightY + upY, z + rightZ + upZ)
+                    .setUv(1f, 1f).setColor(color);
+            buffer.addVertex(matrix, x + rightX - upX, y + rightY - upY, z + rightZ - upZ)
+                    .setUv(1f, 0f).setColor(color);
             drawn++;
         }
-
-        if (drawn == 0) return;
-
-        MeshData mesh = buf.buildOrThrow();
-        if (mesh.drawState().vertexCount() == 0) { mesh.close(); return; }
-        drawMesh(mesh, SWEEP_PARTICLE_PIPE, System.currentTimeMillis() / 1000f);
+        if (drawn > 0) drawBuiltMesh(buffer, SWEEP_PARTICLE_PIPE, nowSeconds());
     }
 
-    // ── Layer 4: Photon Ring ─────────────────────────────────────
-
-    private static void drawPhotonRing(PoseStack poseStack, SweepAttackInstance inst,
-                                        float ringRadius, float ringAlpha, float intensity) {
-        if (ringRadius < 0.01f || intensity < 0.001f || ringAlpha < 0.005f) return;
-
-        Camera cam = mc.getEntityRenderDispatcher().camera;
-        float cx = (float) cam.position().x;
-        float cy = (float) cam.position().y;
-        float cz = (float) cam.position().z;
-        Matrix4f vm = poseStack.last().pose();
-
-        // Draw a quad centered at the attack position, sized to contain the ring
-        float quadSize = ringRadius + 0.5f;
-        float px = (float) inst.x - cx;
-        float py = (float) inst.y - cy;
-        float pz = (float) inst.z - cz;
-
-        // Color.g = 1 → ring mode
-        int rgba = packColor(intensity, 1f, 0f, ringAlpha);
-
-        BufferBuilder buf = Tesselator.getInstance()
+    private static void drawLightning(PoseStack poseStack, SweepAttackInstance inst,
+                                      float lightningAlpha, Config config) {
+        if (lightningAlpha < 0.004f || inst.boltCount == 0) return;
+        Camera camera = mc.getEntityRenderDispatcher().camera;
+        float cameraX = (float) camera.position().x;
+        float cameraY = (float) camera.position().y;
+        float cameraZ = (float) camera.position().z;
+        Matrix4f matrix = poseStack.last().pose();
+        BufferBuilder buffer = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        int segmentsDrawn = 0;
 
-        // Horizontal billboard (XZ plane)
-        buf.addVertex(vm, px - quadSize, py, pz - quadSize).setUv(0f, 0f).setColor(rgba);
-        buf.addVertex(vm, px - quadSize, py, pz + quadSize).setUv(0f, 1f).setColor(rgba);
-        buf.addVertex(vm, px + quadSize, py, pz + quadSize).setUv(1f, 1f).setColor(rgba);
-        buf.addVertex(vm, px + quadSize, py, pz - quadSize).setUv(1f, 0f).setColor(rgba);
+        for (int bolt = 0; bolt < inst.boltCount; bolt++) {
+            for (int segment = 0; segment < inst.boltSegments[bolt] - 1; segment++) {
+                float x0 = inst.boltX[bolt][segment];
+                float y0 = inst.boltY[bolt][segment];
+                float z0 = inst.boltZ[bolt][segment];
+                float x1 = inst.boltX[bolt][segment + 1];
+                float y1 = inst.boltY[bolt][segment + 1];
+                float z1 = inst.boltZ[bolt][segment + 1];
+                float dx = x1 - x0;
+                float dy = y1 - y0;
+                float dz = z1 - z0;
+                float toCameraX = cameraX - (x0 + x1) * 0.5f;
+                float toCameraY = cameraY - (y0 + y1) * 0.5f;
+                float toCameraZ = cameraZ - (z0 + z1) * 0.5f;
+                float normalX = dy * toCameraZ - dz * toCameraY;
+                float normalY = dz * toCameraX - dx * toCameraZ;
+                float normalZ = dx * toCameraY - dy * toCameraX;
+                float normalLength = (float) Math.sqrt(
+                        normalX * normalX + normalY * normalY + normalZ * normalZ);
+                if (normalLength < 0.0001f) continue;
+                float width = config.lightningWidth()
+                        * (0.7f + 0.5f * pseudo(bolt * 11 + segment, inst.seed));
+                normalX = normalX / normalLength * width;
+                normalY = normalY / normalLength * width;
+                normalZ = normalZ / normalLength * width;
+                int color = packColor(pseudo(bolt, inst.seed), 1f, 1f,
+                        lightningAlpha * config.intensity());
 
-        MeshData mesh = buf.buildOrThrow();
-        drawMesh(mesh, SWEEP_RING_PIPE, System.currentTimeMillis() / 1000f);
+                buffer.addVertex(matrix, x0 - normalX - cameraX, y0 - normalY - cameraY,
+                                z0 - normalZ - cameraZ)
+                        .setUv(0f, -1f).setColor(color);
+                buffer.addVertex(matrix, x0 + normalX - cameraX, y0 + normalY - cameraY,
+                                z0 + normalZ - cameraZ)
+                        .setUv(0f, 1f).setColor(color);
+                buffer.addVertex(matrix, x1 + normalX - cameraX, y1 + normalY - cameraY,
+                                z1 + normalZ - cameraZ)
+                        .setUv(1f, 1f).setColor(color);
+                buffer.addVertex(matrix, x1 - normalX - cameraX, y1 - normalY - cameraY,
+                                z1 - normalZ - cameraZ)
+                        .setUv(1f, -1f).setColor(color);
+                segmentsDrawn++;
+            }
+        }
+        if (segmentsDrawn > 0) drawBuiltMesh(buffer, SWEEP_PARTICLE_PIPE, nowSeconds());
     }
 
-    // ════════════════════════════════════════════════════════════════
-    //  Mesh drawing
-    // ════════════════════════════════════════════════════════════════
+    private static void drawPhotonRings(PoseStack poseStack, SweepAttackInstance inst,
+                                        float progress, float alpha, Config config) {
+        if (progress < 0.003f || alpha < 0.004f || config.ringCount() <= 0) return;
+        Camera camera = mc.getEntityRenderDispatcher().camera;
+        float cameraX = (float) camera.position().x;
+        float cameraY = (float) camera.position().y;
+        float cameraZ = (float) camera.position().z;
+        Matrix4f matrix = poseStack.last().pose();
+
+        for (int ring = 0; ring < Math.min(config.ringCount(), 5); ring++) {
+            float delayedProgress = clamp01(progress - ring * 0.09f);
+            if (delayedProgress <= 0.002f) continue;
+            float radius = config.radius() * config.ringScale() * delayedProgress
+                    * (1f + ring * 0.13f);
+            float quadSize = radius * 1.34f + 0.08f;
+            float y = (float) inst.y - 0.12f + ring * 0.025f;
+            int color = packColor(ring / 5f, 1f, 0f,
+                    alpha * config.intensity() * (1f - ring * 0.11f));
+            BufferBuilder buffer = Tesselator.getInstance()
+                    .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+            float x = (float) inst.x - cameraX;
+            float z = (float) inst.z - cameraZ;
+            buffer.addVertex(matrix, x - quadSize, y - cameraY, z - quadSize)
+                    .setUv(0f, 0f).setColor(color);
+            buffer.addVertex(matrix, x - quadSize, y - cameraY, z + quadSize)
+                    .setUv(0f, 1f).setColor(color);
+            buffer.addVertex(matrix, x + quadSize, y - cameraY, z + quadSize)
+                    .setUv(1f, 1f).setColor(color);
+            buffer.addVertex(matrix, x + quadSize, y - cameraY, z - quadSize)
+                    .setUv(1f, 0f).setColor(color);
+            drawBuiltMesh(buffer, SWEEP_RING_PIPE, nowSeconds());
+        }
+    }
+
+    private static void drawCoreBurst(PoseStack poseStack, SweepAttackInstance inst,
+                                      float progress, float alpha, Config config) {
+        if (alpha < 0.004f) return;
+        Camera camera = mc.getEntityRenderDispatcher().camera;
+        float cameraX = (float) camera.position().x;
+        float cameraY = (float) camera.position().y;
+        float cameraZ = (float) camera.position().z;
+        Matrix4f matrix = poseStack.last().pose();
+        float size = config.radius() * (0.32f + progress * 0.72f);
+        float rightX = CAM_RIGHT.x * size;
+        float rightY = CAM_RIGHT.y * size;
+        float rightZ = CAM_RIGHT.z * size;
+        float upX = CAM_UP.x * size;
+        float upY = CAM_UP.y * size;
+        float upZ = CAM_UP.z * size;
+        float x = (float) inst.x + inst.dirX * config.radius() * 0.56f - cameraX;
+        float y = (float) inst.y + config.verticalLift() * 0.5f - cameraY;
+        float z = (float) inst.z + inst.dirZ * config.radius() * 0.56f - cameraZ;
+        int color = packColor(progress, 1f, 1f, alpha * config.intensity());
+        BufferBuilder buffer = Tesselator.getInstance()
+                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        buffer.addVertex(matrix, x - rightX - upX, y - rightY - upY, z - rightZ - upZ)
+                .setUv(0f, 0f).setColor(color);
+        buffer.addVertex(matrix, x - rightX + upX, y - rightY + upY, z - rightZ + upZ)
+                .setUv(0f, 1f).setColor(color);
+        buffer.addVertex(matrix, x + rightX + upX, y + rightY + upY, z + rightZ + upZ)
+                .setUv(1f, 1f).setColor(color);
+        buffer.addVertex(matrix, x + rightX - upX, y + rightY - upY, z + rightZ - upZ)
+                .setUv(1f, 0f).setColor(color);
+        drawBuiltMesh(buffer, SWEEP_RING_PIPE, nowSeconds());
+    }
+
+    private static void drawBuiltMesh(BufferBuilder buffer, RenderPipeline pipeline, float time) {
+        MeshData mesh = buffer.buildOrThrow();
+        if (mesh.drawState().vertexCount() == 0) {
+            mesh.close();
+            return;
+        }
+        drawMesh(mesh, pipeline, time);
+    }
 
     private static void drawMesh(MeshData mesh, RenderPipeline pipeline, float time) {
         try {
             GpuBuffer vertices = pipeline.getVertexFormat()
                     .uploadImmediateVertexBuffer(mesh.vertexBuffer());
-
             GpuBuffer indices;
             VertexFormat.IndexType indexType;
             if (mesh.indexBuffer() == null) {
@@ -501,35 +550,24 @@ public final class SweepAttackRenderer {
                 indexType = mesh.drawState().indexType();
             }
 
-            GpuBufferSlice dynamicTransforms = RenderSystem.getDynamicUniforms()
-                    .writeTransform(
-                            new Matrix4f(),
-                            new Vector4f(1f, 1f, 1f, 1f),
-                            new Vector3f(time, 0f, 0f),
-                            new Matrix4f());
-
-            RenderTarget mainTarget = mc.getMainRenderTarget();
+            GpuBufferSlice transforms = RenderSystem.getDynamicUniforms().writeTransform(
+                    new Matrix4f(), new Vector4f(1f, 1f, 1f, 1f),
+                    new Vector3f(time, 0f, 0f), new Matrix4f());
+            RenderTarget target = mc.getMainRenderTarget();
             GpuTextureView colorTexture = RenderSystem.outputColorTextureOverride != null
-                    ? RenderSystem.outputColorTextureOverride
-                    : mainTarget.getColorTextureView();
-            GpuTextureView depthTexture = mainTarget.useDepth
+                    ? RenderSystem.outputColorTextureOverride : target.getColorTextureView();
+            GpuTextureView depthTexture = target.useDepth
                     ? (RenderSystem.outputDepthTextureOverride != null
-                        ? RenderSystem.outputDepthTextureOverride
-                        : mainTarget.getDepthTextureView())
+                        ? RenderSystem.outputDepthTextureOverride : target.getDepthTextureView())
                     : null;
-
-            var encoder = RenderSystem.getDevice().createCommandEncoder();
+            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             try (RenderPass pass = encoder.createRenderPass(
-                    () -> "SweepAttack",
-                    colorTexture,
-                    OptionalInt.empty(),
-                    depthTexture,
-                    OptionalDouble.empty())) {
-
+                    () -> "Sweeping Attack VFX", colorTexture, OptionalInt.empty(),
+                    depthTexture, OptionalDouble.empty())) {
                 pass.setPipeline(pipeline);
                 RenderSystem.bindDefaultUniforms(pass);
-                pass.setUniform("DynamicTransforms", dynamicTransforms);
-
+                pass.setUniform("DynamicTransforms", transforms);
+                pass.setUniform("SweepUniforms", uniforms);
                 pass.setVertexBuffer(0, vertices);
                 pass.setIndexBuffer(indices, indexType);
                 pass.drawIndexed(0, 0, mesh.drawState().indexCount(), 1);
@@ -539,97 +577,74 @@ public final class SweepAttackRenderer {
         }
     }
 
-    // ════════════════════════════════════════════════════════════════
-    //  Post-processing
-    // ════════════════════════════════════════════════════════════════
-
-    /**
-     * Run post-processing passes (distortion + chromatic aberration).
-     * Call from MixinGameRenderer after all 3D rendering is complete.
-     *
-     * @param distortionStr  distortion strength (0=none)
-     * @param chromaticStr   chromatic aberration strength (0=none)
-     */
-    public static void processPost(float distortionStr, float chromaticStr) {
-        if (distortionStr <= 0.001f && chromaticStr <= 0.001f) return;
-
+    public static void processPost(float distortion, float chromatic, float flash,
+                                   float vignette, float tintR, float tintG, float tintB) {
+        if (distortion <= 0.001f && chromatic <= 0.001f
+                && flash <= 0.001f && vignette <= 0.001f) return;
         ensureInit();
-        RenderTarget fb = mc.getMainRenderTarget();
-        if (fb.getColorTexture() == null || fb.getColorTextureView() == null) return;
-
-        int fbW = mc.getWindow().getWidth();
-        int fbH = mc.getWindow().getHeight();
-
-        if (sceneCopy == null) sceneCopy = new TextureTarget("SweepScene", fbW, fbH, false);
-        if (sceneCopy.width != fbW || sceneCopy.height != fbH) sceneCopy.resize(fbW, fbH);
+        RenderTarget target = mc.getMainRenderTarget();
+        if (target.getColorTexture() == null || target.getColorTextureView() == null) return;
+        int width = mc.getWindow().getWidth();
+        int height = mc.getWindow().getHeight();
+        if (sceneCopy == null) sceneCopy = new TextureTarget("SweepScene", width, height, false);
+        if (sceneCopy.width != width || sceneCopy.height != height) sceneCopy.resize(width, height);
 
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        float time = System.currentTimeMillis() / 1000f;
-
-        // Write post uniforms
         try (GpuBuffer.MappedView view = encoder.mapBuffer(postUniforms, false, true)) {
-            Std140Builder b = Std140Builder.intoBuffer(view.data());
-            b.putVec4(fbW, fbH, time, 0f);
-            b.putVec4(distortionStr, chromaticStr, 0f, 0f);
+            Std140Builder builder = Std140Builder.intoBuffer(view.data());
+            builder.putVec4(width, height, nowSeconds(), 0f);
+            builder.putVec4(distortion, chromatic, flash, vignette);
+            builder.putVec4(tintR, tintG, tintB, 0f);
         }
-
-        // Copy scene
-        encoder.copyTextureToTexture(
-                fb.getColorTexture(), sceneCopy.getColorTexture(),
-                0, 0, 0, 0, 0, fbW, fbH);
-
-        GpuTextureView sceneView = sceneCopy.getColorTextureView();
-
-        // Distortion pass
-        if (distortionStr > 0.001f) {
-            runPostPass(encoder, SWEEP_DISTORT_PIPE, sceneView, "Sweep Distort");
-        }
-
-        // Chromatic pass
-        if (chromaticStr > 0.001f) {
-            runPostPass(encoder, SWEEP_CHROMATIC_PIPE, sceneView, "Sweep Chromatic");
-        }
-    }
-
-    private static void runPostPass(CommandEncoder encoder, RenderPipeline pipe,
-                                     GpuTextureView sceneSrc, String label) {
-        RenderTarget fb = mc.getMainRenderTarget();
+        encoder.copyTextureToTexture(target.getColorTexture(), sceneCopy.getColorTexture(),
+                0, 0, 0, 0, 0, width, height);
         try (RenderPass pass = encoder.createRenderPass(
-                () -> label,
-                fb.getColorTextureView(),
-                OptionalInt.empty())) {
-            pass.setPipeline(pipe);
+                () -> "Sweep Attack Post FX",
+                target.getColorTextureView(), OptionalInt.empty())) {
+            pass.setPipeline(SWEEP_POST_PIPE);
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("SweepPostUniforms", postUniforms);
-            pass.bindTexture("SceneSampler", sceneSrc,
+            pass.bindTexture("SceneSampler", sceneCopy.getColorTextureView(),
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
             pass.draw(0, 3);
         }
     }
 
-    // ════════════════════════════════════════════════════════════════
-    //  Cleanup
-    // ════════════════════════════════════════════════════════════════
-
     public static void destroy() {
-        if (uniforms != null) { uniforms.close(); uniforms = null; }
-        if (postUniforms != null) { postUniforms.close(); postUniforms = null; }
+        if (uniforms != null) {
+            uniforms.close();
+            uniforms = null;
+        }
+        if (postUniforms != null) {
+            postUniforms.close();
+            postUniforms = null;
+        }
         sceneCopy = null;
     }
 
-    // ════════════════════════════════════════════════════════════════
-    //  Helpers
-    // ════════════════════════════════════════════════════════════════
-
-    private static int packColor(float r, float g, float b, float a) {
-        int ir = (int) (clamp01(r) * 255f);
-        int ig = (int) (clamp01(g) * 255f);
-        int ib = (int) (clamp01(b) * 255f);
-        int ia = (int) (clamp01(a) * 255f);
-        return (ia << 24) | (ir << 16) | (ig << 8) | ib;
+    private static float positiveAngleRange(float start, float end) {
+        float range = end - start;
+        return range < 0f ? range + (float) (Math.PI * 2.0) : range;
     }
 
-    private static float clamp01(float v) {
-        return v < 0f ? 0f : (v > 1f ? 1f : v);
+    private static float pseudo(int index, float seed) {
+        double value = Math.sin(index * 12.9898 + seed * 78.233) * 43758.5453;
+        return (float) (value - Math.floor(value));
+    }
+
+    private static float nowSeconds() {
+        return System.currentTimeMillis() / 1000f;
+    }
+
+    private static int packColor(float red, float green, float blue, float alpha) {
+        int r = Math.round(clamp01(red) * 255f);
+        int g = Math.round(clamp01(green) * 255f);
+        int b = Math.round(clamp01(blue) * 255f);
+        int a = Math.round(clamp01(alpha) * 255f);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private static float clamp01(float value) {
+        return Math.max(0f, Math.min(1f, value));
     }
 }

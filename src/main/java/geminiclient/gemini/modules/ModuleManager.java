@@ -37,7 +37,6 @@ public class ModuleManager {
                 new NoJumpDelay(),
                 new Crit(),
                 new Speed(),
-                new ExpandClickGui(),
                 new SuperKB(),
                 new ESP(),
                 new ItemPhysical(),

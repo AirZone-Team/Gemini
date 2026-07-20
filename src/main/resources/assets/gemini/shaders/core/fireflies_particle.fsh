@@ -16,10 +16,10 @@ void main() {
     float dist = length(localPos);
 
     // 柔和的径向渐变，越靠近边缘越透明
-    float alphaFade = clamp(1.0 - dist, 0.0, 1.0);
+    float alphaFade = smoothstep(1.0, 0.0, dist);
 
     // pow(x, 1.5) 让核心更亮，边缘衰减更自然
-    alphaFade = pow(alphaFade, 1.5);
+    alphaFade = pow(alphaFade, 2.2);
 
     fragColor = vec4(vertexColor.rgb, vertexColor.a * alphaFade) * ColorModulator;
 

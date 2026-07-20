@@ -132,6 +132,19 @@ void main() {
 
     rune = primaryRune + secondaryRune * 0.7 + innerRune * 0.5;
 
+    // Counter-rotating celestial geometry adds depth without extra draw calls.
+    float spokes = smoothstep(0.965, 0.995,
+            abs(cos(angle * 6.0 - rotation * 0.65)));
+    spokes *= ring(uv, 0.76, 0.28, 0.006);
+    spokes *= 1.0 - smoothstep(0.28, 0.40, abs(fract(d * 7.0 - time) - 0.5));
+
+    float glyphBand = ring(uv, 0.72, 0.66, 0.006);
+    float glyphs = smoothstep(0.72, 0.94,
+            sin(angle * 24.0 + rotation * 0.35) * 0.5 + 0.5) * glyphBand;
+
+    float orbitSpark = exp(-pow(d - 0.52, 2.0) * 900.0)
+                     * pow(max(0.0, sin(angle * 12.0 - rotation * 2.0)), 18.0);
+
     // ── FBM texture overlay ───────────────────────────────────────
     float fbmVal = fbm(uvRot * 6.0 + time * 0.2) * 0.15;
     float ringTexture = fbmVal * (outerRing + innerRing + thinRing);
@@ -153,6 +166,9 @@ void main() {
 
     vec3 rgb = ringColor * ringTotal
              + runeColor * rune * 0.9
+             + whiteGold * spokes * 0.42
+             + brightGold * glyphs * 0.65
+             + whiteGold * orbitSpark * 1.8
              + gold * circleTotal
              + pulseColor;
 
@@ -164,7 +180,8 @@ void main() {
     }
     // Stage 2 (tower): alpha/scale handled by Java layer draw
 
-    float finalAlpha = (ringTotal * 0.7 + rune * 0.8 + circleTotal * 0.5 + pulse) * alpha;
+    float finalAlpha = (ringTotal * 0.7 + rune * 0.8 + spokes * 0.35
+                      + glyphs * 0.55 + orbitSpark + circleTotal * 0.5 + pulse) * alpha;
 
     fragColor = vec4(rgb * intensity, finalAlpha) * ColorModulator;
 

@@ -25,9 +25,9 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 /**
  * GPU-accelerated blur effect with rounded-rectangle masking.
  *
- * <p>Copies the main framebuffer to an internal texture, then runs a single-pass
- * radial blur shader over the specified region. The blurred output is masked to a
- * rounded rectangle and optionally tinted.</p>
+ * <p>Snapshots only the required part of the main framebuffer to an internal
+ * texture, then runs a single-pass radial blur shader over the specified region.
+ * The blurred output is masked to a rounded rectangle and optionally tinted.</p>
  *
  * <p>All coordinates are in GUI space (same as
  * {@code gui.drawString(...)} etc.).</p>
@@ -44,6 +44,7 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 public final class CustomBlurRenderer {
 
     private static final Identifier BLUR_PATH = getIdentifier("core/blur");
+    private static final Identifier BLUR_COPY_PATH = getIdentifier("core/blur_copy");
 
     private static final int UNIFORMS_SIZE = new Std140SizeCalculator()
             .putVec3()
@@ -53,6 +54,7 @@ public final class CustomBlurRenderer {
             .get();
 
     private static RenderPipeline pipeline;
+    private static RenderPipeline copyPipeline;
     private static GpuBuffer uniforms;
     private static TextureTarget input;
 
@@ -80,6 +82,16 @@ public final class CustomBlurRenderer {
                     .withCull(false)
                     .build();
         }
+        if (copyPipeline == null) {
+            copyPipeline = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+                    .withLocation(getIdentifier("pipeline/blur_copy"))
+                    .withVertexShader(BLUR_PATH)
+                    .withFragmentShader(BLUR_COPY_PATH)
+                    .withSampler("InputSampler")
+                    .withColorTargetState(ColorTargetState.DEFAULT)
+                    .withCull(false)
+                    .build();
+        }
     }
 
     /**
@@ -89,6 +101,7 @@ public final class CustomBlurRenderer {
     public static void registerPipeline(Consumer<RenderPipeline> registry) {
         ensureProgram();
         registry.accept(pipeline);
+        registry.accept(copyPipeline);
     }
 
     /**
@@ -101,6 +114,7 @@ public final class CustomBlurRenderer {
     public static void precompile() {
         ensureProgram();
         RenderSystem.getDevice().precompilePipeline(pipeline, null);
+        RenderSystem.getDevice().precompilePipeline(copyPipeline, null);
     }
 
     // ========================
@@ -120,6 +134,9 @@ public final class CustomBlurRenderer {
             float rTL, float rTR, float rBR, float rBL,
             int color, float blurStrength
     ) {
+        if (width <= 0.0f || height <= 0.0f) {
+            return;
+        }
         ensureProgram();
 
         RenderTarget fb = mc.getMainRenderTarget();
@@ -145,6 +162,22 @@ public final class CustomBlurRenderer {
         float pxW = (float) (width * scale);
         float pxH = (float) (height * scale);
 
+        // Preserve the original integer scissor coverage, then clip it before
+        // issuing GPU work. A fully off-screen region now costs nothing.
+        int rawScissorX = (int) pxX;
+        int rawScissorY = fbHeight - (int) pxY - (int) pxH;
+        int rawScissorRight = rawScissorX + Math.max(0, (int) pxW);
+        int rawScissorTop = rawScissorY + Math.max(0, (int) pxH);
+        int scissorX = Math.max(0, rawScissorX);
+        int scissorY = Math.max(0, rawScissorY);
+        int scissorRight = Math.min(fbWidth, rawScissorRight);
+        int scissorTop = Math.min(fbHeight, rawScissorTop);
+        int scissorWidth = scissorRight - scissorX;
+        int scissorHeight = scissorTop - scissorY;
+        if (scissorWidth <= 0 || scissorHeight <= 0) {
+            return;
+        }
+
         float s = (float) scale;
         float rTLPx = Math.max(0.0f, rTL * s);
         float rTRPx = Math.max(0.0f, rTR * s);
@@ -155,13 +188,32 @@ public final class CustomBlurRenderer {
 
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
 
-        // Copy the main framebuffer into the input texture for sampling
-        encoder.copyTextureToTexture(
-                fb.getColorTexture(),
-                input.getColorTexture(),
-                0, 0, 0, 0, 0,
-                fbWidth, fbHeight
-        );
+        /*
+         * Copy only pixels the blur kernel can reach. The old hardware blit
+         * copied the entire framebuffer for every small UI card. This
+         * scissored nearest-texel pass produces the same snapshot, including a
+         * one-texel guard for linear filtering, with region-sized bandwidth.
+         */
+        int sampleGuard = (int) Math.ceil(quality) + 1;
+        int copyX = Math.max(0, scissorX - sampleGuard);
+        int copyY = Math.max(0, scissorY - sampleGuard);
+        int copyRight = Math.min(fbWidth, scissorRight + sampleGuard);
+        int copyTop = Math.min(fbHeight, scissorTop + sampleGuard);
+        try (RenderPass copyPass = encoder.createRenderPass(
+                () -> "Gemini Blur Region Copy",
+                input.getColorTextureView(),
+                OptionalInt.empty()
+        )) {
+            copyPass.setPipeline(copyPipeline);
+            copyPass.enableScissor(copyX, copyY, copyRight - copyX, copyTop - copyY);
+            RenderSystem.bindDefaultUniforms(copyPass);
+            copyPass.bindTexture(
+                    "InputSampler",
+                    fb.getColorTextureView(),
+                    RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST)
+            );
+            copyPass.draw(0, 3);
+        }
 
         // Write uniforms
         try (GpuBuffer.MappedView view = encoder.mapBuffer(uniforms, false, true)) {
@@ -184,13 +236,7 @@ public final class CustomBlurRenderer {
                 OptionalInt.empty()
         )) {
             renderPass.setPipeline(pipeline);
-            int scissorY = fbHeight - (int) pxY - (int) pxH;
-
-            renderPass.enableScissor(
-                    (int) pxX, Math.max(0, scissorY),
-                    Math.max(0, (int) pxW),
-                    Math.max(0, (int) pxH)
-            );
+            renderPass.enableScissor(scissorX, scissorY, scissorWidth, scissorHeight);
             RenderSystem.bindDefaultUniforms(renderPass);
             renderPass.setUniform("BlurUniforms", uniforms);
             renderPass.bindTexture(

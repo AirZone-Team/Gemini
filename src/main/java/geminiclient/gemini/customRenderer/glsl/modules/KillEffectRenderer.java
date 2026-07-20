@@ -467,7 +467,8 @@ public final class KillEffectRenderer {
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         int rgba = packColor(progress, stage / 8f, brightness / 4f, alpha);
-        float halfSize = holeSize * 2f; // billboard covers area around hole
+        // Leave enough UV room for the wide disk and its lensed far-side arc.
+        float halfSize = holeSize * 3.25f;
 
         emitBillboard(buf, vm, cx, cy, cz, px, py, pz, halfSize,
                 0f, 0f, 1f, 1f, rgba);
@@ -577,11 +578,14 @@ public final class KillEffectRenderer {
         // Alpha eases to zero before the stage ends to avoid a cutoff pop.
         if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
             float groundY = (float) inst.position.y + 0.04f;
-            float ringSize = dist * 0.45f * (1.0f + progress * 1.6f);
+            float ringSize = dist * 0.58f * (1.0f + progress * 2.1f);
             float fade = 1.0f - progress;
-            float ringAlpha = alpha * 0.85f * fade * (float)Math.sqrt(fade);
+            float ringAlpha = alpha * fade * (float)Math.sqrt(fade);
 
-            int ringRgba = packColor(progress * 0.55f, 0f, 1.5f / 4f, ringAlpha);
+            int ringRgba = packColor(progress * 0.62f, 0f, 2.4f / 4f, ringAlpha);
+            float echoProgress = Math.clamp((progress - 0.12f) / 0.88f, 0f, 1f);
+            float echoSize = ringSize * 0.72f;
+            int echoRgba = packColor(echoProgress * 0.58f, 0f, 1.55f / 4f, ringAlpha * 0.62f);
 
             BufferBuilder ringBuf = Tesselator.getInstance()
                     .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
@@ -590,23 +594,42 @@ public final class KillEffectRenderer {
             ringBuf.addVertex(vm, rx - ringSize, ry, rz + ringSize).setUv(0f, 1f).setColor(ringRgba);
             ringBuf.addVertex(vm, rx + ringSize, ry, rz + ringSize).setUv(1f, 1f).setColor(ringRgba);
             ringBuf.addVertex(vm, rx + ringSize, ry, rz - ringSize).setUv(1f, 0f).setColor(ringRgba);
+            ringBuf.addVertex(vm, rx - echoSize, ry + 0.015f, rz - echoSize).setUv(0f, 0f).setColor(echoRgba);
+            ringBuf.addVertex(vm, rx - echoSize, ry + 0.015f, rz + echoSize).setUv(0f, 1f).setColor(echoRgba);
+            ringBuf.addVertex(vm, rx + echoSize, ry + 0.015f, rz + echoSize).setUv(1f, 1f).setColor(echoRgba);
+            ringBuf.addVertex(vm, rx + echoSize, ry + 0.015f, rz - echoSize).setUv(1f, 0f).setColor(echoRgba);
             HYPERNOVA_TYPE.draw(ringBuf.buildOrThrow());
         }
 
         // ── Layer 1: Full-screen flash overlay (no depth, always visible) ──
-        float lightSize = dist * 0.55f * 0.45f;
-        float flashTime = 0.35f + 0.04f * (float)Math.sin(progress * Math.PI * 3.0);
-        // Oscillation converges to 3.5 at stage end — the same value the
-        // afterglow stage starts with, so there's no brightness step.
-        float flashIntensity = 3.5f + (float)Math.sin(progress * Math.PI * 2.5f)
-                * 0.5f * (1.0f - progress);
+        float novaSize = dist * 0.44f;
+        float lightSize = dist * 0.29f;
+        float flashTime = 0.33f + 0.045f * (float)Math.sin(progress * Math.PI * 4.0);
+        // The white core rides over the wider fireball only during detonation.
+        float flashIntensity = 3.85f + (float)Math.sin(progress * Math.PI * 3.5f)
+                * 0.15f * (1.0f - progress);
 
         BufferBuilder buf = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-        int flashRgba = packColor(flashTime, 0f, flashIntensity / 4f, alpha);
-        emitBillboard(buf, vm, cx, cy, cz, px, py, pz, lightSize,
-                0f, 0f, 1f, 1f, flashRgba);
+        // Submit the actual nova mode before the central flash. Previously only
+        // mode 0 was sent, leaving the fireball/nebula/lightning branch dormant.
+        // Hold the settled nova frame through afterglow/fade instead of
+        // restarting its expansion when stage-local progress resets to zero.
+        float novaProgress = stage == KillEffectInstance.STAGE_HYPERNOVA ? progress : 1.0f;
+        float novaIntensity = stage == KillEffectInstance.STAGE_HYPERNOVA ? 1.0f
+                : stage == KillEffectInstance.STAGE_AFTERGLOW ? 0.65f : 0.25f;
+        int novaRgba = packColor(novaProgress, 0.5f, novaIntensity, alpha);
+        emitBillboard(buf, vm, cx, cy, cz, px, py, pz, novaSize,
+                0f, 0f, 1f, 1f, novaRgba);
+
+        if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
+            float corePulse = 0.72f + 0.28f * (float)Math.sin(progress * Math.PI * 5.0);
+            int flashRgba = packColor(flashTime, 0f, flashIntensity / 4f,
+                    alpha * Math.clamp(corePulse, 0.55f, 1.0f));
+            emitBillboard(buf, vm, cx, cy, cz, px, py, pz, lightSize,
+                    0f, 0f, 1f, 1f, flashRgba);
+        }
 
         HYPERNOVA_TYPE.draw(buf.buildOrThrow());
 
@@ -685,21 +708,22 @@ public final class KillEffectRenderer {
         float heat;     // 1 = white-hot, 0 = cool ember
         float boost;    // intensity envelope
         if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
-            radius = 1.5f + progress * 5.5f;      // 1.5 → 7
-            heat   = 1.0f - progress * 0.55f;     // 1.0 → 0.45
-            boost  = 0.3f + progress * 1.2f;      // 0.3 → 1.5
+            float expansion = 1.0f - (float)Math.pow(1.0f - progress, 2.4f);
+            radius = 2.0f + expansion * 8.0f;     // 2 → 10
+            heat   = 1.0f - progress * 0.48f;     // 1.0 → 0.52
+            boost  = 0.75f + progress * 1.35f;    // 0.75 → 2.1
         } else if (stage == KillEffectInstance.STAGE_AFTERGLOW) {
             float decay = 1.0f - progress;
-            radius = 7.0f - progress * 3.0f;      // 7 → 4
-            heat   = 0.45f - progress * 0.25f;    // 0.45 → 0.2
-            boost  = 0.3f + decay * decay * 1.2f; // 1.5 → 0.3
+            radius = 10.0f - progress * 5.5f;     // 10 → 4.5
+            heat   = 0.52f - progress * 0.30f;    // 0.52 → 0.22
+            boost  = 0.32f + decay * decay * 1.78f; // 2.1 → 0.32
         } else {
             // Fade-out: dies with the same reversed smoothstep as the
             // master alpha — the 0.3 floor matches afterglow's end.
             float fade = 1.0f - progress * progress * (3.0f - 2.0f * progress);
-            radius = 1.0f + 3.0f * fade;          // 4 → 1
-            heat   = 0.2f * fade;
-            boost  = 0.3f * fade;
+            radius = 1.0f + 3.5f * fade;          // 4.5 → 1
+            heat   = 0.22f * fade;
+            boost  = 0.32f * fade;
         }
 
         float intensity = boost * 2.2f * alpha;
@@ -730,10 +754,10 @@ public final class KillEffectRenderer {
     // ════════════════════════════════════════════════════════════════
 
     /** Number of radial rays emitted per frame. */
-    private static final int RAY_COUNT = 20;
+    private static final int RAY_COUNT = 32;
 
     /** Ray length as a fraction of glow ball ambient radius. */
-    private static final float RAY_LENGTH_FACTOR = 2.2f;
+    private static final float RAY_LENGTH_FACTOR = 2.75f;
 
     /** Ray width at the tip (blocks). */
     private static final float RAY_TIP_WIDTH = 0.25f;
@@ -763,8 +787,9 @@ public final class KillEffectRenderer {
 
         if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
             rayCount = RAY_COUNT;
-            rayAlpha = alpha * (0.3f + progress * 0.7f);
-            rayIntensity = 0.6f + progress * 1.2f;
+            float pulse = 0.82f + 0.18f * (float)Math.sin(progress * Math.PI * 9.0f);
+            rayAlpha = alpha * (0.55f + progress * 0.45f) * pulse;
+            rayIntensity = 1.0f + progress * 1.5f;
         } else if (stage == KillEffectInstance.STAGE_AFTERGLOW) {
             // Continue from hypernova's end (alpha × 1.0, intensity 1.8) and
             // decay quadratically; count stays constant so rays fade
@@ -772,7 +797,7 @@ public final class KillEffectRenderer {
             rayCount = RAY_COUNT;
             float decay = 1.0f - progress;
             rayAlpha = alpha * decay * decay;
-            rayIntensity = 1.8f * decay * decay;
+            rayIntensity = 2.5f * decay * decay;
         } else {
             // Fade-out: no rays (already decayed to zero during afterglow)
             return;

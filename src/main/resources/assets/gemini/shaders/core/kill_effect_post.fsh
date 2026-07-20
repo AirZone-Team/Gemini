@@ -998,48 +998,58 @@ vec2 bhGravLens(vec2 uv, vec2 center, float rs, vec2 aspect) {
 // ══════════════════════════════════════════════════════════════
 
 vec3 bhAccretionDisk(vec2 delta, float time, float rs, float rotSpeed) {
-    float r = length(delta);
-    float n = r / max(rs, 0.001);
+    float safeRs = max(rs, 0.001);
 
-    // Disk lives between the horizon and n ≈ 7
-    if (n < 0.85 || n > 7.0) return vec3(0.0);
+    // A steeply inclined equatorial plane reads as a disk instead of a halo.
+    vec2 diskP = vec2(delta.x, (delta.y + safeRs * 0.035) / 0.235);
+    float diskR = length(diskP);
+    float n = diskR / safeRs;
+    float screenN = length(delta) / safeRs;
+    if (n > 8.4 && screenN > 3.8) return vec3(0.0);
 
-    float ang = atan(delta.y, delta.x);
+    float ang = atan(diskP.y, diskP.x);
+    float omega = 5.4 * pow(max(n, 1.0), -1.5) * rotSpeed;
+    float rotAng = ang - time * omega;
 
-    // ── Keplerian differential rotation ──
-    // Inner material orbits faster: ω ∝ n^(-3/2)
-    float omega = 2.6 * pow(n, -1.5) * rotSpeed;
-    float rotAng = ang + time * omega;
+    float diskMask = smoothstep(1.48, 1.72, n)
+                   * (1.0 - smoothstep(7.2, 8.35, n));
 
-    // ── Emissivity profile: ISCO peak + density wave rings ──
-    float profile = exp(-max(n - 1.6, 0.0) * 1.3);            // ISCO peak, decay outward
-    profile += 0.40 * exp(-abs(n - 2.7) * 1.1);               // density wave ring
-    profile += 0.16 * exp(-abs(n - 4.6) * 0.7);               // outer rim
-    // cut sharply at the ISCO (no stable orbits inside)
-    profile *= smoothstep(0.95, 1.25, n);
+    float profile = exp(-max(n - 1.7, 0.0) * 0.70);
+    profile += 0.52 * exp(-abs(n - 2.65) * 1.9);
+    profile += 0.28 * exp(-abs(n - 4.15) * 1.4);
+    profile += 0.13 * exp(-abs(n - 6.35) * 1.1);
 
-    // ── Spiral density waves in the rotating frame + turbulence ──
-    float spiral = 0.5 + 0.5 * sin(rotAng * 2.0 + log(n) * 7.0);
-    float turb = bhFbm(vec2(rotAng * 1.5, n * 2.2) + vec2(0.0, time * 0.12));
-    float emission = profile * (0.30 + 0.45 * spiral + 0.55 * turb);
+    float spiralA = 0.5 + 0.5 * sin(rotAng * 2.0 + log(max(n, 1.01)) * 10.5);
+    float spiralB = 0.5 + 0.5 * sin(rotAng * 5.0 - log(max(n, 1.01)) * 6.5 + 1.4);
+    float turb = bhFbm(vec2(rotAng * 2.2, n * 3.3) + vec2(time * 0.10, 0.0));
+    float filaments = smoothstep(0.34, 0.78,
+            spiralA * 0.48 + spiralB * 0.20 + turb * 0.56);
+    float darkLane = smoothstep(0.28, 0.66,
+            bhFbm(vec2(rotAng * 4.1 + 8.0, n * 6.8 - time * 0.16)));
+    float emission = diskMask * profile
+                   * (0.16 + filaments * 1.20 + turb * 0.34)
+                   * mix(0.52, 1.0, darkLane);
 
-    // ── Relativistic doppler beaming ──
-    // Screen-left (delta.x < 0) material approaches: brighter + bluer
-    float approaching = clamp(-delta.x / max(r, 0.0001), -1.0, 1.0);
-    float beam = 1.0 + approaching * 1.6;
+    // Relativistic Doppler beaming and temperature shift.
+    float approaching = clamp(-diskP.x / max(diskR, 0.0001), -1.0, 1.0);
+    float beam = pow(max(0.38, 1.0 + approaching * 0.72), 2.35);
 
-    // ── Blackbody temperature ramp ──
-    float t = clamp((n - 1.2) / 4.5, 0.0, 1.0);
-    vec3 col = mix(vec3(0.62, 0.74, 1.00), vec3(1.00, 0.56, 0.10), smoothstep(0.0, 0.42, t));
-    col = mix(col, vec3(0.55, 0.10, 0.015), smoothstep(0.42, 1.0, t));
-    // doppler color shift on top of temperature
-    col = mix(col, col * vec3(0.75, 0.85, 1.25), max(approaching, 0.0) * 0.6);
-    col = mix(col, col * vec3(1.25, 0.80, 0.60), max(-approaching, 0.0) * 0.6);
+    float temp = clamp((n - 1.55) / 6.3, 0.0, 1.0);
+    vec3 col = mix(vec3(0.78, 0.90, 1.35), vec3(1.35, 0.58, 0.08),
+                   smoothstep(0.02, 0.43, temp));
+    col = mix(col, vec3(0.48, 0.035, 0.008), smoothstep(0.43, 1.0, temp));
+    col *= mix(vec3(1.32, 0.77, 0.52), vec3(0.68, 0.86, 1.38),
+               approaching * 0.5 + 0.5);
 
-    // ── Fade the disk where it slips behind the shadow ──
-    float shadowFade = smoothstep(0.85, 1.15, n);
+    // Far-side matter is bent over the shadow into a thin Einstein arc.
+    float farArc = exp(-abs(screenN - 1.58) * 18.0);
+    farArc *= smoothstep(-0.18 * safeRs, 0.72 * safeRs, delta.y);
+    farArc *= 0.32 + 0.68 * smoothstep(0.0, 2.6 * safeRs, abs(delta.x));
+    float arcNoise = 0.62 + 0.38 * bhNoise(vec2(rotAng * 5.0, time * 0.35));
+    vec3 arcCol = mix(vec3(1.45, 0.45, 0.06), vec3(1.0, 0.92, 0.72),
+                      clamp(approaching * 0.5 + 0.5, 0.0, 1.0));
 
-    return col * emission * beam * shadowFade * 2.2;
+    return col * emission * beam * 2.75 + arcCol * farArc * arcNoise * 1.8;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1089,7 +1099,7 @@ void main() {
 
     // Early-out: negligible, or fully outside the influence zone
     float n = r / max(finalRs, 0.001);
-    if (finalRs < 0.001 || n > 6.0) {
+    if (finalRs < 0.001 || n > 9.0) {
         fragColor = texture(SceneSampler, vUv);
         return;
     }
@@ -1173,7 +1183,7 @@ void main() {
     //  4. Influence zone: smooth blend outside the BH region
     // ════════════════════════════════════════════════════════════
 
-    float influence = 1.0 - smoothstep(finalRs * 1.4, finalRs * 5.5, r);
+    float influence = 1.0 - smoothstep(finalRs * 1.4, finalRs * 8.7, r);
     influence = max(influence, eh); // horizon is always fully opaque black
     vec3 finalColor = mix(sceneOrig, color, influence);
 
@@ -1315,14 +1325,29 @@ void main() {
     float w2 = exp(-abs(dist - R2 * turb) * 22.0) * 0.55;
     float w3 = exp(-abs(dist - R3 * turb) * 18.0) * 0.30;
 
+    // Delayed shells turn the longer hypernova into a sequence of detonations.
+    float p4 = clamp((p - 0.22) / 0.78, 0.0, 1.0);
+    float e4 = 1.0 - pow(1.0 - p4, 3.0);
+    float w4 = exp(-abs(dist - e4 * 1.22 * turb) * 28.0)
+             * smoothstep(0.0, 0.08, p4)
+             * (1.0 - smoothstep(0.88, 1.0, p4)) * 0.78;
+
+    float p5 = clamp((p - 0.50) / 0.50, 0.0, 1.0);
+    float e5 = 1.0 - pow(1.0 - p5, 2.6);
+    float w5 = exp(-abs(dist - e5 * 1.02 * turb) * 24.0)
+             * smoothstep(0.0, 0.10, p5)
+             * (1.0 - smoothstep(0.84, 1.0, p5)) * 0.58;
+
     // ── Refraction warp: bend UVs radially at the crests ────────
-    float warp = (w1 * 0.030 + w2 * 0.018 + w3 * 0.010) * intensity;
+    float warp = (w1 * 0.040 + w2 * 0.024 + w3 * 0.014
+                + w4 * 0.029 + w5 * 0.022) * intensity;
     warp *= smoothstep(0.0, 0.04, p);       // ease in, no pop
     warp *= 1.0 - p * 0.5;                  // calm down as it expands
     vec2 warpedUv = vUv - dir * warp / aspect;
 
     // ── Chromatic split at the wave front ───────────────────────
-    float chroma = (w1 * 0.006 + w2 * 0.003) * intensity * (1.0 - p * 0.6);
+    float chroma = (w1 * 0.008 + w2 * 0.004 + w4 * 0.005 + w5 * 0.004)
+                 * intensity * (1.0 - p * 0.45);
     vec2 cOff = dir * chroma / aspect;
     vec3 scene;
     scene.r = texture(SceneSampler, warpedUv + cOff).r;
@@ -1330,7 +1355,8 @@ void main() {
     scene.b = texture(SceneSampler, warpedUv - cOff).b;
 
     // ── HDR crest brightness: white-hot → electric blue ─────────
-    float crest = (w1 * 2.6 + w2 * 1.4 + w3 * 0.8) * (1.0 - p * 0.55) * intensity;
+    float crest = (w1 * 3.4 + w2 * 1.8 + w3 * 1.0 + w4 * 2.35 + w5 * 1.75)
+                * (1.0 - p * 0.42) * intensity;
     vec3 crestCol = mix(vec3(1.0, 0.98, 0.92), vec3(0.55, 0.72, 1.0),
                         clamp(p * 1.4, 0.0, 1.0));
     scene += crestCol * crest;
@@ -1339,7 +1365,12 @@ void main() {
     // The final smoothstep guarantees zero at the stage boundary —
     // this pass deactivates when afterglow begins.
     float glowR = max(R1, 0.03);
-    float radialGlow = exp(-dist * 3.5 / glowR) * exp(-p * 3.2) * 1.6 * intensity;
+    float reigniteA = (p - 0.38) / 0.11;
+    float reigniteB = (p - 0.64) / 0.09;
+    float coreReignite = exp(-reigniteA * reigniteA) * 0.85
+                       + exp(-reigniteB * reigniteB) * 0.55;
+    float radialGlow = exp(-dist * 3.5 / glowR)
+                     * (exp(-p * 2.2) * 2.15 + coreReignite) * intensity;
     radialGlow *= 1.0 - smoothstep(0.85, 1.0, p);
     scene += vec3(1.0, 0.75, 0.45) * radialGlow;
 
@@ -1380,7 +1411,10 @@ void main() {
         // Fast exponential decay after detonation; smoothstep ease-in over
         // the first ~5% so the white-out ramps up instead of popping on.
         float p = BHParams.z;
-        flashIntensity = exp(-p * 6.0) * 0.9 * BHParams.w;
+        float primary = exp(-p * 6.0) * 1.0;
+        float reignitePhase = (p - 0.34) / 0.055;
+        float reignite = exp(-reignitePhase * reignitePhase) * 0.42;
+        flashIntensity = (primary + reignite) * BHParams.w;
         flashIntensity *= smoothstep(0.0, 0.05, p);
     } else {
         flashIntensity = BHParams.z;

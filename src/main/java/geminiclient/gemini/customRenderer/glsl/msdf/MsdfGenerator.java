@@ -8,7 +8,7 @@ import java.util.List;
 /**
  * Multi-channel signed distance field (MSDF) generator.
  *
- * <p>A faithful Java port of the classic msdfgen pipeline (Viktor Chlumský,
+ * <p>A Java port based on the classic msdfgen pipeline (Viktor Chlumský,
  * https://github.com/Chlumsky/msdfgen — v1.12 "legacy" mode plus sign
  * correction):</p>
  *
@@ -21,22 +21,21 @@ import java.util.List;
  *       (angle threshold 3.0 rad, seed 0).</li>
  *   <li>For every atlas pixel and every color channel, find the minimum
  *       signed pseudo-distance over the edges carrying that channel bit.</li>
- *   <li>Resolve the sign globally via the nonzero winding rule (per scanline)
- *       and apply it to the per-channel magnitudes — the local per-edge sign
- *       alone is unreliable in narrow necks and near self-intersections
- *       (this is the {@code correctSign} step of the modern pipeline).</li>
+ *   <li>Resolve the inside/outside sign with the nonzero winding rule while
+ *       retaining the independently selected pseudo-distance magnitude of
+ *       each edge-color channel.</li>
  *   <li>Legacy clash-detection error correction: equalize texels whose
  *       channel ordering could flip the median under bilinear interpolation.</li>
  *   <li>Track the true signed distance (minimum over <b>all</b> edges,
  *       ignoring color) and store it in the alpha channel — the MTSDF layout
  *       of msdf-atlas-gen. The multi-channel field saturates beyond
  *       RANGE/2 px from the contour; the true SDF keeps a usable gradient
- *       there, which the shader exploits under minification and for soft
- *       effects.</li>
+ *       there for soft effects.</li>
  * </ol>
  *
- * <p>The shader reconstructs the edge distance as {@code median(R, G, B)}
- * and falls back to the alpha channel where the median saturates.</p>
+ * <p>The shader reconstructs hard glyph coverage as
+ * {@code median(R, G, B)}. Alpha remains available for effects that need a
+ * true distance rather than a corner-preserving pseudo-distance.</p>
  *
  * <p>Output encoding per channel: {@code 0.5 + distance / RANGE}, i.e.
  * 128 = exactly on the edge, 255 = RANGE/2 px inside, 0 = RANGE/2 px outside.
@@ -50,17 +49,17 @@ public final class MsdfGenerator {
     /**
      * Distance range in atlas pixels. Single source of truth — the fragment
      * shader reads it back from atlas texel (0,0) via {@code texelFetch},
-     * encoded as {@code round(RANGE * METADATA_RANGE_SCALE)} in the R channel.
+     * encoded as an unsigned 16-bit fixed-point value in the R/G channels.
      */
-    public static final double RANGE = 8.0;
+    public static final double RANGE = 24.0;
 
     /**
-     * Encoding scale of the atlas metadata texel: texel (0,0) R stores
-     * {@code round(RANGE * METADATA_RANGE_SCALE)}; font.fsh decodes it with
-     * {@code texelFetch(Sampler0, ivec2(0,0), 0).r * (255.0 / 16.0)}.
-     * 16x gives 1/16 px resolution for ranges up to ~15.9 px.
+     * Encoding scale of the atlas metadata texel: texel (0,0) stores
+     * {@code round(RANGE * METADATA_RANGE_SCALE)} as an unsigned 16-bit
+     * fixed-point value split across R (low byte) and G (high byte).
+     * 256x gives 1/256 px resolution for ranges up to almost 256 px.
      */
-    public static final double METADATA_RANGE_SCALE = 16.0;
+    public static final double METADATA_RANGE_SCALE = 256.0;
 
     /** Corner angle threshold in radians (msdfgen default). */
     private static final double ANGLE_THRESHOLD = 3.0;
@@ -170,8 +169,8 @@ public final class MsdfGenerator {
                 SignedDistance g = new SignedDistance();
                 SignedDistance b = new SignedDistance();
                 SignedDistance t = new SignedDistance();
-                Edge rEdge = null, gEdge = null, bEdge = null, tEdge = null;
-                double rParam = 0, gParam = 0, bParam = 0, tParam = 0;
+                Edge rEdge = null, gEdge = null, bEdge = null;
+                double rParam = 0, gParam = 0, bParam = 0;
 
                 for (Edge edge : allEdges) {
                     // Cheap lower bound via control-polygon AABB: if it already
@@ -188,18 +187,22 @@ public final class MsdfGenerator {
                     if (maybeR && d.lessThan(r)) { r = d; rEdge = edge; rParam = param[0]; }
                     if (maybeG && d.lessThan(g)) { g = d; gEdge = edge; gParam = param[0]; }
                     if (maybeB && d.lessThan(b)) { b = d; bEdge = edge; bParam = param[0]; }
-                    if (maybeT && d.lessThan(t)) { t = d; tEdge = edge; tParam = param[0]; }
+                    if (maybeT && d.lessThan(t)) { t = d; }
                 }
 
-                // Convert true distance to pseudo-distance near segment endpoints
-                // so the field stays continuous across corners.
+                // Convert the three colored edge distances to pseudo-distance
+                // near segment endpoints so the RGB field stays continuous.
                 // Gated to the near field: the conversion extends the edge's
                 // perpendicular "shadow" infinitely past its endpoints, which
                 // produces faint band artifacts radiating across the cell once
                 // the nearest endpoint is farther away than the field can
                 // encode anyway (|distance| > RANGE/2 already clamps to 0/1,
                 // so skipping the conversion there only removes the bands).
-                double nearLimit = RANGE * 0.5;
+                // Endpoint pseudo-distance is only useful in the immediate
+                // corner neighbourhood. Keeping this independent from the
+                // wider MTSDF storage range prevents long radial bands from
+                // reaching the reconstructed 0.5 contour.
+                double nearLimit = Math.min(RANGE * 0.5, 4.0);
                 if (rEdge != null && Math.abs(r.distance) <= nearLimit) {
                     rEdge.distanceToPerpendicularDistance(r, p, rParam);
                 }
@@ -209,18 +212,19 @@ public final class MsdfGenerator {
                 if (bEdge != null && Math.abs(b.distance) <= nearLimit) {
                     bEdge.distanceToPerpendicularDistance(b, p, bParam);
                 }
-                if (tEdge != null && Math.abs(t.distance) <= nearLimit) {
-                    tEdge.distanceToPerpendicularDistance(t, p, tParam);
-                }
-
-                // Sign resolution: the local per-edge sign is unreliable in
-                // narrow necks and near self-intersections. The magnitude is
-                // always correct, so apply the global inside/outside sign from
-                // the nonzero winding rule (same as Java2D / FreeType fill).
                 int i = (y * width + x) * 4;
+
+                // The per-edge local sign is unstable around narrow joins in
+                // Java2D's y-down outlines. Keep each channel's independently
+                // selected pseudo-distance magnitude, and resolve only its
+                // inside/outside sign from the exact nonzero fill rule.
                 field[i]     = mapDistance(sign * Math.abs(r.distance));
                 field[i + 1] = mapDistance(sign * Math.abs(g.distance));
                 field[i + 2] = mapDistance(sign * Math.abs(b.distance));
+
+                // MTSDF alpha is the true Euclidean distance to the nearest
+                // outline edge. It must not receive pseudo-distance endpoint
+                // conversion.
                 field[i + 3] = mapDistance(sign * Math.abs(t.distance));
             }
         }

@@ -144,7 +144,10 @@ float drawWisps(vec2 uv, float time) {
 // ══════════════════════════════════════════════════════════════════
 
 float edgeMask(float d) {
-    return 1.0 - smoothstep(1.05, 1.35, d);
+    // UV reaches d=1.0 at the midpoint of every quad edge. The old mask
+    // started fading at 1.05, so those edges stayed fully opaque and exposed
+    // the billboard as a giant rectangle during the low-alpha afterglow.
+    return 1.0 - smoothstep(0.68, 0.98, d);
 }
 
 // ── Main ──────────────────────────────────────────────────────────
@@ -167,7 +170,7 @@ void main() {
     // ══════════════════════════════════════════════════════════════
     if (modeFlag < 0.25) {
         // Edge mask — only used in flash mode; not computed for hypernova path
-        float em = 1.0 - smoothstep(1.05, 1.35, d);
+        float em = edgeMask(d);
         vec3 flashRgb = vec3(0.0);
 
         // Bell-curve flash envelope (wider, smoother)
@@ -234,8 +237,24 @@ void main() {
     shock += exp(-d * d / (shockR * shockR + 0.02)) * 0.35;
     float shockFade = smoothstep(0.0, 0.08, time) * (1.0 - smoothstep(0.8, 1.0, time));
     shock *= shockFade;
+
+    // Two delayed blast fronts keep the extended hypernova stage alive instead
+    // of spending all of its energy in the first few frames.
+    float echoP = clamp((time - 0.24) / 0.76, 0.0, 1.0);
+    float echoE = 1.0 - pow(1.0 - echoP, 3.0);
+    float echoR = echoE * 1.48;
+    float echo = exp(-abs(d - echoR) * 42.0)
+               + exp(-abs(d - echoR * 0.66) * 28.0) * 0.42;
+    echo *= smoothstep(0.0, 0.10, echoP) * (1.0 - smoothstep(0.86, 1.0, echoP));
+
+    float lateP = clamp((time - 0.52) / 0.48, 0.0, 1.0);
+    float lateR = (1.0 - pow(1.0 - lateP, 2.5)) * 1.24;
+    float lateEcho = exp(-abs(d - lateR) * 34.0)
+                   * smoothstep(0.0, 0.12, lateP)
+                   * (1.0 - smoothstep(0.82, 1.0, lateP));
+    shock += echo * 0.82 + lateEcho * 0.58;
     vec3 shockColor = mix(vec3(0.45, 0.7, 1.0), vec3(1.0, 0.9, 0.75), et * 0.15);
-    rgb += shockColor * shock * 1.5 * intensity;
+    rgb += shockColor * shock * 2.15 * intensity;
 
     // ── Fireball ──────────────────────────────────────────────────
     // Reduced from 4 to 3 FBM calls: fbm4 (fine detail) merged into fbm2.
@@ -250,7 +269,8 @@ void main() {
 
     float fireTemp = d / max(fireR, 0.01);
     vec3 fireCol = fireColor(fireTemp);
-    rgb += fireCol * fireball * 1.1 * intensity;
+    float stellarPulse = 0.86 + 0.14 * abs(sin(time * 22.0));
+    rgb += fireCol * fireball * 1.45 * intensity * stellarPulse;
 
     // ── Lightning ──────────────────────────────────────────────────
     float boltN = 13.0;
@@ -262,9 +282,10 @@ void main() {
     bolt += (1.0 - smoothstep(0.0, boltThick * 0.55, boltPat2)) * 0.35;
     float boltExtent = smoothstep(fireR * 1.4, fireR * 0.3, d);
     bolt *= boltExtent * fireFade;
-    bolt *= 0.35 + hash(vec2(floor(angle * boltN / 6.28), 2.0)) * 1.5;
+    float boltStrobe = 0.60 + 0.40 * pow(abs(sin(time * 38.0 + angle * 2.0)), 6.0);
+    bolt *= (0.45 + hash(vec2(floor(angle * boltN / 6.28), 2.0)) * 1.8) * boltStrobe;
     vec3 boltCol = mix(vec3(0.35, 0.55, 1.0), vec3(1.0, 0.9, 1.0), hash(vec2(angle * boltN, 0.0)));
-    rgb += boltCol * bolt * 0.85 * intensity;
+    rgb += boltCol * bolt * 1.20 * intensity;
 
     // ── Nebula ─────────────────────────────────────────────────────
     float nebFbm = fbm(uv * 4.5 + time * 0.3);
@@ -274,7 +295,7 @@ void main() {
     nebula *= exp(-d / nebR) * 0.65;
     nebula *= smoothstep(0.1, 0.35, time);
     vec3 nebCol = nebulaColor(uv, time);
-    rgb += nebCol * nebula * 0.45;
+    rgb += nebCol * nebula * 0.72 * intensity;
 
     // ── Stars (4 sprites, reduced from 7) ──────────────────────────
     float starsTotal = drawStars(uv, time);
@@ -286,12 +307,12 @@ void main() {
     glow *= 1.0 + 0.2 * sin(time * 5.0 + d * 2.0);
     glow *= smoothstep(0.0, 0.2, time);
     vec3 glowCol = mix(vec3(1.0, 0.5, 0.15), vec3(0.35, 0.12, 0.8), et * 0.4);
-    rgb += glowCol * glow * intensity;
+    rgb += glowCol * glow * intensity * 1.35;
 
     // ── Energy wisps (2 curves, reduced from 3) ────────────────────
     float wisp = drawWisps(uv, time);
     vec3 wispCol = mix(vec3(0.5, 0.7, 1.0), vec3(0.9, 0.35, 0.8), fbm(uv * 5.0 + time));
-    rgb += wispCol * wisp * 0.28 * intensity;
+    rgb += wispCol * wisp * 0.46 * intensity;
 
     // ── Polar jets ─────────────────────────────────────────────────
     float jetX = abs(uv.x);
@@ -300,16 +321,20 @@ void main() {
     jet += exp(-jetX * 6.0 / (1.0 + et * 2.5)) * exp(-abs(jetY - et * 1.5) * 2.5) * 0.4;
     jet *= smoothstep(0.2, 0.55, time);
     vec3 jetCol = mix(vec3(0.6, 0.75, 1.0), vec3(0.4, 0.2, 0.95), jetY * 0.4);
-    rgb += jetCol * jet * 0.15 * intensity;
+    rgb += jetCol * jet * 0.32 * intensity;
 
     // ── Depth approximation ────────────────────────────────────────
     float depthFade = exp(-d * 0.5);
     rgb *= 0.4 + depthFade * 0.6;
 
     // ── Composite alpha ────────────────────────────────────────────
-    float finalAlpha = (shock * 0.7 + fireball * 0.5 + bolt * 0.6
-                      + nebula * 0.3 + glow * 0.5 + wisp * 0.3
+    float novaEdge = edgeMask(d);
+    rgb *= novaEdge;
+
+    float finalAlpha = (shock * 0.82 + fireball * 0.62 + bolt * 0.72
+                      + nebula * 0.42 + glow * 0.62 + wisp * 0.40
                       + starsTotal * 0.75 + jet * 0.25) * alpha;
+    finalAlpha *= novaEdge;
 
     fragColor = vec4(rgb, finalAlpha) * ColorModulator;
     if (fragColor.a < 0.0005) discard;
