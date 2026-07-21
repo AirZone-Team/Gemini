@@ -237,16 +237,10 @@ public class Scaffold extends Module {
     }
 
     @Override
-    public void renderEditorPlaceholder(GuiGraphicsExtractor graphics) {
+    public void renderEditorOutline(GuiGraphicsExtractor graphics) {
         if (!blockCounter.enabled) return;
-
-        if (enabled) {
-            ScaffoldBlockCounterRenderer.renderOutline(
-                    graphics, this, getDisplaySnapshot().displayName());
-        } else {
-            ScaffoldBlockCounterRenderer.renderPlaceholder(
-                    graphics, this, lowBlockThreshold.getValue(), counterShadow.enabled);
-        }
+        ScaffoldBlockCounterRenderer.renderOutline(
+                graphics, this, getDisplaySnapshot().displayName());
     }
 
     // ========================================================================

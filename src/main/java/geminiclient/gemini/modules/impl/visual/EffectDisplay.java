@@ -62,19 +62,11 @@ public class EffectDisplay extends Module {
     }
 
     @Override
-    public void renderEditorPlaceholder(GuiGraphicsExtractor g) {
+    public void renderEditorOutline(GuiGraphicsExtractor g) {
         if (isMaterial()) {
-            if (!enabled) {
-                MaterialEffectRenderer.getInstance().renderPlaceholder(g, this);
-            } else {
-                MaterialEffectRenderer.getInstance().renderOutline(g, this);
-            }
+            MaterialEffectRenderer.getInstance().renderOutline(g, this);
         } else {
-            if (!enabled) {
-                RenderEffect.getInstance().renderPlaceholder(g, this);
-            } else {
-                RenderEffect.getInstance().renderOutline(g, this);
-            }
+            RenderEffect.getInstance().renderOutline(g, this);
         }
     }
 }

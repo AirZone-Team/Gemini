@@ -93,8 +93,8 @@ public class Module implements MinecraftInstance {
     }
 
     /**
-     * Override in HUD modules to render a placeholder outline + dummy text
-     * when the chat screen is open (drag-editor mode), even if the module is disabled.
+     * Override in draggable HUD modules to draw the chat editor outline and
+     * register the same bounds for hit-testing. Called only while enabled.
      */
-    public void renderEditorPlaceholder(GuiGraphicsExtractor g) {}
+    public void renderEditorOutline(GuiGraphicsExtractor g) {}
 }

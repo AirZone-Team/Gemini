@@ -231,53 +231,6 @@ public class RenderEffect {
         Gemini.hudDragManager.registerDragRegion(module, (int) x, (int) originY, (int) totalW, (int) ELEMENT_HEIGHT);
     }
 
-    /**
-     * Draws a placeholder outline + dummy effect entry for drag-editor mode.
-     */
-    public void renderPlaceholder(GuiGraphicsExtractor graphics, Module module) {
-        Minecraft mc = Minecraft.getInstance();
-        boolean rightAligned = Gemini.hudDragManager.isOnRightSide(module);
-        float originX = module.hudX;
-        float originY = module.hudY;
-
-        // Dummy effect dimensions
-        String dummyName = "Speed II";
-        String dummyDuration = "12:34";
-        float dummyWidth = mc.font.width(dummyName) * 0.85F + ICON_SIZE + 40.0F;
-        float elementW = Math.max(dummyWidth, 120f);
-        float elementH = ELEMENT_HEIGHT;
-        float totalW = elementW + PADDING_X * 2;
-
-        float x = rightAligned ? originX - totalW : originX;
-
-        // Editor outline
-        CustomRoundedRectRenderer.drawRoundedOutline(graphics,
-                (int) x, (int) originY, (int) totalW, (int) elementH,
-                CORNER_RADIUS, 0x80FFD700, 2);
-
-        // Glass background for the dummy entry
-        CustomRoundedRectRenderer.drawRoundedRectVertGrad(graphics,
-                (int) x, (int) originY, (int) totalW, (int) elementH,
-                CORNER_RADIUS, 0x220C0C0C, 0x18050505);
-
-        // Accent bar
-        int accent = 0xFFFF5555;
-        CustomRoundedRectRenderer.drawRoundedRectVertGrad(graphics,
-                (int) x, (int) originY + 3, 2, (int) elementH - 6, 1, accent, darken(accent, 0.35f));
-
-        // Dummy text
-        float textScale = 0.85F;
-        graphics.pose().pushMatrix();
-        graphics.pose().translate(x, originY);
-        graphics.pose().scale(textScale, textScale);
-        float textX = (6 + ICON_SIZE + 10) / textScale;
-        graphics.text(mc.font, dummyName, (int) textX, (int) (6.0F / textScale), 0x80FFFFFF, false);
-        graphics.text(mc.font, dummyDuration, (int) textX, (int) (18.0F / textScale), 0x80AAAAAA, true);
-        graphics.pose().popMatrix();
-
-        Gemini.hudDragManager.registerDragRegion(module, (int) x, (int) originY, (int) totalW, (int) elementH);
-    }
-
     private static int lighten(int color, float amount) {
         int r = (color >> 16) & 0xFF;
         int g = (color >> 8) & 0xFF;

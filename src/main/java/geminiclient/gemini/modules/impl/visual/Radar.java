@@ -211,16 +211,11 @@ public class Radar extends Module {
     }
 
     @Override
-    public void renderEditorPlaceholder(GuiGraphicsExtractor g) {
+    public void renderEditorOutline(GuiGraphicsExtractor g) {
         int size = radarSize.getValue();
         int x = hudX;
         int y = hudY;
         CustomRoundedRectRenderer.drawRoundedOutline(g, x, y, size, size, RADIUS, 0xAAFFD700, 2);
-
-        if (!enabled) {
-            CustomRoundedRectRenderer.drawRoundedRect(g, x, y, size, size, RADIUS, 0x22141414);
-        }
-
         Gemini.hudDragManager.registerDragRegion(this, x, y, size, size);
     }
 

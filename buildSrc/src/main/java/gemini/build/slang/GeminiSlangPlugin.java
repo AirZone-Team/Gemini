@@ -18,6 +18,9 @@ public final class GeminiSlangPlugin implements Plugin<Project> {
         extension.getValidationOutputDirectory().convention(
                 project.getLayout().getBuildDirectory().dir("validation/slang/spirv"));
 
+        var slangJavaVersion = project.getProviders().gradleProperty("slang_java_version");
+        var slangBuildTag = project.getProviders().gradleProperty("slang_build_tag");
+
         TaskProvider<CompileSlangShaders> compile = project.getTasks().register(
                 "compileSlangShaders", CompileSlangShaders.class, task -> {
                     task.setGroup("build");
@@ -25,6 +28,8 @@ public final class GeminiSlangPlugin implements Plugin<Project> {
                     task.getSourceDirectory().set(extension.getSourceDirectory());
                     task.getVariantManifest().set(extension.getVariantManifest());
                     task.getOutputDirectory().set(extension.getOutputDirectory());
+                    task.getCompilerLibraryVersion().set(slangJavaVersion);
+                    task.getCompilerBuildTag().set(slangBuildTag);
                 });
 
         TaskProvider<ValidateSlangShaders> validate = project.getTasks().register(
@@ -34,6 +39,8 @@ public final class GeminiSlangPlugin implements Plugin<Project> {
                     task.dependsOn(compile);
                     task.getInputDirectory().set(extension.getOutputDirectory());
                     task.getOutputDirectory().set(extension.getValidationOutputDirectory());
+                    task.getCompilerLibraryVersion().set(slangJavaVersion);
+                    task.getCompilerBuildTag().set(slangBuildTag);
                 });
 
         project.getPluginManager().withPlugin("java", ignored -> {

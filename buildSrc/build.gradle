@@ -2,13 +2,71 @@ plugins {
     id 'java-gradle-plugin'
 }
 
+File repositoryRoot = projectDir.parentFile
+apply from: new File(repositoryRoot, 'gradle/slang-platforms.gradle')
+
+def rootProperties = new Properties()
+new File(repositoryRoot, 'gradle.properties').withInputStream { rootProperties.load(it) }
+
+def requiredProperty = { String name ->
+    Object value = findProperty(name)
+    if (value == null) {
+        value = rootProperties.getProperty(name)
+    }
+    if (value == null || value.toString().trim().isEmpty()) {
+        throw new GradleException("Missing required Gradle property '${name}' in ${new File(projectDir.parentFile, 'gradle.properties')}")
+    }
+    return value.toString().trim()
+}
+
+String slangJavaVersion = requiredProperty('slang_java_version')
+String slangNativeClassifier = slangNativeClassifierFor(
+        System.getProperty('os.name'),
+        System.getProperty('os.arch'),
+        findProperty('slangNativeClassifier'))
+boolean requireBundledSlang = providers.gradleProperty('gemini.requireBundledSlang')
+        .map { it.toBoolean() }
+        .getOrElse(false)
+
 repositories {
-    mavenCentral()
+    if (!requireBundledSlang) {
+        mavenCentral()
+    }
 }
 
 dependencies {
-    implementation 'io.github.refux:slang-java:0.0.6'
-    runtimeOnly 'io.github.refux:slang-java-natives:0.0.6:windows-x86_64'
+    if (requireBundledSlang) {
+        File vendorDirectory = new File(repositoryRoot, 'vendor/slang')
+        File buildInfoFile = new File(repositoryRoot, 'BUILD-INFO.properties')
+        Properties buildInfo = new Properties()
+        if (buildInfoFile.isFile()) {
+            buildInfoFile.withInputStream { buildInfo.load(it) }
+        }
+        List<String> runtimeJarNames = buildInfo.getProperty(
+                'slangRuntimeJars', "slang-java-${slangJavaVersion}.jar")
+                .split(',')
+                .collect { it.trim() }
+                .findAll { !it.isEmpty() }
+                .sort()
+        File nativeJar = new File(vendorDirectory,
+                "slang-java-natives-${slangJavaVersion}-${slangNativeClassifier}.jar")
+        List<File> runtimeJars = runtimeJarNames.collect { new File(vendorDirectory, it) }
+        List<String> expectedNames = (runtimeJarNames + nativeJar.name).sort()
+        List<String> actualNames = vendorDirectory.isDirectory()
+                ? (vendorDirectory.listFiles() ?: [] as File[])
+                    .findAll { it.isFile() && it.name.endsWith('.jar') }
+                    .collect { it.name }
+                    .sort()
+                : []
+        if (runtimeJars.any { !it.isFile() } || !nativeJar.isFile() || actualNames != expectedNames) {
+            throw new GradleException("Bundled Slang is required for ${slangNativeClassifier}. Expected exactly ${expectedNames} in ${vendorDirectory}, but found ${actualNames}.")
+        }
+        implementation files(runtimeJars)
+        runtimeOnly files(nativeJar)
+    } else {
+        implementation "io.github.refux:slang-java:${slangJavaVersion}"
+        runtimeOnly "io.github.refux:slang-java-natives:${slangJavaVersion}:${slangNativeClassifier}"
+    }
     testImplementation platform('org.junit:junit-bom:6.0.3')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -31,6 +89,7 @@ gradlePlugin {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+    systemProperty 'gemini.repositoryRoot', repositoryRoot.absolutePath
 }
 
 tasks.withType(JavaExec).configureEach {

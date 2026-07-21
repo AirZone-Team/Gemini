@@ -4,6 +4,7 @@ import geminiclient.gemini.Gemini;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.modules.impl.visual.clickgui.AbstractClickGuiScreen;
 import geminiclient.gemini.modules.impl.visual.clickgui.SearchFilterModel;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.component.Md3ModuleComponent;
@@ -87,20 +88,61 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
     protected void init() {
         super.init();
         if (winW == 0 || winH == 0) {
-            winW = Math.min(DEFAULT_W, this.width);
-            winH = Math.min(DEFAULT_H, this.height);
-            winX = (this.width - winW) / 2;
-            winY = (this.height - winH) / 2;
+            int viewportLeft = logicalViewportLeft();
+            int viewportTop = logicalViewportTop();
+            int viewportWidth = logicalViewportRight() - viewportLeft;
+            int viewportHeight = logicalViewportBottom() - viewportTop;
+            winW = Math.min(DEFAULT_W, viewportWidth);
+            winH = Math.min(DEFAULT_H, viewportHeight);
+            winX = viewportLeft + (viewportWidth - winW) / 2;
+            winY = viewportTop + (viewportHeight - winH) / 2;
         }
     }
 
+    private float scale() {
+        return ClickGui.md3Scale();
+    }
+
+    private double logicalX(double screenX) {
+        double pivotX = this.width / 2.0;
+        return pivotX + (screenX - pivotX) / scale();
+    }
+
+    private double logicalY(double screenY) {
+        double pivotY = this.height / 2.0;
+        return pivotY + (screenY - pivotY) / scale();
+    }
+
+    private int logicalViewportLeft() {
+        return (int) Math.ceil(logicalX(0));
+    }
+
+    private int logicalViewportTop() {
+        return (int) Math.ceil(logicalY(0));
+    }
+
+    private int logicalViewportRight() {
+        return (int) Math.floor(logicalX(this.width));
+    }
+
+    private int logicalViewportBottom() {
+        return (int) Math.floor(logicalY(this.height));
+    }
+
     private void layout() {
-        winW = Math.min(winW, this.width);
-        winH = Math.min(winH, this.height);
-        winW = Math.max(Math.min(MIN_W, this.width), winW);
-        winH = Math.max(Math.min(MIN_H, this.height), winH);
-        winX = Math.max(0, Math.min(winX, this.width - winW));
-        winY = Math.max(0, Math.min(winY, this.height - winH));
+        int viewportLeft = logicalViewportLeft();
+        int viewportTop = logicalViewportTop();
+        int viewportRight = logicalViewportRight();
+        int viewportBottom = logicalViewportBottom();
+        int viewportWidth = Math.max(1, viewportRight - viewportLeft);
+        int viewportHeight = Math.max(1, viewportBottom - viewportTop);
+
+        winW = Math.min(winW, viewportWidth);
+        winH = Math.min(winH, viewportHeight);
+        winW = Math.max(Math.min(MIN_W, viewportWidth), winW);
+        winH = Math.max(Math.min(MIN_H, viewportHeight), winH);
+        winX = Math.max(viewportLeft, Math.min(winX, viewportRight - winW));
+        winY = Math.max(viewportTop, Math.min(winY, viewportBottom - winH));
         renderWinY = winY + openOffsetY();
 
         contentX = winX + Md3NavigationRail.WIDTH + CONTENT_PADDING;
@@ -169,38 +211,52 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
         gui.fill(0, 0, this.width, this.height,
                 Md3Theme.withAlpha(0x000000, 0.42f * openT));
 
-        // Main floating surface.
-        Md3Theme.elevation3(gui, winX, renderWinY, winW, winH, Md3Theme.R_EXTRA_LARGE);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, winX, renderWinY, winW, winH,
-                Md3Theme.R_EXTRA_LARGE, Md3Theme.SURFACE_CONTAINER_LOW);
+        int logicalMouseX = (int) Math.round(logicalX(mouseX));
+        int logicalMouseY = (int) Math.round(logicalY(mouseY));
+        float guiScale = scale();
+        float pivotX = this.width / 2f;
+        float pivotY = this.height / 2f;
+        var pose = gui.pose();
+        pose.pushMatrix();
+        pose.translate(pivotX, pivotY);
+        pose.scale(guiScale, guiScale);
+        pose.translate(-pivotX, -pivotY);
+        try {
+            // Main floating surface.
+            Md3Theme.elevation3(gui, winX, renderWinY, winW, winH, Md3Theme.R_EXTRA_LARGE);
+            CustomRoundedRectRenderer.drawRoundedRect(gui, winX, renderWinY, winW, winH,
+                    Md3Theme.R_EXTRA_LARGE, Md3Theme.SURFACE_CONTAINER_LOW);
 
-        renderTopAppBar(gui, mouseX, mouseY);
-        rail.render(gui, mouseX, mouseY, partialTicks);
+            renderTopAppBar(gui, logicalMouseX, logicalMouseY);
+            rail.render(gui, logicalMouseX, logicalMouseY, partialTicks);
 
-        scrollAnim.setTarget(scrollTarget);
-        scrollCurrent = scrollAnim.getValue();
-        for (Md3ModuleComponent row : visibleRows) {
-            row.advanceAnimation(partialTicks);
-        }
+            scrollAnim.setTarget(scrollTarget);
+            scrollCurrent = scrollAnim.getValue();
+            for (Md3ModuleComponent row : visibleRows) {
+                row.advanceAnimation(partialTicks);
+            }
 
-        int contentHeight = layoutRows();
-        maxScroll = Math.max(0, contentHeight - (listBottom - listY));
-        scrollTarget = Math.max(0, Math.min(scrollTarget, maxScroll));
+            int contentHeight = layoutRows();
+            maxScroll = Math.max(0, contentHeight - (listBottom - listY));
+            scrollTarget = Math.max(0, Math.min(scrollTarget, maxScroll));
 
-        int enabledCount = (int) visibleRows.stream().filter(row -> row.module.enabled).count();
-        heroCard.render(gui, searchBar.hasFilter() ? null : rail.getSelectedCategory(),
-                visibleRows.size(), enabledCount,
-                !searchBar.hasFilter() && rail.isFavoritesSelected());
+            int enabledCount = (int) visibleRows.stream().filter(row -> row.module.enabled).count();
+            heroCard.render(gui, searchBar.hasFilter() ? null : rail.getSelectedCategory(),
+                    visibleRows.size(), enabledCount,
+                    !searchBar.hasFilter() && rail.isFavoritesSelected());
 
-        renderSectionHeader(gui);
-        renderModuleList(gui, mouseX, mouseY, partialTicks, contentHeight);
+            renderSectionHeader(gui);
+            renderModuleList(gui, logicalMouseX, logicalMouseY, partialTicks, contentHeight);
 
-        if (openOverlay != null) {
-            // Modal state layer separates menus/pickers from content without
-            // obscuring the destination context.
-            gui.fill(winX, renderWinY + APP_BAR_H, winX + winW, renderWinY + winH,
-                    Md3Theme.withAlpha(Md3Theme.ON_SURFACE, 0.05f));
-            openOverlay.render(gui, mouseX, mouseY, partialTicks);
+            if (openOverlay != null) {
+                // Modal state layer separates menus/pickers from content without
+                // obscuring the destination context.
+                gui.fill(winX, renderWinY + APP_BAR_H, winX + winW, renderWinY + winH,
+                        Md3Theme.withAlpha(Md3Theme.ON_SURFACE, 0.05f));
+                openOverlay.render(gui, logicalMouseX, logicalMouseY, partialTicks);
+            }
+        } finally {
+            pose.popMatrix();
         }
     }
 
@@ -325,8 +381,8 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
 
     @Override
     public boolean mouseClicked(@NotNull MouseButtonEvent mouse, boolean idk) {
-        double mouseX = mouse.x();
-        double mouseY = mouse.y();
+        double mouseX = logicalX(mouse.x());
+        double mouseY = logicalY(mouse.y());
         int button = mouse.button();
 
         if (!inWindow(mouseX, mouseY)) {
@@ -381,8 +437,8 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
 
     @Override
     public boolean mouseReleased(@NotNull MouseButtonEvent mouse) {
-        double mouseX = mouse.x();
-        double mouseY = mouse.y();
+        double mouseX = logicalX(mouse.x());
+        double mouseY = logicalY(mouse.y());
         int button = mouse.button();
 
         if (dragging && button == 0) {
@@ -405,8 +461,8 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
     @Override
     public boolean mouseDragged(@NotNull MouseButtonEvent mouse, double dx, double dy) {
         if (dragging && mouse.button() == 0) {
-            winX = (int) (mouse.x() - dragOffsetX);
-            winY = (int) (mouse.y() - dragOffsetY);
+            winX = (int) (logicalX(mouse.x()) - dragOffsetX);
+            winY = (int) (logicalY(mouse.y()) - dragOffsetY);
             return true;
         }
         return super.mouseDragged(mouse, dx, dy);
@@ -414,6 +470,8 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double hScroll, double vScroll) {
+        mouseX = logicalX(mouseX);
+        mouseY = logicalY(mouseY);
         if (openOverlay != null) {
             openOverlay = null;
             return true;

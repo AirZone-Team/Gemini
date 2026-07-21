@@ -64,11 +64,7 @@ public class Notification extends Module {
     }
 
     @Override
-    public void renderEditorPlaceholder(GuiGraphicsExtractor g) {
-        if (!enabled) {
-            Gemini.notificationManager.renderPlaceholder(g, this);
-        } else {
-            Gemini.notificationManager.renderOutline(g, this);
-        }
+    public void renderEditorOutline(GuiGraphicsExtractor g) {
+        Gemini.notificationManager.renderOutline(g, this);
     }
 }

@@ -565,13 +565,13 @@ public class Arraylists extends Module {
     }
 
     @Override
-    public void renderEditorPlaceholder(GuiGraphicsExtractor g) {
+    public void renderEditorOutline(GuiGraphicsExtractor g) {
+        boolean minimal = isMinimal();
         boolean compact = compactMode.enabled;
-        int paddingX    = compact ? C_PADDING_X     : PADDING_X;
-        int lineGap     = compact ? C_LINE_GAP      : LINE_GAP;
-        int lineHeight  = textLineHeight(lineGap);
-        int radius      = currentRadius(compact);
-        boolean rightAligned = Gemini.hudDragManager.isOnRightSide(this);
+        int paddingX = minimal ? M_PAD_X : (compact ? C_PADDING_X : PADDING_X);
+        int lineGap = compact ? C_LINE_GAP : LINE_GAP;
+        int fullLineH = textLineHeight(lineGap) + (int) spaceValue.getValue();
+        int radius = currentRadius(compact);
         List<Module> allMods = Gemini.moduleManager.getModules();
 
         int count = 0;
@@ -579,40 +579,20 @@ public class Arraylists extends Module {
         for (Module m : allMods) {
             if (shouldSkipModule(m)) continue;
             count++;
-            String fullText = displayText(m);
-            int tw = (int) textWidth(fullText) + paddingX * 2 + backgroundExpand.getValue();
-            if (tw > maxItemW) maxItemW = tw;
+            int width = (int) textWidth(displayText(m)) + paddingX * 2 + backgroundExpand.getValue();
+            maxItemW = Math.max(maxItemW, width);
         }
 
-        int totalH = paddingY() * 2 + count * lineHeight;
+        if (count == 0) {
+            count = 1;
+            maxItemW = (int) textWidth(getName()) + paddingX * 2 + backgroundExpand.getValue();
+        }
+
+        int totalH = paddingY() * 2 + count * fullLineH;
         int originX = hudX;
         int originY = hudY;
-
-        if (!enabled) {
-            int i = 0;
-            for (Module m : allMods) {
-                if (shouldSkipModule(m)) continue;
-                int cardY = originY + paddingY() + i * lineHeight;
-                String fullText = displayText(m);
-                int itemW = (int) textWidth(fullText) + paddingX * 2 + backgroundExpand.getValue();
-                int cardX = rightAligned ? originX + maxItemW - itemW : originX;
-
-                // Faint body so the placeholder reads as a real card
-                CustomRoundedRectRenderer.drawRoundedRect(g,
-                        cardX, cardY, itemW, lineHeight, radius, 0x1A000000);
-                CustomRoundedRectRenderer.drawRoundedOutline(g,
-                        cardX, cardY, itemW, lineHeight, radius, 0xAAFFD700, 1);
-
-                float textX = cardX + paddingX;
-                float textY = cardY + lineGap / 2f;
-                if (customFont != null) {
-                    CustomFontRenderer.drawString(g, customFont, fullText, textX, textY, 0x88FFD700);
-                } else {
-                    CustomFontRenderer.drawString(g, mc.font, fullText, textX, textY, 0x88FFD700);
-                }
-                i++;
-            }
-        }
+        CustomRoundedRectRenderer.drawRoundedOutline(
+                g, originX, originY, maxItemW, totalH, radius, 0xAAFFD700, 2);
         Gemini.hudDragManager.registerDragRegion(this, originX, originY, maxItemW, totalH);
     }
 

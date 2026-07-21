@@ -1,6 +1,7 @@
 package geminiclient.gemini.modules.impl.visual;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.TargetDisplayRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.TargetDisplayRingRenderer;
 import geminiclient.gemini.event.annotations.EventTarget;
@@ -108,33 +109,32 @@ public class TargetDisplay extends Module {
                 TargetDisplayRenderer.DISPLAY_WIDTH, TargetDisplayRenderer.DISPLAY_HEIGHT);
     }
 
-    // ── 编辑器占位 ────────────────────────────────────────────────
+    // ── HUD 编辑边框 ────────────────────────────────────────────────
 
     @Override
-    public void renderEditorPlaceholder(GuiGraphicsExtractor g) {
+    public void renderEditorOutline(GuiGraphicsExtractor g) {
         int x = hudX;
         int y = hudY;
 
         if (displayMode.is("Ring")) {
-            if (!enabled) {
-                // 占位符也应具有一致的视觉圆角和背景
-                TargetDisplayRingRenderer.drawBackground(g, x, y, 0.35f);
-            }
-            Gemini.hudDragManager.registerDragRegion(this, x, y,
-                    TargetDisplayRingRenderer.DISPLAY_WIDTH, TargetDisplayRingRenderer.DISPLAY_HEIGHT);
+            drawEditorOutline(g, x, y,
+                    TargetDisplayRingRenderer.DISPLAY_WIDTH,
+                    TargetDisplayRingRenderer.DISPLAY_HEIGHT,
+                    TargetDisplayRingRenderer.CORNER_RADIUS);
             return;
         }
 
-        if (!enabled) {
-            // 占位符也应具有一致的视觉圆角和背景
-            TargetDisplayRenderer.drawBackground(g, x, y,
-                    TargetDisplayRenderer.DISPLAY_WIDTH,
-                    TargetDisplayRenderer.DISPLAY_HEIGHT,
-                    TargetDisplayRenderer.CORNER_RADIUS, 0.35f);
-        }
+        drawEditorOutline(g, x, y,
+                TargetDisplayRenderer.DISPLAY_WIDTH,
+                TargetDisplayRenderer.DISPLAY_HEIGHT,
+                TargetDisplayRenderer.CORNER_RADIUS);
+    }
 
-        Gemini.hudDragManager.registerDragRegion(this, x, y,
-                TargetDisplayRenderer.DISPLAY_WIDTH, TargetDisplayRenderer.DISPLAY_HEIGHT);
+    private void drawEditorOutline(GuiGraphicsExtractor g, int x, int y,
+                                   int width, int height, int radius) {
+        CustomRoundedRectRenderer.drawRoundedOutline(
+                g, x, y, width, height, radius, 0xAAFFD700, 2);
+        Gemini.hudDragManager.registerDragRegion(this, x, y, width, height);
     }
 
     // ── 辅助方法 ──────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import io.github.refux.slang.Stage;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputDirectory;
@@ -30,14 +31,10 @@ public abstract class ValidateSlangShaders extends DefaultTask {
     public abstract DirectoryProperty getOutputDirectory();
 
     @Input
-    public String getCompilerLibraryVersion() {
-        return "0.0.6";
-    }
+    public abstract Property<String> getCompilerLibraryVersion();
 
     @Input
-    public String getCompilerBuildTag() {
-        return "2026.13";
-    }
+    public abstract Property<String> getCompilerBuildTag();
 
     @TaskAction
     public void validateShaders() throws IOException {
@@ -53,8 +50,8 @@ public abstract class ValidateSlangShaders extends DefaultTask {
                     .toList();
         }
         try (GeminiSlangCompiler compiler = new GeminiSlangCompiler()) {
-            if (!getCompilerBuildTag().equals(compiler.buildTag())) {
-                throw new GradleException("Expected Slang " + getCompilerBuildTag()
+            if (!getCompilerBuildTag().get().equals(compiler.buildTag())) {
+                throw new GradleException("Expected Slang " + getCompilerBuildTag().get()
                         + " but loaded " + compiler.buildTag());
             }
             for (Path shader : shaders) {

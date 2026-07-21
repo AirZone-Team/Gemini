@@ -63,20 +63,6 @@ public final class ScaffoldBlockCounterRenderer {
                 module, x, y, width, CARD_HEIGHT);
     }
 
-    public static void renderPlaceholder(GuiGraphicsExtractor gui, Scaffold module,
-                                         int lowThreshold, boolean shadow) {
-        String name = "Stone Bricks";
-        int width = cardWidth(name);
-        int x = cardX(module, width);
-        int y = module.hudY;
-        drawCard(gui, x, y, width, Math.max(lowThreshold * 4, 64),
-                ItemStack.EMPTY, name, lowThreshold, shadow);
-        CustomRoundedRectRenderer.drawRoundedOutline(
-                gui, x, y, width, CARD_HEIGHT, RADIUS, 0x80FFD700, 2);
-        Gemini.hudDragManager.registerDragRegion(
-                module, x, y, width, CARD_HEIGHT);
-    }
-
     private static void drawCard(GuiGraphicsExtractor gui, int x, int y, int width,
                                  int count, ItemStack displayStack, String displayName,
                                  int lowThreshold, boolean shadow) {

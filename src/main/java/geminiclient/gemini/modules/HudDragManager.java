@@ -62,9 +62,15 @@ public class HudDragManager implements MinecraftInstance {
 
         editing = true;
 
-        // Render editor placeholders for ALL modules (even disabled ones)
+        // Enabled draggable HUD modules always provide an editor outline and bounds.
         for (Module module : Gemini.moduleManager.getModules()) {
-            module.renderEditorPlaceholder(event.guiGraphics());
+            if (module.enabled) {
+                module.renderEditorOutline(event.guiGraphics());
+            }
+        }
+
+        if (draggedModule != null && !draggedModule.enabled) {
+            draggedModule = null;
         }
 
         long window = mc.getWindow().handle();
@@ -76,6 +82,7 @@ public class HudDragManager implements MinecraftInstance {
 
         if (mouseDown && !wasMouseDown) {
             for (Map.Entry<Module, DragRegion> entry : dragRegions.entrySet()) {
+                if (!entry.getKey().enabled) continue;
                 DragRegion r = entry.getValue();
                 if (mouseX >= r.x && mouseX <= r.x + r.w
                         && mouseY >= r.y && mouseY <= r.y + r.h) {

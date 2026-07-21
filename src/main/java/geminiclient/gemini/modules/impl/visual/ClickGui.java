@@ -20,6 +20,8 @@ public class ClickGui extends Module {
      */
     private final IntValue blurStrength = new IntValue("Blur", 8, 0, 20);
 
+    private final IntValue md3Scale = new IntValue("MD3 Scale", 100, 50, 150,
+            () -> mode.is("Material3"));
     private final IntValue md3SliderHeight = new IntValue("MD3 Slider Height", 44, 32, 72,
             () -> mode.is("Material3"));
     private final IntValue md3SliderTrack = new IntValue("MD3 Slider Track", 4, 2, 10,
@@ -36,6 +38,7 @@ public class ClickGui extends Module {
         this.key = 79;
         addValue(mode);
         addValue(blurStrength);
+        addValue(md3Scale);
         addValue(md3SliderHeight);
         addValue(md3SliderTrack);
         addValue(md3SliderHandle);
@@ -49,6 +52,12 @@ public class ClickGui extends Module {
 
     private static ClickGui instance() {
         return Gemini.moduleManager == null ? null : Gemini.moduleManager.getModule(ClickGui.class);
+    }
+
+    public static float md3Scale() {
+        ClickGui gui = instance();
+        int scale = gui == null ? 100 : gui.md3Scale.getValue();
+        return Math.max(0.01f, scale / 100f);
     }
 
     public static int md3SliderHeight() {

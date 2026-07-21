@@ -68,10 +68,6 @@ public class NotificationManager {
         renderDummy(guiGraphics, module, 0xAAFFD700, 2);
     }
 
-    public void renderPlaceholder(GuiGraphicsExtractor guiGraphics, Module module) {
-        renderDummy(guiGraphics, module, 0x40FFFFFF, 1);
-    }
-
     private void renderDummy(GuiGraphicsExtractor guiGraphics, Module module, int color, int bw) {
         boolean rightAligned = Gemini.hudDragManager.isOnRightSide(module);
         float originX = module.hudX;
