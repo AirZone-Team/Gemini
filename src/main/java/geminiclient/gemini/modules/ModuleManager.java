@@ -54,7 +54,8 @@ public class ModuleManager {
                 new Trail(),
                 new GhostAfterImage(),
                 new InstancedParticle(),
-                new SweepingAttackVFX()
+                new SweepingAttackVFX(),
+                new Disabler()
         );
     }
 

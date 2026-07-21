@@ -20,7 +20,12 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.equipment.Equippable;
 import net.minecraft.world.level.block.Block;
 
-import java.util.*;
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class Stealer extends Module {
     private static final String CHEST_KEY = "container.chest";
@@ -32,7 +37,6 @@ public class Stealer extends Module {
 
     private final TimerUtils stealTimer = new TimerUtils();
     private final TimerUtils closeTimer = new TimerUtils();
-    private final Random random = new Random();
     private Screen lastScreen;
     private final Set<ItemCategory> processedCategories = EnumSet.noneOf(ItemCategory.class);
     private boolean hasUpgradeableItems = false;
@@ -64,16 +68,16 @@ public class Stealer extends Module {
 
         lastScreen = currentScreen;
 
-        if (isTargetChest(container)) {
-            processChest((ChestMenu) container.getMenu());
+        if (container.getMenu() instanceof ChestMenu menu && isTargetChest(container)) {
+            processChest(menu);
         }
     }
 
     // ========== Core Logic ==========
 
     private void processChest(ChestMenu menu) {
-        int stealDelayMs = random.nextInt(stealDelay.getMinValue(), stealDelay.getMaxValue());
-        int closeDelayMs = random.nextInt(closeDelay.getMinValue(), closeDelay.getMaxValue());
+        int stealDelayMs = getRandomDelay(stealDelay);
+        int closeDelayMs = getRandomDelay(closeDelay);
 
         if (!hasUpgradeableItems) {
             hasUpgradeableItems = hasUpgradeableItems(menu);
@@ -82,6 +86,7 @@ public class Stealer extends Module {
         if (shouldCloseChest(menu)) {
             handleChestClosing(closeDelayMs);
         } else {
+            closeTimer.reset();
             handleItemStealing(menu, stealDelayMs);
         }
     }
@@ -122,7 +127,7 @@ public class Stealer extends Module {
     }
 
     private void handleItemStealing(ChestMenu menu, int stealDelayMs) {
-        if (stealTimer.hasTimeElapsed(stealDelayMs, true) || stealDelayMs == 0) {
+        if (stealTimer.hasTimeElapsed(stealDelayMs, false)) {
             boolean stoleItem = attemptSteal(menu);
             stealTimer.reset();
             if (!stoleItem) {
@@ -132,30 +137,26 @@ public class Stealer extends Module {
     }
 
     private boolean attemptSteal(ChestMenu menu) {
-        Optional<Integer> valuableSlot = findBestItemSlotToSteal(menu);
+        Optional<SlotValue> valuableSlot = findBestItemSlotToSteal(menu);
         if (valuableSlot.isEmpty())
             return false;
 
-        int slotId = valuableSlot.get();
+        SlotValue slotValue = valuableSlot.get();
         if (mc.player == null || mc.gameMode == null)
             return false;
 
-        mc.gameMode.handleContainerInput(menu.containerId, slotId, 0,
+        mc.gameMode.handleContainerInput(menu.containerId, slotValue.slotId(), 0,
                 ContainerInput.QUICK_MOVE, mc.player);
 
-        ItemStack stack = menu.getSlot(slotId).getItem();
-        if (!stack.isEmpty()) {
-            ItemCategory category = getItemCategory(stack);
-            if (category != ItemCategory.MATERIAL) {
-                processedCategories.add(category);
-            }
+        if (slotValue.category() != ItemCategory.MATERIAL) {
+            processedCategories.add(slotValue.category());
         }
         return true;
     }
 
     // ========== Item Selection ==========
 
-    private Optional<Integer> findBestItemSlotToSteal(ChestMenu menu) {
+    private Optional<SlotValue> findBestItemSlotToSteal(ChestMenu menu) {
         Map<ItemCategory, Float> bestInvScores = getBestItemScoresInInventory();
         int chestSize = menu.getRowCount() * 9;
         Map<ItemCategory, SlotValue> upgradeableItems = new EnumMap<>(ItemCategory.class);
@@ -180,21 +181,21 @@ public class Stealer extends Module {
             if (isUpgrade) {
                 SlotValue currentBest = upgradeableItems.get(category);
                 if (currentBest == null || score > currentBest.score()) {
-                    upgradeableItems.put(category, new SlotValue(i, score));
+                    upgradeableItems.put(category, new SlotValue(i, score, category));
                 }
             }
         }
 
-        int bestSlot = -1;
+        SlotValue bestSlot = null;
         float bestScore = -1;
         for (SlotValue sv : upgradeableItems.values()) {
             if (sv.score() > bestScore) {
                 bestScore = sv.score();
-                bestSlot = sv.slotId();
+                bestSlot = sv;
             }
         }
 
-        return bestSlot != -1 ? Optional.of(bestSlot) : Optional.empty();
+        return Optional.ofNullable(bestSlot);
     }
 
     private Map<ItemCategory, Float> getBestItemScoresInInventory() {
@@ -213,7 +214,7 @@ public class Stealer extends Module {
         return bestScores;
     }
 
-    private record SlotValue(int slotId, float score) {}
+    private record SlotValue(int slotId, float score, ItemCategory category) {}
 
     // ========== Item Value Judgment (using InvUtils) ==========
 
@@ -411,6 +412,12 @@ public class Stealer extends Module {
     private void resetState() {
         stealTimer.reset();
         closeTimer.reset();
+    }
+
+    private int getRandomDelay(IntRangeValue delay) {
+        int min = Math.min(delay.getMinValue(), delay.getMaxValue());
+        int max = Math.max(delay.getMinValue(), delay.getMaxValue());
+        return min == max ? min : ThreadLocalRandom.current().nextInt(min, max + 1);
     }
 
     private boolean isTargetChest(AbstractContainerScreen<?> container) {

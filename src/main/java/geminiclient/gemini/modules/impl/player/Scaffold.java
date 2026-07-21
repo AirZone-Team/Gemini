@@ -1,15 +1,18 @@
 package geminiclient.gemini.modules.impl.player;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.RotationManager;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.MotionEvent;
 import geminiclient.gemini.event.events.impl.MoveInputEvent;
+import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.event.events.impl.UpdateEvent;
 import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.modules.impl.combat.killaura.Rotation;
+import geminiclient.gemini.modules.impl.player.scaffold.ScaffoldBlockCounterRenderer;
 import geminiclient.gemini.utils.MathHelper;
 import geminiclient.gemini.utils.MovementUtils;
 import geminiclient.gemini.values.impl.BoolValue;
@@ -18,6 +21,7 @@ import geminiclient.gemini.values.impl.IntValue;
 import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -27,6 +31,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.AirBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.FallingBlock;
@@ -39,6 +44,10 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.ClipContext;
+import org.lwjgl.glfw.GLFW;
+
+import java.util.IdentityHashMap;
+import java.util.Map;
 
 public class Scaffold extends Module {
 
@@ -61,8 +70,19 @@ public class Scaffold extends Module {
     private final FloatValue rotationSpeed = new FloatValue("RotationSpeed", 10f, 1f, 360f);
     private final FloatValue rotationBackSpeed = new FloatValue("RotationBackSpeed", 10f, 0f, 360f,
             () -> mode.is("TellyBridge"));
+    private final BoolValue rotationVariation = new BoolValue("RotationVariation", false);
     private final BoolValue sideCheck = new BoolValue("SideCheck", false);
     private final BoolValue safeWalk = new BoolValue("SafeWalk", true);
+
+    // ---- Optional quality-of-life features (disabled by default) ----
+    private final BoolValue blockCounter = new BoolValue("BlockCounter", false);
+    private final ListValue countScope = new ListValue("CountScope", "Inventory",
+            new String[]{"Hotbar", "Inventory"}, () -> blockCounter.enabled);
+    private final IntValue lowBlockThreshold = new IntValue("LowBlockThreshold", 16, 1, 128,
+            () -> blockCounter.enabled);
+    private final BoolValue counterShadow = new BoolValue("CounterShadow", true,
+            () -> blockCounter.enabled);
+    private final BoolValue autoDisableEmpty = new BoolValue("AutoDisableEmpty", false);
 
     // ---- State ----
     private int yLevel;
@@ -70,37 +90,83 @@ public class Scaffold extends Module {
     private boolean shouldSwapBack;
     private BlockInfo blockInfo;
     private float serverYaw, serverPitch;
+    private float pendingPlacementYawChange;
+    private float previousPlacementYawChange;
+    private boolean hasPreviousPlacementYawChange;
+    private boolean safeWalkPressed;
+    private int previousSlot = -1;
+    private int[] swapSlots;
+
+    // Inventory data is sampled once per game tick, not once per rendered frame.
+    private int inventorySnapshotTick = Integer.MIN_VALUE;
+    private BlockCountSnapshot hotbarSnapshot = BlockCountSnapshot.EMPTY;
+    private BlockCountSnapshot inventorySnapshot = BlockCountSnapshot.EMPTY;
+    private int heldBlockCount;
+    private final Map<Block, Boolean> countableBlockCache = new IdentityHashMap<>();
 
     public Scaffold() {
         super("Scaffold", ModuleEnum.Player);
+        hudX = 6;
+        hudY = 248;
         addValue(mode, swapMode, swapBack, swingHand, tellyTick, keepY,
-                rotationSpeed, rotationBackSpeed, sideCheck, safeWalk);
+                rotationSpeed, rotationBackSpeed, rotationVariation, sideCheck, safeWalk,
+                blockCounter, countScope, lowBlockThreshold, counterShadow,
+                autoDisableEmpty);
     }
 
     @Override
     public void onEnabled() {
         blockInfo = null;
         shouldSwapBack = false;
+        safeWalkPressed = false;
+        previousSlot = -1;
+        swapSlots = null;
+        resetPlacementYawHistory();
+        invalidateInventorySnapshot();
         if (mc.player != null) {
             serverYaw = mc.player.getYRot();
             serverPitch = mc.player.getXRot();
+            yLevel = Mth.floor(mc.player.getY()) - 1;
+            airTicks = 0;
         }
     }
 
     @Override
     public void onDisabled() {
         blockInfo = null;
-        if (shouldSwapBack) {
+        releaseSafeWalk();
+        if (mc.player != null && previousSlot != -1) {
             swapBack();
-            shouldSwapBack = false;
         }
+        if (mc.player != null && mc.gameMode != null && swapSlots != null) {
+            invSwapBack();
+        }
+        previousSlot = -1;
+        swapSlots = null;
+        shouldSwapBack = false;
+        resetPlacementYawHistory();
+        invalidateInventorySnapshot();
         Gemini.rotationManager.releaseRotation(this);
     }
 
     @SuppressWarnings("unused")
     @EventTarget(0)
     public void onUpdate(UpdateEvent event) {
-        if (mc.player == null || mc.level == null) return;
+        if (mc.player == null || mc.level == null) {
+            blockInfo = null;
+            releaseSafeWalk();
+            invalidateInventorySnapshot();
+            return;
+        }
+
+        if (mc.player.isPassenger()) {
+            resetPlacementYawHistory();
+        }
+
+        if (autoDisableEmpty.enabled && countBlocksForActiveSwapMode() == 0) {
+            setEnabled(false);
+            return;
+        }
 
         updateBlockInfo();
 
@@ -142,15 +208,44 @@ public class Scaffold extends Module {
     @EventTarget(5)
     public void onMotion(MotionEvent event) {
         // SafeWalk: hold shift when on block edge in GodBridge mode
-        if (safeWalk.enabled && mode.is("GodBridge") && mc.player != null && mc.player.onGround()) {
-            mc.options.keyShift.setDown(isOnBlockEdge());
-        }
+        boolean shouldPress = safeWalk.enabled
+                && mode.is("GodBridge")
+                && mc.player != null
+                && mc.player.onGround()
+                && isOnBlockEdge();
+        updateSafeWalk(shouldPress);
     }
 
     @EventTarget(5)
     public void onKeyInput(MoveInputEvent event) {
-        if (mc.player.onGround() && MovementUtils.moving() && mode.is("TellyBridge") && !mc.options.keyJump.isDown()) {
+        if (mc.player != null && mc.player.onGround() && MovementUtils.moving()
+                && mode.is("TellyBridge") && !mc.options.keyJump.isDown()) {
             event.setJump(true);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    @EventTarget(10)
+    public void onRender2D(Render2DEvent event) {
+        if (!blockCounter.enabled || mc.player == null || mc.level == null) return;
+
+        BlockCountSnapshot snapshot = getDisplaySnapshot();
+        ScaffoldBlockCounterRenderer.render(
+                event.guiGraphics(), this, snapshot.count(), snapshot.displayStack(),
+                snapshot.displayName(),
+                lowBlockThreshold.getValue(), counterShadow.enabled);
+    }
+
+    @Override
+    public void renderEditorPlaceholder(GuiGraphicsExtractor graphics) {
+        if (!blockCounter.enabled) return;
+
+        if (enabled) {
+            ScaffoldBlockCounterRenderer.renderOutline(
+                    graphics, this, getDisplaySnapshot().displayName());
+        } else {
+            ScaffoldBlockCounterRenderer.renderPlaceholder(
+                    graphics, this, lowBlockThreshold.getValue(), counterShadow.enabled);
         }
     }
 
@@ -159,6 +254,7 @@ public class Scaffold extends Module {
     // ========================================================================
 
     private void updateBlockInfo() {
+        blockInfo = null;
         Vec3 eyePos = mc.player.getEyePosition();
         int yl = getYLevel();
         BlockPos base = BlockPos.containing(eyePos.x, yl, eyePos.z);
@@ -167,19 +263,24 @@ public class Scaffold extends Module {
 
         if (mc.level.getBlockState(base).entityCanStandOn(mc.level, base, mc.player)) return;
 
-        if (checkBlock(eyePos, base)) return;
+        Block blockBelow = mc.level.getBlockState(base).getBlock();
+        if (!(blockBelow instanceof AirBlock || blockBelow instanceof LiquidBlock)) return;
+
+        if (checkBlock(eyePos, base, yl)) return;
 
         for (int d = 1; d <= 6; d++) {
-            if (checkBlock(eyePos, new BlockPos(baseX, yl - d, baseZ))) return;
+            if (checkBlock(eyePos, new BlockPos(baseX, yl - d, baseZ), yl)) return;
 
             for (int x = 0; x <= d; x++) {
                 for (int z = 0; z <= d - x; z++) {
                     int y = d - x - z;
-                    for (int rx = 0; rx <= 1; rx++) {
-                        for (int rz = 0; rz <= 1; rz++) {
+                    int maxRx = x == 0 ? 0 : 1;
+                    int maxRz = z == 0 ? 0 : 1;
+                    for (int rx = 0; rx <= maxRx; rx++) {
+                        for (int rz = 0; rz <= maxRz; rz++) {
                             int cx = baseX + (rx == 0 ? x : -x);
                             int cz = baseZ + (rz == 0 ? z : -z);
-                            if (checkBlock(eyePos, new BlockPos(cx, yl - y, cz))) return;
+                            if (checkBlock(eyePos, new BlockPos(cx, yl - y, cz), yl)) return;
                         }
                     }
                 }
@@ -187,10 +288,8 @@ public class Scaffold extends Module {
         }
     }
 
-    private boolean checkBlock(Vec3 baseVec, BlockPos pos) {
-        if (!onAir() || pos.getY() > getYLevel()) {
-            return false;
-        }
+    private boolean checkBlock(Vec3 baseVec, BlockPos pos, int maxY) {
+        if (pos.getY() > maxY) return false;
 
         Vec3 center = pos.getBottomCenter();
         for (Direction dir : Direction.values()) {
@@ -230,10 +329,14 @@ public class Scaffold extends Module {
     // ========================================================================
 
     private void place(FindItemResult item) {
+        BlockInfo info = blockInfo;
+        if (info == null || mc.player == null || mc.level == null || mc.gameMode == null) return;
         if (!onAir()) return;
-        if (!canPlaceAt(blockInfo.blockPos)) return;
+        if (!canPlaceAt(info.blockPos)) return;
+        if (rotationVariation.enabled && !mc.player.isPassenger()
+                && !Gemini.rotationManager.isSourceControlling(this)) return;
 
-        boolean facing = isFacingBlock(blockInfo.position, blockInfo.dir);
+        boolean facing = isFacingBlock(info.position, info.dir);
         if (!facing) return;
 
         // Swap to item
@@ -247,19 +350,26 @@ public class Scaffold extends Module {
             case "InvSwitch" -> invSwap(item.slot);
         }
 
-        Vec3 clickLoc = getClickLocation(blockInfo.position, blockInfo.dir);
-        BlockHitResult hit = new BlockHitResult(clickLoc, blockInfo.dir, blockInfo.position, false);
-        InteractionResult result = mc.gameMode.useItemOn(mc.player,
-                item.slot == 40 ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND, hit);
+        try {
+            Vec3 clickLoc = getClickLocation(info.position, info.dir);
+            BlockHitResult hit = new BlockHitResult(clickLoc, info.dir, info.position, false);
+            InteractionHand hand = item.slot == 40
+                    ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+            InteractionResult result = mc.gameMode.useItemOn(mc.player, hand, hit);
 
-        if (result.consumesAction() && swingHand.enabled) {
-            mc.player.swing(item.slot == 40 ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND);
-        }
-
-        // Swap back
-        switch (swapMode.get()) {
-            case "Silent" -> swapBack();
-            case "InvSwitch" -> invSwapBack();
+            if (result.consumesAction()) {
+                recordPlacementYawChange();
+                if (swingHand.enabled) {
+                    mc.player.swing(hand);
+                }
+            }
+        } finally {
+            // Temporary swap modes must recover even when interaction rendering
+            // or another client hook throws during useItemOn.
+            switch (swapMode.get()) {
+                case "Silent" -> swapBack();
+                case "InvSwitch" -> invSwapBack();
+            }
         }
     }
 
@@ -284,10 +394,45 @@ public class Scaffold extends Module {
         float yawDiff = MathHelper.wrapAngleTo180_float(target.getYaw() - serverYaw);
         float pitchDiff = target.getPitch() - serverPitch;
 
-        serverYaw += Math.copySign(Math.min(Math.abs(yawDiff), speed), yawDiff);
+        float yawChange = Math.copySign(Math.min(Math.abs(yawDiff), speed), yawDiff);
+        yawChange = varyRepeatedPlacementYawChange(yawChange);
+        serverYaw += yawChange;
         serverPitch += Math.copySign(Math.min(Math.abs(pitchDiff), speed), pitchDiff);
+        pendingPlacementYawChange = Math.abs(MathHelper.wrapAngleTo180_float(yawChange));
 
         return new Rotation(serverYaw, serverPitch);
+    }
+
+    private float varyRepeatedPlacementYawChange(float yawChange) {
+        if (!rotationVariation.enabled || mc.player.isPassenger()) {
+            hasPreviousPlacementYawChange = false;
+            return yawChange;
+        }
+
+        float magnitude = Math.abs(MathHelper.wrapAngleTo180_float(yawChange));
+        if (!hasPreviousPlacementYawChange || magnitude <= 2f
+                || Math.abs(magnitude - previousPlacementYawChange) >= 0.0001f) {
+            return yawChange;
+        }
+
+        float variedMagnitude = Math.max(0f, magnitude - 0.001f);
+        return Math.copySign(variedMagnitude, yawChange);
+    }
+
+    private void recordPlacementYawChange() {
+        if (!rotationVariation.enabled || mc.player.isPassenger()) {
+            resetPlacementYawHistory();
+            return;
+        }
+
+        previousPlacementYawChange = pendingPlacementYawChange;
+        hasPreviousPlacementYawChange = true;
+    }
+
+    private void resetPlacementYawHistory() {
+        pendingPlacementYawChange = 0f;
+        previousPlacementYawChange = 0f;
+        hasPreviousPlacementYawChange = false;
     }
 
     private Rotation calculateRotation(BlockPos pos, Direction dir) {
@@ -381,6 +526,7 @@ public class Scaffold extends Module {
     }
 
     private boolean isValidItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty() || mc.level == null || blockInfo == null) return false;
         if (!(stack.getItem() instanceof BlockItem blockItem)) return false;
         Block block = blockItem.getBlock();
         if (block instanceof TntBlock) return false;
@@ -388,9 +534,105 @@ public class Scaffold extends Module {
         return !(block instanceof FallingBlock) || !FallingBlock.isFree(mc.level.getBlockState(blockInfo.blockPos));
     }
 
-    private int previousSlot = -1;
+    /**
+     * Counts blocks for the optional HUD without depending on a current placement
+     * target. This deliberately stays separate from {@link #isValidItem(ItemStack)}
+     * so enabling the counter cannot alter placement selection.
+     */
+    private BlockCountSnapshot getDisplaySnapshot() {
+        refreshInventorySnapshot();
+        return countScope.is("Inventory") ? inventorySnapshot : hotbarSnapshot;
+    }
+
+    private int countBlocksForActiveSwapMode() {
+        refreshInventorySnapshot();
+        if (swapMode.is("None")) {
+            return heldBlockCount;
+        }
+        return swapMode.is("InvSwitch") ? inventorySnapshot.count() : hotbarSnapshot.count();
+    }
+
+    private void refreshInventorySnapshot() {
+        if (mc.player == null || mc.level == null) {
+            invalidateInventorySnapshot();
+            return;
+        }
+
+        int tick = mc.player.tickCount;
+        if (inventorySnapshotTick == tick) return;
+        inventorySnapshotTick = tick;
+
+        int hotbarCount = 0;
+        int totalCount = 0;
+        int inventorySize = Math.min(36, mc.player.getInventory().getContainerSize());
+        ItemStack firstInventory = ItemStack.EMPTY;
+
+        for (int i = 0; i < inventorySize; i++) {
+            ItemStack stack = mc.player.getInventory().getItem(i);
+            if (!isCountableBlock(stack)) continue;
+
+            totalCount += stack.getCount();
+            if (i < 9) hotbarCount += stack.getCount();
+            if (firstInventory.isEmpty()) firstInventory = stack;
+        }
+
+        ItemStack mainHand = mc.player.getMainHandItem();
+        ItemStack offhand = mc.player.getOffhandItem();
+        boolean mainValid = isCountableBlock(mainHand);
+        boolean offhandValid = isCountableBlock(offhand);
+        heldBlockCount = (mainValid ? mainHand.getCount() : 0)
+                + (offhandValid ? offhand.getCount() : 0);
+
+        if (offhandValid) {
+            hotbarCount += offhand.getCount();
+            totalCount += offhand.getCount();
+        }
+
+        ItemStack preferredHotbar = offhandValid ? offhand
+                : mainValid ? mainHand : firstValidHotbarStack();
+        ItemStack preferredInventory = !preferredHotbar.isEmpty()
+                ? preferredHotbar : firstInventory;
+
+        hotbarSnapshot = snapshot(hotbarCount, preferredHotbar);
+        inventorySnapshot = snapshot(totalCount, preferredInventory);
+    }
+
+    private ItemStack firstValidHotbarStack() {
+        int limit = Math.min(9, mc.player.getInventory().getContainerSize());
+        for (int i = 0; i < limit; i++) {
+            ItemStack stack = mc.player.getInventory().getItem(i);
+            if (isCountableBlock(stack)) return stack;
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private BlockCountSnapshot snapshot(int count, ItemStack displayStack) {
+        if (displayStack == null || displayStack.isEmpty()) {
+            return new BlockCountSnapshot(count, ItemStack.EMPTY, "Building blocks");
+        }
+        return new BlockCountSnapshot(count, displayStack, displayStack.getItemName().getString());
+    }
+
+    private void invalidateInventorySnapshot() {
+        inventorySnapshotTick = Integer.MIN_VALUE;
+        hotbarSnapshot = BlockCountSnapshot.EMPTY;
+        inventorySnapshot = BlockCountSnapshot.EMPTY;
+        heldBlockCount = 0;
+    }
+
+    private boolean isCountableBlock(ItemStack stack) {
+        if (stack == null || stack.isEmpty()
+                || !(stack.getItem() instanceof BlockItem blockItem)) return false;
+        Block block = blockItem.getBlock();
+        if (block instanceof TntBlock) return false;
+
+        return countableBlockCache.computeIfAbsent(block, candidate ->
+                Block.isShapeFullBlock(candidate.defaultBlockState().getCollisionShape(
+                        EmptyBlockGetter.INSTANCE, BlockPos.ZERO)));
+    }
 
     private void swap(int slot, boolean savePrevious) {
+        if (mc.player == null || slot < 0 || slot > 8) return;
         if (slot == 40 || slot == mc.player.getInventory().getSelectedSlot()) return;
 
         if (savePrevious && previousSlot == -1) {
@@ -403,17 +645,20 @@ public class Scaffold extends Module {
     }
 
     private void swapBack() {
-        if (previousSlot == -1) return;
+        if (mc.player == null || previousSlot < 0 || previousSlot > 8) {
+            previousSlot = -1;
+            return;
+        }
         mc.player.getInventory().setSelectedSlot(previousSlot);
         previousSlot = -1;
     }
 
-    private int[] swapSlots = null;
-
     private void invSwap(int slot) {
+        if (mc.player == null || mc.gameMode == null || slot == 40) return;
+        if (slot < 0 || slot >= mc.player.getInventory().getContainerSize()) return;
+
         int containerSlot = slot;
         if (slot < 9) containerSlot += 36;
-        else if (slot == 40) containerSlot = 45;
 
         int selected = mc.player.getInventory().getSelectedSlot();
         mc.gameMode.handleContainerInput(
@@ -423,7 +668,10 @@ public class Scaffold extends Module {
     }
 
     private void invSwapBack() {
-        if (swapSlots == null) return;
+        if (swapSlots == null || mc.player == null || mc.gameMode == null) {
+            swapSlots = null;
+            return;
+        }
         mc.gameMode.handleContainerInput(
                 mc.player.containerMenu.containerId, swapSlots[0], swapSlots[1],
                 ContainerInput.SWAP, mc.player);
@@ -491,6 +739,27 @@ public class Scaffold extends Module {
         return mc.level.getBlockState(pos).canBeReplaced();
     }
 
+    private void updateSafeWalk(boolean pressed) {
+        if (pressed) {
+            mc.options.keyShift.setDown(true);
+            safeWalkPressed = true;
+        } else {
+            releaseSafeWalk();
+        }
+    }
+
+    private void releaseSafeWalk() {
+        if (!safeWalkPressed) return;
+
+        InputConstants.Key key = mc.options.keyShift.getKey();
+        long window = mc.getWindow().handle();
+        boolean physicallyDown = key.getType() == InputConstants.Type.MOUSE
+                ? GLFW.glfwGetMouseButton(window, key.getValue()) == GLFW.GLFW_PRESS
+                : InputConstants.isKeyDown(mc.getWindow(), key.getValue());
+        mc.options.keyShift.setDown(physicallyDown);
+        safeWalkPressed = false;
+    }
+
     // ========================================================================
     //  Inner types
     // ========================================================================
@@ -502,5 +771,10 @@ public class Scaffold extends Module {
         boolean found() {
             return slot != -1;
         }
+    }
+
+    private record BlockCountSnapshot(int count, ItemStack displayStack, String displayName) {
+        private static final BlockCountSnapshot EMPTY =
+                new BlockCountSnapshot(0, ItemStack.EMPTY, "Building blocks");
     }
 }

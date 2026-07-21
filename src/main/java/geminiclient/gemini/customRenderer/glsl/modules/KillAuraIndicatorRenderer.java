@@ -7,7 +7,11 @@ import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
 import com.mojang.blaze3d.platform.DestFactor;
 import com.mojang.blaze3d.platform.SourceFactor;
-import com.mojang.blaze3d.vertex.*;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.LayeringTransform;
@@ -23,34 +27,30 @@ import static geminiclient.gemini.base.MinecraftInstance.mc;
 import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
- * GPU foot-ring indicator for KillAura targets.
+ * Batched GLSL indicator renderer for KillAura targets.
  *
- * <p>Each dot is a camera-facing billboard quad with a sphere-impostor fragment
- * shader that produces diffuse + specular lighting for a convincing 3D
- * appearance.  All dots are batched into a single draw call regardless of
- * target count.</p>
+ * <p>The fragment shader draws several procedural SDF materials. Most elements
+ * are camera-facing glyphs, while {@link #MATERIAL_SIGIL} is rendered as a
+ * world-space horizontal magic circle. Every target still shares one draw
+ * call.</p>
  *
- * <h3>Data format</h3>
- * Each dot consumes 7 floats: {@code [worldX, worldY, worldZ, halfSize,
- * dotIndexNorm, hp, alpha]}.  The caller is responsible for computing the
- * ring positions on the CPU.
- *
- * <h3>Vertex colour encoding</h3>
- * <ul>
- *   <li>{@code .r} — normalised HP (current/max, 0→1)</li>
- *   <li>{@code .g} — dot index / {@code DOT_COUNT} (0→1)</li>
- *   <li>{@code .b} — reserved</li>
- *   <li>{@code .a} — master alpha</li>
- * </ul>
+ * <p>Each element consumes 10 floats:
+ * {@code [worldX, worldY, worldZ, halfSize, red, green, blue, alpha,
+ * material, rotation]}.</p>
  */
 public final class KillAuraIndicatorRenderer {
 
-    private KillAuraIndicatorRenderer() {}
-
-    /** Must match {@code DOT_COUNT} in the fragment shader. */
+    /** Legacy/default particle count used by the classic health ring. */
     public static final int DOT_COUNT = 16;
+    public static final int PARTICLE_STRIDE = 10;
 
-    // ── Pipeline ──────────────────────────────────────────────────
+    public static final int MATERIAL_ORB = 0;
+    public static final int MATERIAL_SPARK = 1;
+    public static final int MATERIAL_DIAMOND = 2;
+    public static final int MATERIAL_RUNE = 3;
+    public static final int MATERIAL_CRESCENT = 4;
+    public static final int MATERIAL_SIGIL = 5;
+    public static final int MATERIAL_EYE = 6;
 
     public static final RenderPipeline KILLAURA_DOTS_PIPELINE = RenderPipeline.builder(
                     RenderPipelines.MATRICES_PROJECTION_SNIPPET)
@@ -61,12 +61,10 @@ public final class KillAuraIndicatorRenderer {
             .withDepthStencilState(new DepthStencilState(
                     CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -1.0F))
             .withColorTargetState(new ColorTargetState(new BlendFunction(
-                    SourceFactor.SRC_ALPHA, DestFactor.ONE_MINUS_SRC_ALPHA,
+                    SourceFactor.SRC_ALPHA, DestFactor.ONE,
                     SourceFactor.ONE, DestFactor.ZERO)))
             .withCull(false)
             .build();
-
-    // ── Render type ───────────────────────────────────────────────
 
     private static final RenderType KILLAURA_DOTS_TYPE = RenderType.create(
             "gemini_killaura_dots",
@@ -75,70 +73,106 @@ public final class KillAuraIndicatorRenderer {
                     .setLayeringTransform(LayeringTransform.VIEW_OFFSET_Z_LAYERING)
                     .createRenderSetup());
 
-    // ── Registration ──────────────────────────────────────────────
+    private KillAuraIndicatorRenderer() {}
 
     public static void registerPipeline(Consumer<RenderPipeline> registry) {
         registry.accept(KILLAURA_DOTS_PIPELINE);
     }
 
-    // ── Drawing ───────────────────────────────────────────────────
-
     /**
-     * Draw all dot indicators in a single batched call.
+     * Draws all supplied particles in one batched call.
      *
-     * @param poseStack the current pose stack (from {@code Render3DEvent})
-     * @param dotData   flat array: {@code [x, y, z, halfSize, dotIdxNorm, hp, alpha] * dotCount}
-     * @param dotCount  total number of dots (entities × DOT_COUNT)
+     * @param poseStack current world pose stack
+     * @param particleData packed particle data using {@link #PARTICLE_STRIDE}
+     * @param particleCount number of particles to read
      */
-    public static void drawIndicators(PoseStack poseStack, float[] dotData, int dotCount) {
-        if (dotCount == 0) return;
+    public static void drawIndicators(PoseStack poseStack, float[] particleData, int particleCount) {
+        if (particleCount <= 0) return;
+        if (particleData.length < particleCount * PARTICLE_STRIDE) {
+            throw new IllegalArgumentException("KillAura particle data is shorter than particleCount");
+        }
 
         Camera camera = mc.getEntityRenderDispatcher().camera;
+        if (camera == null) return;
+
         float camX = (float) camera.position().x;
         float camY = (float) camera.position().y;
         float camZ = (float) camera.position().z;
 
-        // Derive camera basis vectors from the rotation quaternion
         Quaternionf camRot = camera.rotation();
-        Vector3f up    = camRot.transform(new Vector3f(0, 1, 0));
+        Vector3f up = camRot.transform(new Vector3f(0, 1, 0));
         Vector3f right = camRot.transform(new Vector3f(1, 0, 0));
-
-        Matrix4f vm = poseStack.last().pose();
+        Matrix4f viewMatrix = poseStack.last().pose();
 
         BufferBuilder buffer = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-        for (int i = 0; i < dotCount; i++) {
-            int off = i * 7;
-            float dx = dotData[off]     - camX;
-            float dy = dotData[off + 1] - camY;
-            float dz = dotData[off + 2] - camZ;
-            float h  = dotData[off + 3];                    // half-size of the billboard
-            float dotIdxNorm = dotData[off + 4];            // dot index / DOT_COUNT
-            float hp  = dotData[off + 5];
-            float a   = dotData[off + 6];
+        for (int i = 0; i < particleCount; i++) {
+            int offset = i * PARTICLE_STRIDE;
+            float x = particleData[offset] - camX;
+            float y = particleData[offset + 1] - camY;
+            float z = particleData[offset + 2] - camZ;
+            float halfSize = Math.max(0.001f, particleData[offset + 3]);
 
-            int ir = (int)(hp * 255f);
-            int ig = (int)(dotIdxNorm * 255f);
-            int ia = (int)(a * 255f);
-            int rgba = (ia << 24) | (ir << 16) | (ig << 8);
+            int red = channelToByte(particleData[offset + 4]);
+            int green = channelToByte(particleData[offset + 5]);
+            int blue = channelToByte(particleData[offset + 6]);
+            int alpha = channelToByte(particleData[offset + 7]);
+            int argb = (alpha << 24) | (red << 16) | (green << 8) | blue;
+            int material = Math.round(particleData[offset + 8]);
+            float rotation = particleData[offset + 9];
 
-            // Billboard quad corners: centre ± right·h ± up·h
-            // v0  (-right, -up)    v1  (-right, +up)
-            // v2  (+right, +up)    v3  (+right, -up)
-            float rpx = right.x * h, rpy = right.y * h, rpz = right.z * h;
-            float upx = up.x    * h, upy = up.y    * h, upz = up.z    * h;
+            float cos = (float) Math.cos(rotation);
+            float sin = (float) Math.sin(rotation);
+            float rightX;
+            float rightY;
+            float rightZ;
+            float upX;
+            float upY;
+            float upZ;
 
-            buffer.addVertex(vm, dx - rpx - upx, dy - rpy - upy, dz - rpz - upz)
-                    .setUv(0f, 0f).setColor(rgba);
-            buffer.addVertex(vm, dx - rpx + upx, dy - rpy + upy, dz - rpz + upz)
-                    .setUv(0f, 1f).setColor(rgba);
-            buffer.addVertex(vm, dx + rpx + upx, dy + rpy + upy, dz + rpz + upz)
-                    .setUv(1f, 1f).setColor(rgba);
-            buffer.addVertex(vm, dx + rpx - upx, dy + rpy - upy, dz + rpz - upz)
-                    .setUv(1f, 0f).setColor(rgba);
+            if (material == MATERIAL_SIGIL) {
+                // A real horizontal quad makes the magic circle sit on the
+                // ground instead of following the camera like a billboard.
+                rightX = cos * halfSize;
+                rightY = 0f;
+                rightZ = sin * halfSize;
+                upX = -sin * halfSize;
+                upY = 0f;
+                upZ = cos * halfSize;
+            } else {
+                float widthScale = material == MATERIAL_SPARK ? 0.68f : 1f;
+                float heightScale = material == MATERIAL_SPARK ? 1.35f : 1f;
+                rightX = (right.x * cos + up.x * sin) * halfSize * widthScale;
+                rightY = (right.y * cos + up.y * sin) * halfSize * widthScale;
+                rightZ = (right.z * cos + up.z * sin) * halfSize * widthScale;
+                upX = (up.x * cos - right.x * sin) * halfSize * heightScale;
+                upY = (up.y * cos - right.y * sin) * halfSize * heightScale;
+                upZ = (up.z * cos - right.z * sin) * halfSize * heightScale;
+            }
+
+            // UV.x is split into two-unit material pages. The fragment shader
+            // recovers both the material id and the local 0..1 coordinate.
+            float materialU = material * 2f;
+
+            buffer.addVertex(viewMatrix,
+                            x - rightX - upX, y - rightY - upY, z - rightZ - upZ)
+                    .setUv(materialU, 0f).setColor(argb);
+            buffer.addVertex(viewMatrix,
+                            x - rightX + upX, y - rightY + upY, z - rightZ + upZ)
+                    .setUv(materialU, 1f).setColor(argb);
+            buffer.addVertex(viewMatrix,
+                            x + rightX + upX, y + rightY + upY, z + rightZ + upZ)
+                    .setUv(materialU + 1f, 1f).setColor(argb);
+            buffer.addVertex(viewMatrix,
+                            x + rightX - upX, y + rightY - upY, z + rightZ - upZ)
+                    .setUv(materialU + 1f, 0f).setColor(argb);
         }
 
         KILLAURA_DOTS_TYPE.draw(buffer.buildOrThrow());
+    }
+
+    private static int channelToByte(float value) {
+        return Math.round(Math.max(0f, Math.min(1f, value)) * 255f);
     }
 }

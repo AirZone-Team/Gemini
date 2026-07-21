@@ -1,7 +1,7 @@
 plugins {
     id 'java-library'
     id 'maven-publish'
-    id 'net.neoforged.gradle.userdev' version '7.1.25'
+    id 'net.neoforged.gradle.userdev' version '7.1.38'
 }
 
 tasks.named('wrapper', Wrapper).configure {
@@ -30,7 +30,6 @@ repositories {
     mavenCentral()
     maven { url 'https://jitpack.io' }
     maven { url 'https://cursemaven.com' }
-    // Add here additional repositories if required by some of the dependencies below.
 }
 
 base {

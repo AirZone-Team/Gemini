@@ -51,6 +51,9 @@ public final class TargetDisplayRingRenderer {
     private static final int PADDING         = 6;
     private static final int EMBLEM_SIZE     = 44;
     private static final float RING_THICKNESS = 4.5f;
+    private static final int HEALTH_WAVE_RADIUS = Math.round(EMBLEM_SIZE * 0.5f - RING_THICKNESS * 0.5f);
+    private static final int HEALTH_WAVE_THICKNESS = Math.round(RING_THICKNESS);
+    private static final long HEALTH_WAVE_PERIOD_MS = 2400L;
 
     /** Text layout. */
     private static final int TEXT_X   = PADDING + EMBLEM_SIZE + 8; // 58
@@ -71,6 +74,8 @@ public final class TargetDisplayRingRenderer {
     private static final int LABEL_COLOR    = 0xFF7A7490; // gray-purple labels
     private static final int VALUE_COLOR    = 0xFF4A4560; // dark values
     private static final int ICON_COLOR     = 0xFFC6C1DC; // light gray-lavender
+    private static final int HEALTH_WAVE_TOP_COLOR    = 0xFF8B7CF6;
+    private static final int HEALTH_WAVE_BOTTOM_COLOR = 0xFF6047C8;
 
     /** Max element dimension for vertex-colour encoding (see fragment shader). */
     private static final float MAX_DIMENSION = 512f;
@@ -325,7 +330,11 @@ public final class TargetDisplayRingRenderer {
         float hpPercent = maxHealth > 0f ? Math.max(0f, Math.min(1f, health / maxHealth)) : 0f;
         int emblemX = x + PADDING;
         int emblemY = y + PADDING;
-        drawEmblem(gui, emblemX, emblemY, EMBLEM_SIZE, RING_THICKNESS, hpPercent, target, alpha);
+        drawEmblem(gui, emblemX, emblemY, EMBLEM_SIZE, RING_THICKNESS, 0f, target, alpha);
+        drawHealthWave(gui,
+                emblemX + EMBLEM_SIZE / 2f,
+                emblemY + EMBLEM_SIZE / 2f,
+                hpPercent, alpha);
 
         // 3. Name (bold Google Sans, dark ink)
         int nameX = x + TEXT_X;
@@ -357,5 +366,16 @@ public final class TargetDisplayRingRenderer {
         drawGear(gui, iconCx, y + ICON_GEAR_Y, 4.8f, iconColor);
         CustomRoundedRectRenderer.drawRoundedRect(gui,
                 iconCx - 4, y + ICON_SQUARE_Y - 4, 8, 8, 2, iconColor);
+    }
+
+    private static void drawHealthWave(GuiGraphicsExtractor gui, float cx, float cy,
+                                       float progress, float alpha) {
+        float phase01 = (System.currentTimeMillis() % HEALTH_WAVE_PERIOD_MS)
+                / (float) HEALTH_WAVE_PERIOD_MS;
+        CustomRoundedRectRenderer.drawWavyRing(gui, cx, cy,
+                HEALTH_WAVE_RADIUS, HEALTH_WAVE_THICKNESS,
+                progress, phase01,
+                TargetDisplayRenderer.applyAlpha(HEALTH_WAVE_TOP_COLOR, alpha),
+                TargetDisplayRenderer.applyAlpha(HEALTH_WAVE_BOTTOM_COLOR, alpha));
     }
 }

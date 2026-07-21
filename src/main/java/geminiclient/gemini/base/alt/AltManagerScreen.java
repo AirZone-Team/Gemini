@@ -2,6 +2,8 @@ package geminiclient.gemini.base.alt;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
+import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer.GlyphFont;
 import geminiclient.gemini.customRenderer.glsl.InfiniteGridRenderer;
@@ -22,11 +24,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 /**
- * Alt Manager —— 与主菜单同一套现代主义视觉语言的账号管理界面。
+ * Alt Manager —— 与主菜单同一套玻璃质感视觉语言的账号管理界面。
  *
- * <p>无按钮背景、无图标：排版、间距、GLSL 透视网格背景、滑动/聚焦动效
- * 与强调色指示器构成全部视觉层级。模态框用 SDF 圆角矩形 + 柔和阴影
- * 呈现，遮罩淡入时整体上浮。</p>
+ * <p>GLSL 透视网格上叠加区域模糊、渐变玻璃面板、账号状态胶囊及滑动/
+ * 聚焦动效。模态框使用更高层级的磨砂材质与 SDF 柔和阴影，遮罩淡入时
+ * 整体上浮。</p>
  *
  * <p>功能：账号列表（名称 / 类型 / 应用状态）、Microsoft 登录（自动 +
  * 手动两种模式）、离线账号、删除、应用为当前会话账号。</p>
@@ -36,8 +38,8 @@ public class AltManagerScreen extends Screen {
     // ========================
     // Layout Constants
     // ========================
-    private static final int LEFT_MARGIN = 40;
-    private static final int RIGHT_MARGIN = 40;
+    private static final float CONTENT_MAX_W = 1280f;
+    private static final float CONTENT_MIN_PAD = 56f;
     private static final float TITLE_Y = 34f;
     private static final float SUBTITLE_Y = 78f;
     private static final float LIST_TOP = 104f;
@@ -60,8 +62,12 @@ public class AltManagerScreen extends Screen {
     private static final int ERROR_COLOR     = 0xFFFF8080;
     private static final int WARN_COLOR      = 0xFFFFC87A;
     private static final int PANEL_FILL      = 0xFA121216;
-    private static final int PANEL_OUTLINE   = 0xFF2A2A30;
     private static final int PLACEHOLDER     = 0xFF5A5A5A;
+    private static final int GLASS_TOP       = 0x9C17202A;
+    private static final int GLASS_BOTTOM    = 0xC20A0E15;
+    private static final int GLASS_OUTLINE   = 0x5A8CC9DD;
+    private static final int ROW_HOVER_FILL  = 0xA21A2B39;
+    private static final int ROW_SELECTED    = 0xB3213442;
 
     private static final String MOD_VERSION = "0.1.0";
 
@@ -230,27 +236,53 @@ public class AltManagerScreen extends Screen {
         }
         pollApplying();
 
-        // ── 3. 头部 ─────────────────────────────────
+        // ── 3. 磨砂工作区 ───────────────────────────
+        drawWorkspaceChrome(gui, elapsed);
+
+        // ── 4. 头部 ─────────────────────────────────
         drawHeader(gui, elapsed);
 
-        // ── 4. 账号列表 ─────────────────────────────
+        // ── 5. 账号列表 ─────────────────────────────
         if (accounts.isEmpty()) {
             drawEmptyState(gui, elapsed);
         } else {
             drawList(gui, mouseX, mouseY, elapsed, interactive);
         }
 
-        // ── 5. 操作链接 / 状态消息 / 页脚 ─────────────
+        // ── 6. 操作链接 / 状态消息 / 页脚 ─────────────
         drawActions(gui, mouseX, mouseY, dt, elapsed, interactive);
         drawStatus(gui, now);
         drawFooter(gui, elapsed);
 
-        // ── 6. 模态框（最后提交，压在最上层）─────────
+        // ── 7. 模态框（最后提交，压在最上层）─────────
         if (modal != null) {
             modal.extractWithChrome(gui, mouseX, mouseY, dt, now);
         } else if (closingModal != null && modalAlpha > 0.01f) {
             closingModal.extractWithChrome(gui, -1, -1, dt, now);
         }
+    }
+
+    private void drawWorkspaceChrome(GuiGraphicsExtractor gui, float elapsed) {
+        float reveal = easeOutCubic(clamp01((elapsed - 0.15f) * 2.8f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
+
+        int x = Math.round(contentLeft() - 16f);
+        int y = Math.round(LIST_TOP - 10f + (1f - reveal) * 8f);
+        int w = Math.round(contentWidth() + 32f);
+        int h = Math.max(72, Math.round(listViewportH() + 18f));
+        int r = 14;
+
+        SdfUIRenderer.drawShadow(gui, x, y, w, h, r,
+                0, 7, 22, scaleAlpha(0x72000000, reveal));
+        CustomBlurRenderer.render(x, y, w, h, r,
+                scaleAlpha(0x54101820, reveal), 8f);
+        CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui, x, y, w, h, r,
+                scaleAlpha(GLASS_TOP, reveal), scaleAlpha(GLASS_BOTTOM, reveal));
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, r,
+                scaleAlpha(GLASS_OUTLINE, reveal), 1);
+
+        SdfUIRenderer.drawCircle(gui, contentRight() + 34f, 54f, 118,
+                scaleAlpha(0x1489DDFF, reveal));
     }
 
     // ========================
@@ -260,7 +292,8 @@ public class AltManagerScreen extends Screen {
     private void drawHeader(GuiGraphicsExtractor gui, float elapsed) {
         // 标题：逐字揭示 + 白→青渐变（与主菜单一致）
         String title = "ALT MANAGER";
-        float cx = LEFT_MARGIN;
+        float left = contentLeft();
+        float cx = left;
         int letterIndex = 0;
         int letterCount = title.replace(" ", "").length();
 
@@ -288,7 +321,7 @@ public class AltManagerScreen extends Screen {
         float progress = easeOutCubic(clamp01((elapsed - 0.35f) * 2.4f));
         if (progress > 0.01f) {
             int a = (int) (entryAlpha * progress * 255);
-            CustomRectRenderer.drawRect(gui, LEFT_MARGIN, (int) (TITLE_Y + 30f),
+            CustomRectRenderer.drawRect(gui, Math.round(left), (int) (TITLE_Y + 30f),
                     (int) (titleW * 0.28f * progress), 1, (a << 24) | (ACCENT & 0x00FFFFFF));
         }
 
@@ -298,7 +331,7 @@ public class AltManagerScreen extends Screen {
         if (subAlpha > 0) {
             String sub = "共 " + accounts.size() + " 个账号    ·    当前会话："
                     + AltManager.currentSessionName();
-            CustomFontRenderer.drawString(gui, bodyFont, sub, LEFT_MARGIN, SUBTITLE_Y,
+            CustomFontRenderer.drawString(gui, bodyFont, sub, left, SUBTITLE_Y,
                     (subAlpha << 24) | (SUBTITLE_COLOR & 0x00FFFFFF));
         }
     }
@@ -311,8 +344,25 @@ public class AltManagerScreen extends Screen {
         return this.height - STATUS_Y_FROM_BOTTOM - 8f - LIST_TOP;
     }
 
+    private float contentWidth() {
+        float available = Math.max(260f, this.width - CONTENT_MIN_PAD * 2f);
+        return Math.max(260f, Math.min(available, CONTENT_MAX_W));
+    }
+
+    private float contentLeft() {
+        return (this.width - contentWidth()) / 2f;
+    }
+
+    private float contentRight() {
+        return contentLeft() + contentWidth();
+    }
+
+    private float listLeft() {
+        return contentLeft();
+    }
+
     private float listRight() {
-        return this.width - RIGHT_MARGIN;
+        return contentRight();
     }
 
     private float maxScroll() {
@@ -332,7 +382,7 @@ public class AltManagerScreen extends Screen {
 
     private int rowAt(double mx, double my) {
         float viewH = listViewportH();
-        if (mx < LEFT_MARGIN - 12 || mx > listRight()) return -1;
+        if (mx < listLeft() - 12 || mx > listRight()) return -1;
         if (my < LIST_TOP || my > LIST_TOP + viewH) return -1;
         int row = (int) ((my - LIST_TOP + scrollOffset) / ROW_H);
         return row >= 0 && row < accounts.size() ? row : -1;
@@ -358,6 +408,24 @@ public class AltManagerScreen extends Screen {
             int alpha = (int) (entryAlpha * reveal * dim * 255);
             if (alpha <= 0) continue;
 
+            float left = listLeft();
+            int cardX = Math.round(left - 8f);
+            int cardY = Math.round(rowY + 3f);
+            int cardW = Math.max(40, Math.round(listRight() - cardX - 8f));
+            int cardH = Math.round(ROW_H - 6f);
+            float cardStrength = Math.max(hp, isSelected ? 0.68f : 0f);
+            if (cardStrength > 0.01f) {
+                int fill = isSelected ? ROW_SELECTED : ROW_HOVER_FILL;
+                CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui,
+                        cardX, cardY, cardW, cardH, 8,
+                        scaleAlpha(fill, reveal * cardStrength),
+                        scaleAlpha(0x5414202A, reveal * cardStrength));
+                CustomRoundedRectRenderer.drawRoundedOutline(gui,
+                        cardX, cardY, cardW, cardH, 8,
+                        scaleAlpha(isSelected ? ACCENT : GLASS_OUTLINE,
+                                reveal * cardStrength * (isSelected ? 0.55f : 0.7f)), 1);
+            }
+
             // 指示条：悬停生长；选中常驻
             float lineH = ROW_H - 14f;
             float barTarget = Math.max(hp, isSelected ? 0.9f : 0f);
@@ -365,11 +433,11 @@ public class AltManagerScreen extends Screen {
                 float barH = lineH * barTarget;
                 float barY = rowY + (ROW_H - barH) / 2f - 1f;
                 int barAlpha = (int) (alpha * barTarget);
-                CustomRectRenderer.drawRect(gui, (int) (LEFT_MARGIN - 12 + slideIn), (int) barY,
+                CustomRectRenderer.drawRect(gui, Math.round(left - 12f + slideIn), (int) barY,
                         2, (int) barH, (barAlpha << 24) | (ACCENT & 0x00FFFFFF));
             }
 
-            float textX = LEFT_MARGIN + 16f + slideIn + hp * HOVER_SLIDE_PX;
+            float textX = left + 16f + slideIn + hp * HOVER_SLIDE_PX;
 
             // 账号名
             int nameColor = lerpColor(
@@ -407,6 +475,14 @@ public class AltManagerScreen extends Screen {
         float x = listRight() - w;
         float y = rowY + (ROW_H - hintFont.lineHeight) / 2f - 1f;
         int a = (int) (rowAlpha * 0.95f);
+        int chipX = Math.round(x - 17f);
+        int chipY = Math.round(y - 5f);
+        int chipW = Math.round(w + 25f);
+        int chipH = Math.round(hintFont.lineHeight + 10f);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, chipX, chipY, chipW, chipH,
+                chipH / 2, scaleAlpha(color, a / 255f * 0.14f));
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, chipX, chipY, chipW, chipH,
+                chipH / 2, scaleAlpha(color, a / 255f * 0.48f), 1);
         CustomFontRenderer.drawString(gui, hintFont, text, x, y, (a << 24) | (color & 0x00FFFFFF));
         if (AltManager.isCurrent(acc)) {
             float sqY = y + (hintFont.lineHeight - 3f) / 2f;
@@ -422,7 +498,7 @@ public class AltManagerScreen extends Screen {
         float barH = Math.max(24f, viewH * viewH / contentH);
         float barY = LIST_TOP + (viewH - barH) * (scrollOffset / max);
         int alpha = (int) (entryAlpha * 0.35f * 255);
-        CustomRectRenderer.drawRect(gui, this.width - 22, (int) barY, 2, (int) barH,
+        CustomRectRenderer.drawRect(gui, Math.round(listRight() + 12f), (int) barY, 2, (int) barH,
                 (alpha << 24) | (ACCENT & 0x00FFFFFF));
     }
 
@@ -435,11 +511,12 @@ public class AltManagerScreen extends Screen {
         String line2 = "使用下方链接添加 Microsoft 或离线账号";
         float w1 = CustomFontRenderer.stringWidth(nameFont, line1);
         float w2 = CustomFontRenderer.stringWidth(bodyFont, line2);
+        float centerX = contentLeft() + contentWidth() / 2f;
         int a1 = (int) (alpha * 0.8f);
         int a2 = (int) (alpha * 0.55f);
-        CustomFontRenderer.drawString(gui, nameFont, line1, (this.width - w1) / 2f, cy,
+        CustomFontRenderer.drawString(gui, nameFont, line1, centerX - w1 / 2f, cy,
                 (a1 << 24) | (TEXT_IDLE & 0x00FFFFFF));
-        CustomFontRenderer.drawString(gui, bodyFont, line2, (this.width - w2) / 2f, cy + 20f,
+        CustomFontRenderer.drawString(gui, bodyFont, line2, centerX - w2 / 2f, cy + 20f,
                 (a2 << 24) | (SUBTITLE_COLOR & 0x00FFFFFF));
     }
 
@@ -469,8 +546,21 @@ public class AltManagerScreen extends Screen {
 
         Link[] links = buildActionLinks();
         float y = this.height - ACTIONS_Y_FROM_BOTTOM;
+        float left = contentLeft();
+
+        float trayW = Math.min(contentWidth() + 24f, 520f);
+        int trayX = Math.round(left - 12f);
+        int trayY = Math.round(y - 12f);
+        int trayH = Math.round(linkFont.lineHeight + 24f);
+        CustomBlurRenderer.render(trayX, trayY, trayW, trayH, 10,
+                scaleAlpha(0x48101820, reveal), 5f);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, trayX, trayY,
+                Math.round(trayW), trayH, 10, scaleAlpha(0x7A101720, reveal));
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, trayX, trayY,
+                Math.round(trayW), trayH, 10, scaleAlpha(GLASS_OUTLINE, reveal * 0.75f), 1);
+
         drawHLinks(gui, links, actionHover, interactive ? mouseX : -1, interactive ? mouseY : -1,
-                dt, LEFT_MARGIN, y, alpha);
+                dt, left, y, alpha);
     }
 
     private void drawStatus(GuiGraphicsExtractor gui, long now) {
@@ -495,7 +585,7 @@ public class AltManagerScreen extends Screen {
         }
         int alpha = (int) (entryAlpha * alphaScale * 255);
         if (alpha <= 0) return;
-        CustomFontRenderer.drawString(gui, bodyFont, msg, LEFT_MARGIN,
+        CustomFontRenderer.drawString(gui, bodyFont, msg, contentLeft(),
                 this.height - STATUS_Y_FROM_BOTTOM, (alpha << 24) | (color & 0x00FFFFFF));
     }
 
@@ -506,15 +596,15 @@ public class AltManagerScreen extends Screen {
         float y = this.height - FOOTER_BOTTOM_PAD;
 
         String hints = "↑↓  选择    Enter  应用    Delete  删除    Esc  返回";
-        CustomFontRenderer.drawString(gui, hintFont, hints, LEFT_MARGIN, y,
+        CustomFontRenderer.drawString(gui, hintFont, hints, contentLeft(), y,
                 (alpha << 24) | (HINT_COLOR & 0x00FFFFFF));
 
         String line1 = "Gemini Client";
         String line2 = "v" + MOD_VERSION;
         float w1 = CustomFontRenderer.stringWidth(hintFont, line1);
         float w2 = CustomFontRenderer.stringWidth(hintFont, line2);
-        float x1 = this.width - RIGHT_MARGIN - w1;
-        float x2 = this.width - RIGHT_MARGIN - w2;
+        float x1 = listRight() - w1;
+        float x2 = listRight() - w2;
         float y2 = y;
         float y1 = y2 - 11f - 3f;
         int color = (alpha << 24) | (VERSION_COLOR & 0x00FFFFFF);
@@ -539,13 +629,23 @@ public class AltManagerScreen extends Screen {
             Link link = links[i];
             float w = CustomFontRenderer.stringWidth(linkFont, link.label());
             boolean over = link.enabled()
-                    && mouseX >= cx - 4 && mouseX <= cx + w + 4
-                    && mouseY >= y - 4 && mouseY <= y + linkFont.lineHeight + 4;
+                    && mouseX >= cx - 7 && mouseX <= cx + w + 7
+                    && mouseY >= y - 5 && mouseY <= y + linkFont.lineHeight + 5;
             hover.update(i, over, dt);
             float hp = hover.get(i);
 
             int idle = link.enabled() ? link.idleColor() : HINT_COLOR;
             int a = baseAlpha * (idle >>> 24) / 255;
+            int pillX = Math.round(cx - 7f);
+            int pillY = Math.round(y - 5f);
+            int pillW = Math.round(w + 14f);
+            int pillH = Math.round(linkFont.lineHeight + 10f);
+            float enabledBase = link.enabled() ? 0.16f : 0.06f;
+            CustomRoundedRectRenderer.drawRoundedRect(gui, pillX, pillY, pillW, pillH,
+                    6, scaleAlpha(0xFF24323D, baseAlpha / 255f * (enabledBase + hp * 0.34f)));
+            CustomRoundedRectRenderer.drawRoundedOutline(gui, pillX, pillY, pillW, pillH,
+                    6, scaleAlpha(hp > 0.01f ? ACCENT : GLASS_OUTLINE,
+                            baseAlpha / 255f * (0.35f + hp * 0.55f)), 1);
             int idleC = (a << 24) | (idle & 0x00FFFFFF);
             int hoverC = (a << 24) | (TEXT_HOVER & 0x00FFFFFF);
             CustomFontRenderer.drawString(gui, linkFont, link.label(), cx, y,
@@ -569,7 +669,7 @@ public class AltManagerScreen extends Screen {
         float cx = x;
         for (int i = 0; i < links.length; i++) {
             float w = CustomFontRenderer.stringWidth(linkFont, links[i].label());
-            bounds[i] = new float[]{cx - 4, y - 4, w + 8, linkFont.lineHeight + 8};
+            bounds[i] = new float[]{cx - 7, y - 5, w + 14, linkFont.lineHeight + 10};
             cx += w + sepW;
         }
         return bounds;
@@ -721,7 +821,7 @@ public class AltManagerScreen extends Screen {
         // 操作链接
         Link[] links = buildActionLinks();
         float linkY = this.height - ACTIONS_Y_FROM_BOTTOM;
-        int linkIdx = hLinkAt(links, LEFT_MARGIN, linkY, mouse.x(), mouse.y());
+        int linkIdx = hLinkAt(links, contentLeft(), linkY, mouse.x(), mouse.y());
         if (linkIdx >= 0 && links[linkIdx].enabled()) {
             links[linkIdx].action().run();
             return true;
@@ -856,16 +956,18 @@ public class AltManagerScreen extends Screen {
                     AltManagerScreen.this.height, overlayA << 24);
 
             PanelRect p = panel();
-            int chromeA = (int) (a * 255);
 
-            // 阴影 + 面板 + 描边（SDF 圆角，保持 GLSL 风格统一）
+            // 区域模糊 + 阴影 + 分层渐变面板
+            CustomBlurRenderer.render(p.x(), p.y(), p.w(), p.h(), 14,
+                    scaleAlpha(0xA0141922, a), 10f);
             int shadowA = (int) (a * 0x60);
             SdfUIRenderer.drawShadow(gui, (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(),
-                    12, 0, 6, 18, (shadowA << 24));
-            SdfUIRenderer.drawRect(gui, (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(),
-                    12, scaleAlpha(PANEL_FILL, a));
+                    14, 0, 8, 24, (shadowA << 24));
+            CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui,
+                    (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(), 14,
+                    scaleAlpha(0xEE19212B, a), scaleAlpha(PANEL_FILL, a));
             SdfUIRenderer.drawOutline(gui, (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(),
-                    12, scaleAlpha(PANEL_OUTLINE, a), 1);
+                    14, scaleAlpha(0xFF3B5261, a), 1);
 
             // 标题 + 强调线
             CustomFontRenderer.drawString(gui, modalTitleFont, title(),
@@ -961,6 +1063,15 @@ public class AltManagerScreen extends Screen {
             float caretX = CustomFontRenderer.stringWidth(font, text.substring(0, caret));
             if (caretX - scrollX > width - 4) scrollX = caretX - (width - 4);
             if (caretX - scrollX < 0) scrollX = caretX;
+
+            int fieldX = Math.round(x - 10f);
+            int fieldY = Math.round(y - 8f);
+            int fieldW = Math.round(width + 20f);
+            int fieldH = Math.round(font.lineHeight + 16f);
+            CustomRoundedRectRenderer.drawRoundedRect(gui, fieldX, fieldY, fieldW, fieldH,
+                    8, scaleAlpha(0x8A090D13, alphaScale));
+            CustomRoundedRectRenderer.drawRoundedOutline(gui, fieldX, fieldY, fieldW, fieldH,
+                    8, scaleAlpha(0xA0507183, alphaScale), 1);
 
             gui.enableScissor((int) x - 2, (int) y - 4,
                     (int) (x + width) + 2, (int) (y + font.lineHeight) + 4);

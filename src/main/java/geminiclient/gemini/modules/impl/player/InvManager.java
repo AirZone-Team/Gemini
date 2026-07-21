@@ -1,17 +1,20 @@
 package geminiclient.gemini.modules.impl.player;
 
-import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.MotionEvent;
 import geminiclient.gemini.event.events.impl.PacketEvent;
-import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.event.events.impl.enums.IOEnum;
+import geminiclient.gemini.event.events.impl.enums.TimeEnum;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.modules.impl.player.invmanager.AutoArmorHandler;
+import geminiclient.gemini.modules.impl.player.invmanager.ExcessHandler;
+import geminiclient.gemini.modules.impl.player.invmanager.HotbarHandler;
+import geminiclient.gemini.modules.impl.player.invmanager.InventoryActions;
+import geminiclient.gemini.modules.impl.player.invmanager.InvUtils;
+import geminiclient.gemini.modules.impl.player.invmanager.OffhandHandler;
 import geminiclient.gemini.utils.ClientUtils;
-import geminiclient.gemini.modules.impl.player.invmanager.*;
 import geminiclient.gemini.utils.MathHelper;
-import geminiclient.gemini.utils.MovementUtils;
 import geminiclient.gemini.values.impl.BoolValue;
 import geminiclient.gemini.values.impl.IntRangeValue;
 import geminiclient.gemini.values.impl.IntValue;
@@ -21,23 +24,26 @@ import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 import net.minecraft.tags.ItemTags;
-import net.minecraft.world.item.*;
+import net.minecraft.world.item.AxeItem;
+import net.minecraft.world.item.BowItem;
+import net.minecraft.world.item.CrossbowItem;
+import net.minecraft.world.item.FishingRodItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.ShovelItem;
 import net.minecraft.world.item.equipment.Equippable;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
 
 public class InvManager extends Module {
     private final IntRangeValue delay = new IntRangeValue("Delay", 90, 110, 0, 1000);
     private final IntRangeValue openDelay = new IntRangeValue("Open Delay", 150, 250, 0, 2000);
 
-    // ==================== Slot Item Types ====================
-
     private static final String[] SLOT_OPTIONS = {
             "None", "Sword", "Pickaxe", "Axe", "Shovel", "Bow", "Block", "Food",
             "Ender Pearl", "Golden Apple", "Water Bucket", "Fire Charge", "Projectile", "Fishing Rod"
     };
-
-    // ==================== Settings ====================
 
     private final ListValue slot1 = new ListValue("Slot 1", "Sword", SLOT_OPTIONS);
     private final ListValue slot2 = new ListValue("Slot 2", "Golden Apple", SLOT_OPTIONS);
@@ -68,10 +74,7 @@ public class InvManager extends Module {
     private final IntValue waterBucketCount = new IntValue("Keep Water Buckets", 1, 0, 5, () -> throwItems.enabled);
     private final IntValue lavaBucketCount = new IntValue("Keep Lava Buckets", 1, 0, 5, () -> throwItems.enabled);
 
-    // ==================== State ====================
-
     private final InventoryActions actions = new InventoryActions(delay);
-    private int noMoveTicks = 0;
     private long openDelayUntil = -1;
 
     public InvManager() {
@@ -85,15 +88,13 @@ public class InvManager extends Module {
     @Override
     public void onEnabled() {
         this.openDelayUntil = -1;
-        this.noMoveTicks = 0;
     }
 
     @Override
     public void onDisabled() {
         this.openDelayUntil = -1;
+        actions.clickOffHand = false;
     }
-
-    // ==================== Slot Visibility Helpers ====================
 
     private boolean hasBowSlot() {
         for (ListValue slot : slotConfigs) {
@@ -109,8 +110,6 @@ public class InvManager extends Module {
         return false;
     }
 
-    // ==================== Public Getters ====================
-
     public int getMaxBlockSize() { return maxBlockSize.getValue(); }
     public boolean shouldKeepProjectile() { return keepProjectile.enabled; }
     public int getMaxProjectileSize() { return maxProjectileSize.getValue(); }
@@ -118,12 +117,10 @@ public class InvManager extends Module {
     public int getWaterBucketCount() { return waterBucketCount.getValue(); }
     public int getLavaBucketCount() { return lavaBucketCount.getValue(); }
 
-    // ==================== Item Usefulness ====================
-
     public boolean isItemUseful(ItemStack stack) {
         if (stack.isEmpty()) return false;
         if (InvUtils.isGodItem(stack)) return true;
-        if (stack.getDisplayName().getString().contains("点击使用")) return true;
+        if (stack.getDisplayName().getString().contains("\u70b9\u51fb\u4f7f\u7528")) return true;
 
         if (stack.is(ItemTags.ARMOR_ENCHANTABLE)) {
             float protection = InvUtils.getProtection(stack);
@@ -155,24 +152,20 @@ public class InvManager extends Module {
         return !stack.has(DataComponents.CUSTOM_NAME) && InvUtils.isCommonItemUseful(stack);
     }
 
-    // ==================== Packet Event ====================
-
     @EventTarget
     public void onPacket(PacketEvent event) {
         if (event.getIoEnum() != IOEnum.Out) return;
 
         if (event.getPacket() instanceof ServerboundContainerClosePacket) {
             actions.inventoryOpen = false;
+            actions.clickOffHand = false;
         }
     }
-
-    // ==================== Main Tick ====================
 
     @EventTarget
     public void onMotion(MotionEvent event) {
         if (event.getTimeEnum() != TimeEnum.Pre || mc.player == null || mc.gameMode == null) return;
 
-        // 1. 始终重置打开延迟 (防止 OpenDelay 卡死)
         if (!(mc.screen instanceof InventoryScreen)) {
             openDelayUntil = -1;
         }
@@ -185,36 +178,20 @@ public class InvManager extends Module {
 
         if (InvUtils.shouldDisableFeatures()) return;
 
-        // 2. 计算静止 Tick (修复原代码中遗漏的 noMoveTicks 逻辑)
-        if (MovementUtils.moving()) {
-            this.noMoveTicks = 0;
-        } else {
-            this.noMoveTicks++;
+        if (isForeignContainerOpen()) {
+            actions.clickOffHand = false;
+            return;
         }
 
-        // 3. 外部容器拦截 (箱子、熔炉等)
-        // 绝不能在浏览外部容器时整理背包，否则会误点箱子里的物品，也会与 Stealer 冲突
-        boolean inForeignContainer = mc.screen instanceof AbstractContainerScreen<?> container
-                && container.getMenu().containerId != mc.player.inventoryMenu.containerId;
-
-//        if (inForeignContainer) {
-//            return;
-//        }
-
-        // 4. 修复后的 inventoryOnly 核心逻辑
-        if (this.inventoryOnly.enabled) {
-            // 开启时：仅在明确打开自身物品栏时才允许工作
-            if (!(mc.screen instanceof InventoryScreen)) {
-                actions.clickOffHand = false;
-                return;
-            }
+        if (this.inventoryOnly.enabled && !(mc.screen instanceof InventoryScreen)) {
+            actions.clickOffHand = false;
+            return;
         }
 
-        // --- Open Delay ---
         if (mc.screen instanceof InventoryScreen) {
             if (openDelayUntil == -1) {
                 openDelayUntil = (long) (System.currentTimeMillis()
-                                        + MathHelper.getRandom(openDelay.getMinValue(), openDelay.getMaxValue()));
+                        + MathHelper.getRandom(openDelay.getMinValue(), openDelay.getMaxValue()));
             }
             if (System.currentTimeMillis() < openDelayUntil) {
                 actions.clickOffHand = false;
@@ -222,40 +199,35 @@ public class InvManager extends Module {
             }
         }
 
-        // --- Auto Armor ---
         if (this.autoArmor.enabled && AutoArmorHandler.handle(actions)) return;
-
-        // --- Click Offhand (golden apple stacking) ---
         if (actions.finishOffhandPickup()) return;
-
-        // --- Offhand Management ---
         if (OffhandHandler.handle(offhandMode, actions)) return;
 
-        // --- Hotbar Slot Management ---
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < slotConfigs.length; i++) {
             String type = slotConfigs[i].get();
-            if ("None".equals(type)) continue;
-            if (HotbarHandler.handleSlot(i, type, offhandMode, preferBow, actions)) return;
+            if (!"None".equals(type) && HotbarHandler.handleSlot(i, type, offhandMode, preferBow, actions)) return;
         }
 
-        // --- Excess Item Limits ---
         if (ExcessHandler.handleExcess(actions,
                 hasBowSlot(), maxArrowSize.getValue(),
                 hasBlockSlot(), maxBlockSize.getValue(),
                 keepProjectile.enabled, maxProjectileSize.getValue())) return;
 
-        // --- Throw Junk ---
-        if (this.throwItems.enabled && ExcessHandler.throwJunk(actions, this)) return;
+        if (this.throwItems.enabled) {
+            ExcessHandler.throwJunk(actions, this);
+        }
     }
 
-    // ==================== Config Validation ====================
+    private boolean isForeignContainerOpen() {
+        return mc.screen instanceof AbstractContainerScreen<?> container
+                && container.getMenu().containerId != mc.player.inventoryMenu.containerId;
+    }
 
     private boolean checkSlotConflicts() {
         Set<String> used = new HashSet<>();
         for (ListValue slot : slotConfigs) {
             String type = slot.get();
-            if ("None".equals(type)) continue;
-            if (!used.add(type)) return false;
+            if (!"None".equals(type) && !used.add(type)) return false;
         }
         return true;
     }

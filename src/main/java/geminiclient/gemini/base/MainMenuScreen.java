@@ -3,9 +3,12 @@ package geminiclient.gemini.base;
 import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.base.alt.AltManagerScreen;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
+import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer.GlyphFont;
 import geminiclient.gemini.customRenderer.glsl.InfiniteGridRenderer;
+import geminiclient.gemini.customRenderer.glsl.SdfUIRenderer;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
@@ -21,24 +24,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Modernist main menu — minimalist typography-driven design.
+ * Layered glass main menu built around the fullscreen perspective grid.
  *
- * <p>Visual hierarchy is established purely through typography, spacing,
- * and a fullscreen GLSL perspective grid background. No particles,
- * no button backgrounds, no icons.</p>
- *
- * <p>Beautified: staggered letter-by-letter title reveal with a soft
- * gradient, an accent rule that draws itself under the title, menu items
- * that cascade in from the left, an accent indicator bar replacing the
- * dot, hover text slide, focus dimming of idle items, accent underlines
- * on the navigation (now clickable), and a richer footer.</p>
+ * <p>Typography remains the visual anchor while frosted navigation surfaces,
+ * soft accent blooms, rounded focus cards and restrained shadows add depth.
+ * All surfaces share the same cyan-tinted dark material and staggered motion.</p>
  */
 public class MainMenuScreen extends Screen {
 
     // ========================
     // Layout Constants
     // ========================
-    private static final int LEFT_MARGIN = 40;
     private static final int MENU_SPACING = 32;
     private static final int NAV_RIGHT_PAD = 40;
     private static final int FOOTER_RIGHT_PAD = 40;
@@ -58,6 +54,14 @@ public class MainMenuScreen extends Screen {
     private static final int VERSION_COLOR   = 0xFF666666;
     private static final int SEPARATOR_COLOR = 0xFF444444;
     private static final int HINT_COLOR      = 0xFF4A4A4A;
+    private static final int GLASS_TOP       = 0xA0161D28;
+    private static final int GLASS_BOTTOM    = 0xC00A0E15;
+    private static final int GLASS_OUTLINE   = 0x5A9CC9DD;
+    private static final int ROW_FILL        = 0xB01B2936;
+    private static final int ROW_OUTLINE     = 0x6689DDFF;
+
+    private static final int MENU_PANEL_W = 320;
+    private static final int MENU_PANEL_RADIUS = 14;
 
     // ========================
     // Fonts
@@ -201,21 +205,93 @@ public class MainMenuScreen extends Screen {
         updateMenuHover(mouseX, mouseY, dt);
         updateNavHover(mouseX, mouseY, dt);
 
-        // ── 3. Title ───────────────────────────────────────
+        // ── 3. Frosted surfaces + ambient lighting ─────────
+        drawAtmosphere(gui, elapsed);
+        drawGlassSurfaces(gui, elapsed);
+
+        // ── 4. Title ───────────────────────────────────────
         drawTitle(gui, elapsed);
 
-        // ── 4. Accent rule + Subtitle ──────────────────────
+        // ── 5. Accent rule + Subtitle ──────────────────────
         drawAccentRule(gui, elapsed);
         drawSubtitle(gui, elapsed);
 
-        // ── 5. Menu items ──────────────────────────────────
+        // ── 6. Menu items ──────────────────────────────────
         drawMenuItems(gui, mouseX, mouseY, elapsed);
 
-        // ── 6. Navigation ──────────────────────────────────
+        // ── 7. Navigation ──────────────────────────────────
         drawNavigation(gui, elapsed);
 
-        // ── 7. Footer ──────────────────────────────────────
+        // ── 8. Footer ──────────────────────────────────────
         drawFooter(gui, elapsed);
+    }
+
+    private float menuStartY() {
+        return Math.max(this.height * 0.43f, this.height * 0.25f + TITLE_FONT_SIZE + 98f);
+    }
+
+    private int menuPanelX() {
+        int margin = Math.max(24, Math.round(this.width * 0.08f));
+        int centered = Math.round((this.width - MENU_PANEL_W) / 2f);
+        return Math.max(margin, Math.min(centered, this.width - MENU_PANEL_W - margin));
+    }
+
+    private float menuPanelY() {
+        return menuStartY() - 15f;
+    }
+
+    private float menuPanelH() {
+        return menuItems.size() * MENU_SPACING + 18f;
+    }
+
+    private void drawAtmosphere(GuiGraphicsExtractor gui, float elapsed) {
+        float reveal = easeOutCubic(clamp01(elapsed * 1.6f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
+
+        float pulse = 0.88f + 0.12f * (float) Math.sin(elapsed * 0.8f);
+        SdfUIRenderer.drawCircle(gui, this.width - 88f, 92f, 196,
+                scaleAlpha(0x1889DDFF, reveal * pulse));
+        SdfUIRenderer.drawCircle(gui, 52f, this.height - 72f, 148,
+                scaleAlpha(0x105C7CFF, reveal));
+    }
+
+    private void drawGlassSurfaces(GuiGraphicsExtractor gui, float elapsed) {
+        float reveal = easeOutCubic(clamp01((elapsed - 0.18f) * 2.8f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
+
+        int panelX = menuPanelX();
+        int panelY = Math.round(menuPanelY() + (1f - reveal) * 10f);
+        int panelW = MENU_PANEL_W;
+        int panelH = Math.round(menuPanelH());
+
+        SdfUIRenderer.drawShadow(gui, panelX, panelY, panelW, panelH,
+                MENU_PANEL_RADIUS, 0, 8, 24, scaleAlpha(0x78000000, reveal));
+        CustomBlurRenderer.render(panelX, panelY, panelW, panelH,
+                MENU_PANEL_RADIUS, scaleAlpha(0x52101922, reveal), 8f);
+        CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui, panelX, panelY, panelW, panelH,
+                MENU_PANEL_RADIUS, scaleAlpha(GLASS_TOP, reveal), scaleAlpha(GLASS_BOTTOM, reveal));
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, panelX, panelY, panelW, panelH,
+                MENU_PANEL_RADIUS, scaleAlpha(GLASS_OUTLINE, reveal), 1);
+
+        CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui,
+                panelX + 1, panelY + 18, 2, Math.max(8, panelH - 36), 1,
+                scaleAlpha(ACCENT, reveal * 0.85f), scaleAlpha(0x0089DDFF, reveal));
+
+        ensureFontsLoaded();
+        if (navFont == null) return;
+        float githubW = CustomFontRenderer.stringWidth(navFont, "Github");
+        float navX = navStartX(githubW) - 13f;
+        float navW = this.width - NAV_RIGHT_PAD - navX + 13f;
+        int navY = 10;
+        int navH = 31;
+        SdfUIRenderer.drawShadow(gui, Math.round(navX), navY, Math.round(navW), navH,
+                10, 0, 4, 12, scaleAlpha(0x50000000, reveal));
+        CustomBlurRenderer.render(navX, navY, navW, navH, 10,
+                scaleAlpha(0x42101820, reveal), 6f);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, Math.round(navX), navY,
+                Math.round(navW), navH, 10, scaleAlpha(0x7210151D, reveal));
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, Math.round(navX), navY,
+                Math.round(navW), navH, 10, scaleAlpha(0x3EFFFFFF, reveal), 1);
     }
 
     // ========================
@@ -341,7 +417,7 @@ public class MainMenuScreen extends Screen {
         ensureFontsLoaded();
         if (menuFont == null) return;
 
-        float menuStartY = this.height * 0.50f;
+        float menuStartY = menuStartY();
 
         for (int i = 0; i < menuItems.size(); i++) {
             MenuItem item = menuItems.get(i);
@@ -359,6 +435,24 @@ public class MainMenuScreen extends Screen {
             int alpha = (int) (entryAlpha * reveal * dim * 255);
             if (alpha <= 0) continue;
 
+            int panelX = menuPanelX();
+            int rowX = panelX + 12;
+            int rowY = Math.round(y - 7f);
+            int rowW = MENU_PANEL_W - 24;
+            int rowH = Math.round(menuFont.lineHeight + 14f);
+            float active = Math.max(hp, i == focusedIndex ? 0.75f : 0f);
+            if (active > 0.01f) {
+                SdfUIRenderer.drawShadow(gui, rowX, rowY, rowW, rowH,
+                        8, 0, 3, 10, scaleAlpha(0x48000000, reveal * active));
+                CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui,
+                        rowX, rowY, rowW, rowH, 8,
+                        scaleAlpha(ROW_FILL, reveal * active),
+                        scaleAlpha(0x5415222D, reveal * active));
+                CustomRoundedRectRenderer.drawRoundedOutline(gui,
+                        rowX, rowY, rowW, rowH, 8,
+                        scaleAlpha(ROW_OUTLINE, reveal * active), 1);
+            }
+
             // Accent indicator bar: grows vertically on hover
             if (hp > 0.01f) {
                 float lineH = menuFont.lineHeight;
@@ -366,8 +460,9 @@ public class MainMenuScreen extends Screen {
                 float barY = y + (lineH - barH) / 2f;
                 int barAlpha = (int) (alpha * hp);
                 int barColor = (barAlpha << 24) | (ACCENT & 0x00FFFFFF);
-                CustomRectRenderer.drawRect(gui, LEFT_MARGIN - 12 + (int) slideIn, (int) barY,
-                        2, (int) barH, barColor);
+                CustomRoundedRectRenderer.drawRoundedRect(gui,
+                        panelX + 17 + (int) slideIn, (int) barY,
+                        3, Math.max(2, (int) barH), 1, barColor);
             }
 
             // Label text: slides right on hover
@@ -375,8 +470,22 @@ public class MainMenuScreen extends Screen {
             int hoverColor = (alpha << 24) | (TEXT_HOVER & 0x00FFFFFF);
             int textColor = lerpColor(idleColor, hoverColor, hp);
 
-            float textX = LEFT_MARGIN + 16f + slideIn + hp * HOVER_SLIDE_PX;
+            float textX = panelX + 46f + slideIn + hp * HOVER_SLIDE_PX;
             CustomFontRenderer.drawString(gui, menuFont, item.label, textX, y, textColor);
+
+            String shortcut = switch (i) {
+                case 0 -> "S";
+                case 1 -> "M";
+                case 2 -> "O";
+                case 3 -> "A";
+                default -> "E";
+            };
+            float shortcutW = CustomFontRenderer.stringWidth(versionFont, shortcut);
+            int shortcutColor = scaleAlpha(hp > 0.01f ? ACCENT : VERSION_COLOR,
+                    entryAlpha * reveal * (0.65f + hp * 0.35f));
+            CustomFontRenderer.drawString(gui, versionFont, shortcut,
+                    panelX + MENU_PANEL_W - 28f - shortcutW,
+                    y + 1f, shortcutColor);
         }
     }
 
@@ -481,10 +590,11 @@ public class MainMenuScreen extends Screen {
         CustomFontRenderer.drawString(gui, versionFont, line1, x1, y1, color);
         CustomFontRenderer.drawString(gui, versionFont, line2, x2, y2, color);
 
-        // ── Left: keyboard shortcut hints ──
-        String hints = "S  Singleplayer    M  Multiplayer    O  Settings    A  Alt Manager    E  Exit";
-        int hintColor = (alpha << 24) | (HINT_COLOR & 0x00FFFFFF);
-        CustomFontRenderer.drawString(gui, versionFont, hints, LEFT_MARGIN, y2, hintColor);
+        String hints = "↑↓  Select    Enter  Open";
+        float hintsW = CustomFontRenderer.stringWidth(versionFont, hints);
+        float hintsX = menuPanelX() + (MENU_PANEL_W - hintsW) / 2f;
+        int hintColor = (int) (alpha * 0.58f) << 24 | (HINT_COLOR & 0x00FFFFFF);
+        CustomFontRenderer.drawString(gui, versionFont, hints, hintsX, y2, hintColor);
     }
 
     // ========================
@@ -566,13 +676,11 @@ public class MainMenuScreen extends Screen {
 
     private boolean isMenuHover(double mx, double my, int index) {
         if (menuFont == null) return false;
-        float menuStartY = this.height * 0.50f;
+        float menuStartY = menuStartY();
         float y = menuStartY + index * MENU_SPACING;
-        float textX = LEFT_MARGIN + 16f;
-        float textW = CustomFontRenderer.stringWidth(menuFont, menuItems.get(index).label);
-        // Slightly padded hitbox for a more forgiving hover target
-        return mx >= LEFT_MARGIN - 12 && mx <= textX + textW + 8
-                && my >= y - 4 && my <= y + menuFont.lineHeight + 4;
+        int panelX = menuPanelX();
+        return mx >= panelX + 12 && mx <= panelX + MENU_PANEL_W - 12
+                && my >= y - 7 && my <= y + menuFont.lineHeight + 7;
     }
 
     private boolean isNavGithubHover(double mx, double my) {
@@ -638,5 +746,10 @@ public class MainMenuScreen extends Screen {
                 | (Math.round(ar + (br - ar) * tp) << 16)
                 | (Math.round(ag + (bg - ag) * tp) << 8)
                 | Math.round(ab + (bb - ab) * tp);
+    }
+
+    private static int scaleAlpha(int argb, float scale) {
+        int a = Math.round((argb >>> 24) * clamp01(scale));
+        return (a << 24) | (argb & 0x00FFFFFF);
     }
 }
