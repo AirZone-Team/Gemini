@@ -16,7 +16,7 @@
 
 - 不使用任何的第三方渲染库(Skija,MCef)。
 - 使用GLSL进行GPU渲染2D及3D画面。
-- 外置ClickGui使用dart及Flutter编写与残留的C# WPF架构。
+- 已剔除外置ClickGui，以节省文件大小和性能开销
 
 ## 🛠️ 快速开始  
 ### 前置要求  
@@ -40,8 +40,8 @@
 ---
 
 ## 📜 许可与贡献  
-因为[Espilon](https://github.com/NekoyaHouse/Epsilon)更换开源协议为GPL-3。
+已剔除或更改非原创部分代码
 
-所以本项目采用 [GPL-3 许可证] 欢迎提交 PR 改进代码或文档。  
+所以本项目采用 [LGPL-V2.1 许可证] 欢迎提交 PR 改进代码或文档。  
 
-© 2025-2026 XeBook Studio. 保留所有权利。
+© 2025-2026 AirZone-Team. 保留所有权利。
