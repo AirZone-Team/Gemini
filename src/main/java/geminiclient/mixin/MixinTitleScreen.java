@@ -15,6 +15,6 @@ public class MixinTitleScreen {
     @Inject(method = "init", at = @At("HEAD"), cancellable = true)
     private void redirectToMainMenu(CallbackInfo ci) {
         ci.cancel();
-        mc.setScreen(new MainMenuScreen());
+        mc.gui.setScreen(new MainMenuScreen());
     }
 }

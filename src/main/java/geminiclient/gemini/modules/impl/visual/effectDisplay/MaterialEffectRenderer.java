@@ -5,7 +5,7 @@ import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.modules.impl.visual.EffectDisplay;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Gui;
+import net.minecraft.client.gui.Hud;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.Holder;
@@ -355,7 +355,7 @@ public final class MaterialEffectRenderer {
         if (effect.getKey() != null) {
             int a8 = (int) (alpha * 255);
             gui.blitSprite(RenderPipelines.GUI_TEXTURED,
-                    Gui.getMobEffectSprite(effect),
+                    Hud.getMobEffectSprite(effect),
                     discX + (DISC_SIZE - SPRITE_SIZE) / 2,
                     (int) discY + (DISC_SIZE - SPRITE_SIZE) / 2,
                     SPRITE_SIZE, SPRITE_SIZE, (a8 << 24) | 0xFFFFFF);

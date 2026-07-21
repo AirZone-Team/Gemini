@@ -161,13 +161,13 @@ public class MainMenuScreen extends Screen {
     protected void init() {
         menuItems.clear();
         menuItems.add(new MenuItem("Singleplayer",
-                () -> this.minecraft.setScreen(new SelectWorldScreen(this))));
+                () -> this.minecraft.gui.setScreen(new SelectWorldScreen(this))));
         menuItems.add(new MenuItem("Multiplayer",
-                () -> this.minecraft.setScreen(new JoinMultiplayerScreen(this))));
+                () -> this.minecraft.gui.setScreen(new JoinMultiplayerScreen(this))));
         menuItems.add(new MenuItem("Settings",
-                () -> this.minecraft.setScreen(new OptionsScreen(this, this.minecraft.options, false))));
+                () -> this.minecraft.gui.setScreen(new OptionsScreen(this, this.minecraft.options, false))));
         menuItems.add(new MenuItem("Alt Manager",
-                () -> this.minecraft.setScreen(new AltManagerScreen(this))));
+                () -> this.minecraft.gui.setScreen(new AltManagerScreen(this))));
         menuItems.add(new MenuItem("Exit",
                 this.minecraft::stop));
 

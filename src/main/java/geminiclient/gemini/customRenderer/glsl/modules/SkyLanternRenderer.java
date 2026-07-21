@@ -1,12 +1,17 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import geminiclient.gemini.customRenderer.GeminiTesselator;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.DestFactor;
-import com.mojang.blaze3d.platform.SourceFactor;
+import com.mojang.blaze3d.platform.BlendFactor;
 import com.mojang.blaze3d.vertex.*;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.LayeringTransform;
@@ -253,69 +258,74 @@ public final class SkyLanternRenderer {
     // ════════════════════════════════════════════════════════════════
 
     private static final DepthStencilState PARTICLE_DEPTH =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -1.0F);
+            new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0F, 1.0F);
 
     /** Lantern body (paper + frame) — additive warm glow. */
-    public static final RenderPipeline LANTERN_PIPE = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+    public static final RenderPipeline LANTERN_PIPE = RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/lantern_body"))
             .withVertexShader(getIdentifier("core/fireflies"))
             .withFragmentShader(getIdentifier("core/fireflies"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
-                    SourceFactor.SRC_ALPHA, DestFactor.ONE,
-                    SourceFactor.ONE, DestFactor.ZERO)))
+                    BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+                    BlendFactor.ONE, BlendFactor.ZERO)))
             .withDepthStencilState(PARTICLE_DEPTH)
             .withCull(false)
             .build();
 
     /** Inner flame — small bright white-yellow, additive. */
-    public static final RenderPipeline FLAME_INNER = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+    public static final RenderPipeline FLAME_INNER = RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/flame_inner"))
             .withVertexShader(getIdentifier("core/fireflies_particle"))
             .withFragmentShader(getIdentifier("core/fireflies_particle"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
-                    SourceFactor.SRC_ALPHA, DestFactor.ONE,
-                    SourceFactor.ONE, DestFactor.ZERO)))
+                    BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+                    BlendFactor.ONE, BlendFactor.ZERO)))
             .withDepthStencilState(PARTICLE_DEPTH)
             .withCull(false)
             .build();
 
     /** Outer flame — medium orange-red, additive. */
-    public static final RenderPipeline FLAME_OUTER = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+    public static final RenderPipeline FLAME_OUTER = RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/flame_outer"))
             .withVertexShader(getIdentifier("core/fireflies_particle"))
             .withFragmentShader(getIdentifier("core/fireflies_particle"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
-                    SourceFactor.SRC_ALPHA, DestFactor.ONE,
-                    SourceFactor.ONE, DestFactor.ZERO)))
+                    BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+                    BlendFactor.ONE, BlendFactor.ZERO)))
             .withDepthStencilState(PARTICLE_DEPTH)
             .withCull(false)
             .build();
 
     /** Glow sprite — large radial-gradient billboard. */
-    public static final RenderPipeline GLOW_SPRITE = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+    public static final RenderPipeline GLOW_SPRITE = RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/glow_sprite"))
             .withVertexShader(getIdentifier("core/fireflies_particle"))
             .withFragmentShader(getIdentifier("core/fireflies_particle"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
-                    SourceFactor.SRC_ALPHA, DestFactor.ONE,
-                    SourceFactor.ONE, DestFactor.ZERO)))
+                    BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+                    BlendFactor.ONE, BlendFactor.ZERO)))
             .withDepthStencilState(PARTICLE_DEPTH)
             .withCull(false)
             .build();
 
     /** Ember spark — tiny bright dot, additive. */
-    public static final RenderPipeline EMBER = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+    public static final RenderPipeline EMBER = RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/ember"))
             .withVertexShader(getIdentifier("core/fireflies_particle"))
             .withFragmentShader(getIdentifier("core/fireflies_particle"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
-                    SourceFactor.SRC_ALPHA, DestFactor.ONE,
-                    SourceFactor.ONE, DestFactor.ZERO)))
+                    BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+                    BlendFactor.ONE, BlendFactor.ZERO)))
             .withDepthStencilState(PARTICLE_DEPTH)
             .withCull(false)
             .build();
@@ -358,7 +368,7 @@ public final class SkyLanternRenderer {
             camX = (float) cam.position().x;
             camY = (float) cam.position().y;
             camZ = (float) cam.position().z;
-            viewMatrix = mc.gameRenderer.getGameRenderState()
+            viewMatrix = mc.gameRenderer.gameRenderState()
                     .levelRenderState.cameraRenderState.viewRotationMatrix;
         }
     }
@@ -389,8 +399,8 @@ public final class SkyLanternRenderer {
      */
     public static void drawLanterns(float[] lanterns, int count, FrameCtx ctx) {
         if (count == 0) return;
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        BufferBuilder buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_COLOR);
         Matrix4f vm = ctx.viewMatrix;
         float cx = ctx.camX, cy = ctx.camY, cz = ctx.camZ;
 
@@ -430,7 +440,7 @@ public final class SkyLanternRenderer {
                         .setColor(rgba);
             }
         }
-        LANTERN_TYPE.draw(buf.buildOrThrow());
+        GeminiTesselator.draw(LANTERN_TYPE, buf.buildOrThrow());
     }
 
     /**
@@ -440,8 +450,8 @@ public final class SkyLanternRenderer {
      */
     public static void drawFlyingObjects(float[] objects, int count, FrameCtx ctx) {
         if (count == 0) return;
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        BufferBuilder buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_COLOR);
         Matrix4f vm = ctx.viewMatrix;
         float cx = ctx.camX, cy = ctx.camY, cz = ctx.camZ;
 
@@ -532,7 +542,7 @@ public final class SkyLanternRenderer {
                         .setColor(rgba);
             }
         }
-        LANTERN_TYPE.draw(buf.buildOrThrow());
+        GeminiTesselator.draw(LANTERN_TYPE, buf.buildOrThrow());
     }
 
     private static int packColor(float r, float g, float b, float a) {
@@ -570,8 +580,8 @@ public final class SkyLanternRenderer {
     private static void drawBillboardBatch(float[] particles, int count,
                                            FrameCtx ctx, RenderType type) {
         if (count == 0) return;
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        BufferBuilder buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_COLOR);
         Matrix4f vm = ctx.viewMatrix;
         float cx = ctx.camX, cy = ctx.camY, cz = ctx.camZ;
 
@@ -591,6 +601,6 @@ public final class SkyLanternRenderer {
             buf.addVertex(vm, rx + h, ry + h, rz).setColor(rgba);
             buf.addVertex(vm, rx + h, ry - h, rz).setColor(rgba);
         }
-        type.draw(buf.buildOrThrow());
+        GeminiTesselator.draw(type, buf.buildOrThrow());
     }
 }

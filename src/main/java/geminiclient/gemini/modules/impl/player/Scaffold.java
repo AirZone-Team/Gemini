@@ -291,7 +291,7 @@ public class Scaffold extends Module {
     private boolean checkBlock(Vec3 baseVec, BlockPos pos, int maxY) {
         if (pos.getY() > maxY) return false;
 
-        Vec3 center = pos.getBottomCenter();
+        Vec3 center = Vec3.atBottomCenterOf(pos);
         for (Direction dir : Direction.values()) {
             Vec3 normal = dir.getUnitVec3();
             Vec3 hit = center.add(normal.scale(0.5));

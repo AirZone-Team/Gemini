@@ -1,5 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
@@ -131,13 +135,14 @@ public class CustomFontRenderer {
     // ========================
 
     public static final RenderPipeline FONT_PIPELINE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(ResourceLocationUtils.getIdentifier("pipeline/font"))
             .withVertexShader(ResourceLocationUtils.getIdentifier("core/font"))
             .withFragmentShader(ResourceLocationUtils.getIdentifier("core/font"))
-            .withSampler("Sampler0")
+            .withBindGroupLayout(GeminiRenderPipelines.samplers("Sampler0"))
             .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .build();
 
     public static void registerPipeline(Consumer<RenderPipeline> registry) {

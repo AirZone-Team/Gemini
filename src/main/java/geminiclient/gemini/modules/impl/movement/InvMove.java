@@ -31,7 +31,7 @@ public class InvMove extends Module {
     }
 
     private boolean isInventoryOpened() {
-        return mc.screen instanceof InventoryScreen || mc.screen instanceof ContainerScreen;
+        return mc.gui.screen() instanceof InventoryScreen || mc.gui.screen() instanceof ContainerScreen;
     }
 
     private void allowMove() {

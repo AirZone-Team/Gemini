@@ -52,7 +52,7 @@ public class Stealer extends Module {
         if (shouldSkipProcessing(event))
             return;
 
-        Screen currentScreen = mc.screen;
+        Screen currentScreen = mc.gui.screen();
         if (!(currentScreen instanceof AbstractContainerScreen<?> container)) {
             handleScreenChange(currentScreen);
             processedCategories.clear();

@@ -7,22 +7,9 @@ import net.minecraft.world.phys.AABB;
 
 public class ReachUtils implements MinecraftInstance {
 
-    public static double getMinDistanceBetweenEntities(AABB boxA, double expandA,
-                                                       double xA, double yA, double zA,
-                                                       AABB boxB, double expandB,
-                                                       double xB, double yB, double zB) {
-        AABB a = boxA.move(xA, yA, zA).inflate(expandA);
-        AABB b = boxB.move(xB, yB, zB).inflate(expandB);
-        return getMinDistanceBetweenBoxes(a, b);
-    }
-
-    private static double getMinDistanceBetweenBoxes(AABB a, AABB b) {
-        double dx = Math.max(0, Math.max(a.minX - b.maxX, b.minX - a.maxX));
-        double dy = Math.max(0, Math.max(a.minY - b.maxY, b.minY - a.maxY));
-        double dz = Math.max(0, Math.max(a.minZ - b.maxZ, b.minZ - a.maxZ));
-        if (dx == 0 && dy == 0 && dz == 0)
-            return 0;
-        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    public static double getMinDistanceSquaredBetweenEntities(AABB boxA, double expandA,
+                                                              AABB boxB, double expandB) {
+        return boxA.inflate(expandA).distanceToSqr(boxB.inflate(expandB));
     }
 
     public static double getEntityReach() {

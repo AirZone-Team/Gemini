@@ -1,5 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -59,16 +63,15 @@ public class CustomAcrylicRenderer {
      *  Combines background blur + tint + noise in one shader pass.
      *  Sampler0 = background, Sampler1 = noise.
      *  Tune via shader defines: BLUR_RADIUS (default 8), NOISE_STRENGTH (default 0.05). */
-    public static final RenderPipeline BLUR_PIPELINE = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+    public static final RenderPipeline BLUR_PIPELINE = RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier("pipeline/acrylic_blur"))
             .withVertexShader(geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier("core/glow_gui"))
             .withFragmentShader(geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier("core/acrylic_blur"))
-            .withSampler("Sampler0")
-            .withSampler("Sampler1")
+            .withBindGroupLayout(GeminiRenderPipelines.samplers("Sampler0", "Sampler1"))
             .withColorTargetState(new com.mojang.blaze3d.pipeline.ColorTargetState(
                     com.mojang.blaze3d.pipeline.BlendFunction.TRANSLUCENT))
-            .withVertexFormat(com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_TEX_COLOR,
-                    com.mojang.blaze3d.vertex.VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .build();
 
     // --------------- cached noise texture ---------------

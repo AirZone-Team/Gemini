@@ -1,11 +1,13 @@
 package geminiclient.gemini.base;
 
 import com.mojang.authlib.minecraft.UserApiService;
+import com.mojang.authlib.yggdrasil.FriendsService;
 import com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService;
 import geminiclient.mixin.access.AccessMinecraft;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.User;
 import net.minecraft.client.gui.screens.social.PlayerSocialManager;
+import net.minecraft.client.gui.screens.social.RemoteFriendListUpdateHandler;
 import net.minecraft.client.multiplayer.ProfileKeyPairManager;
 import net.minecraft.client.multiplayer.chat.report.ReportEnvironment;
 import net.minecraft.client.multiplayer.chat.report.ReportingContext;
@@ -20,7 +22,7 @@ public class AltHelper {
     public static void account(Minecraft minecraft, String action, String accountName, String loginType, UUID uuid, String token) {
         // 1. 安全检查：确保玩家不在游戏世界中（避免在联机/单机时切换导致崩溃）
         if (minecraft.player != null || minecraft.level != null || minecraft.getConnection() != null ||
-                minecraft.getCameraEntity() != null || minecraft.gameMode != null || minecraft.isSingleplayer() || !action.equals("apply")) {
+                minecraft.getCameraEntity() != null || minecraft.gameMode != null || minecraft.hasSingleplayerServer() || !action.equals("apply")) {
             return;
         }
 
@@ -45,7 +47,7 @@ public class AltHelper {
             }
 
             // 初始化社交、遥测、密钥对和举报上下文
-            PlayerSocialManager social = new PlayerSocialManager(minecraft, apiService);
+            FriendsService friendsService = service.createFriendsService(token);
             ClientTelemetryManager telemetry = new ClientTelemetryManager(minecraft, apiService, user);
             ProfileKeyPairManager keyPair = ProfileKeyPairManager.create(apiService, user, minecraft.gameDirectory.toPath());
             ReportingContext reporting = ReportingContext.create(ReportEnvironment.local(), apiService);
@@ -61,6 +63,19 @@ public class AltHelper {
                 accessor.profileFuture(CompletableFuture.completedFuture(online ? services.sessionService().fetchProfile(uuid, true) : null));
                 accessor.userApiService(apiService);
                 accessor.userPropertiesFuture(CompletableFuture.completedFuture(finalProperties));
+
+                RemoteFriendListUpdateHandler oldFriendUpdater = accessor.remoteFriendListUpdateHandler();
+                if (oldFriendUpdater != null) {
+                    oldFriendUpdater.close();
+                }
+                RemoteFriendListUpdateHandler friendUpdater =
+                        new RemoteFriendListUpdateHandler(friendsService, minecraft);
+                PlayerSocialManager social =
+                        new PlayerSocialManager(minecraft, apiService, friendsService, friendUpdater);
+                if (social.isFriendListEnabled()) {
+                    friendUpdater.start();
+                }
+                accessor.remoteFriendListUpdateHandler(friendUpdater);
                 accessor.playerSocialManager(social);
                 accessor.telemetryManager(telemetry);
                 accessor.profileKeyPairManager(keyPair);

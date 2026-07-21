@@ -5,7 +5,7 @@ import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.Module;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Gui;
+import net.minecraft.client.gui.Hud;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.Holder;
@@ -149,7 +149,7 @@ public class RenderEffect {
                             3, ICON_BG_COLOR);
                     graphics.blitSprite(
                             RenderPipelines.GUI_TEXTURED,
-                            Gui.getMobEffectSprite(effect),
+                            Hud.getMobEffectSprite(effect),
                             iconX, iconY,
                             (int) ICON_SIZE, (int) ICON_SIZE);
                 }

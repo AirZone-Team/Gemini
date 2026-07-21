@@ -1,5 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
@@ -57,13 +61,13 @@ public class GlowRenderer {
      * Procedural rectangular glow pipeline.
      * Fragment shader computes Gaussian falloff purely from UV coordinates.
      */
-    public static final RenderPipeline GLOW_PIPELINE = RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+    public static final RenderPipeline GLOW_PIPELINE = RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/glow_rect"))
             .withVertexShader(getIdentifier("core/glow_rect"))
             .withFragmentShader(getIdentifier("core/glow_rect"))
-            .withShaderDefine("GLOW_SIGMA", 0.12F)
             .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .build();
 
     private static final TextureSetup NO_TEXTURE = TextureSetup.noTexture();

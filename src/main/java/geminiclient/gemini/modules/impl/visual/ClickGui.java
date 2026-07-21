@@ -87,8 +87,8 @@ public class ClickGui extends Module {
     @Override
     public void onEnabled() {
         super.onEnabled();
-        if (mc.screen == null) {
-            mc.setScreen(mode.is("Material3") ? new MD3ClickGuiScreen() : new ClickGuiScreen());
+        if (mc.gui.screen() == null) {
+            mc.gui.setScreen(mode.is("Material3") ? new MD3ClickGuiScreen() : new ClickGuiScreen());
         }
     }
 
@@ -96,8 +96,8 @@ public class ClickGui extends Module {
     public void onDisabled() {
         super.onDisabled();
         Gemini.fileSystem.saveConfig();
-        if (mc.screen instanceof AbstractClickGuiScreen) {
-            mc.setScreen(null);
+        if (mc.gui.screen() instanceof AbstractClickGuiScreen) {
+            mc.gui.setScreen(null);
         }
     }
 }

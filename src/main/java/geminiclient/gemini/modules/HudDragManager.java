@@ -52,7 +52,7 @@ public class HudDragManager implements MinecraftInstance {
     @SuppressWarnings("unused")
     @EventTarget(50)
     public void onRender2D(Render2DEvent event) {
-        if (!(mc.screen instanceof ChatScreen)) {
+        if (!(mc.gui.screen() instanceof ChatScreen)) {
             if (draggedModule != null) draggedModule = null;
             wasMouseDown = false;
             editing = false;

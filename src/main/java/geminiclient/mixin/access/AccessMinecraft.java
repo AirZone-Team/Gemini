@@ -5,6 +5,7 @@ import com.mojang.authlib.yggdrasil.ProfileResult;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.User;
 import net.minecraft.client.gui.screens.social.PlayerSocialManager;
+import net.minecraft.client.gui.screens.social.RemoteFriendListUpdateHandler;
 import net.minecraft.client.multiplayer.ProfileKeyPairManager;
 import net.minecraft.client.multiplayer.chat.report.ReportingContext;
 import net.minecraft.client.telemetry.ClientTelemetryManager;
@@ -50,6 +51,13 @@ public interface AccessMinecraft {
     @Accessor("playerSocialManager")
     @Mutable
     void playerSocialManager(PlayerSocialManager manager);
+
+    @Accessor("remoteFriendListUpdateHandler")
+    RemoteFriendListUpdateHandler remoteFriendListUpdateHandler();
+
+    @Accessor("remoteFriendListUpdateHandler")
+    @Mutable
+    void remoteFriendListUpdateHandler(RemoteFriendListUpdateHandler handler);
 
     @Accessor("telemetryManager")
     @Mutable

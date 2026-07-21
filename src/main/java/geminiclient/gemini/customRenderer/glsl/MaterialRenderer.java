@@ -1,5 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
@@ -83,14 +87,14 @@ public final class MaterialRenderer {
     private static void ensurePipeline() {
         if (pipeline == null) {
             pipeline = RenderPipeline.builder(
-                            net.minecraft.client.renderer.RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                            GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
                     .withLocation(getIdentifier("pipeline/panel_material"))
                     .withVertexShader(getIdentifier("core/panel_material"))
                     .withFragmentShader(getIdentifier("core/panel_material"))
-                    .withUniform("FrameData", UniformType.UNIFORM_BUFFER)
-                    .withUniform("ElementData", UniformType.UNIFORM_BUFFER)
+                    .withBindGroupLayout(GeminiRenderPipelines.uniforms("FrameData", "ElementData"))
                     .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-                    .withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+                    .withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
                     .withCull(false)
                     .build();
         }

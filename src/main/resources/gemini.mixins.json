@@ -19,6 +19,7 @@
     "MixinCamera",
     "MixinEntityRenderer",
     "MixinGameRenderer",
+    "MixinGui",
     "MixinItemEntityRenderer",
     "MixinItemEntityRenderState",
     "MixinKeyboardHandler",

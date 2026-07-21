@@ -1,11 +1,13 @@
 package geminiclient.gemini.utils;
 
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
-import com.mojang.blaze3d.vertex.Tesselator;
+import geminiclient.gemini.customRenderer.GeminiTesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.LayeringTransform;
@@ -47,7 +49,7 @@ public class RenderUtils {
     }
 
     public static void drawFilledFadeBox(AABB box, int c, int c1) {
-        BufferBuilder buffer = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance().begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_COLOR);
 
         Vec3 camPos = mc.getEntityRenderDispatcher().camera.position();
         float minX = (float) (box.minX - camPos.x);
@@ -57,7 +59,7 @@ public class RenderUtils {
         float maxY = (float) (box.maxY - camPos.y);
         float maxZ = (float) (box.maxZ - camPos.z);
 
-        Matrix4f matrix = mc.gameRenderer.getGameRenderState().levelRenderState.cameraRenderState.viewRotationMatrix;
+        Matrix4f matrix = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState.viewRotationMatrix;
 
         vertex(buffer, matrix, minX, minY, minZ, c);
         vertex(buffer, matrix, minX, minY, maxZ, c);
@@ -89,11 +91,11 @@ public class RenderUtils {
         vertex(buffer, matrix, minX, maxY, maxZ, c1);
         vertex(buffer, matrix, minX, maxY, minZ, c1);
 
-        FILLED_BOX.draw(buffer.buildOrThrow());
+        GeminiTesselator.draw(FILLED_BOX, buffer.buildOrThrow());
     }
 
     public static void drawOutlineBox(AABB box, int c) {
-        BufferBuilder buffer = Tesselator.getInstance().begin(VertexFormat.Mode.LINES, DefaultVertexFormat.POSITION_COLOR_NORMAL_LINE_WIDTH);
+        BufferBuilder buffer = GeminiTesselator.getInstance().begin(PrimitiveTopology.LINES, DefaultVertexFormat.POSITION_COLOR_NORMAL_LINE_WIDTH);
 
         Vec3 camPos = mc.getEntityRenderDispatcher().camera.position();
         float minX = (float) (box.minX - camPos.x);
@@ -103,7 +105,7 @@ public class RenderUtils {
         float maxY = (float) (box.maxY - camPos.y);
         float maxZ = (float) (box.maxZ - camPos.z);
 
-        Matrix4f matrix = mc.gameRenderer.getGameRenderState().levelRenderState.cameraRenderState.viewRotationMatrix;
+        Matrix4f matrix = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState.viewRotationMatrix;
 
         // Bottom face edges
         line(buffer, matrix, minX, minY, minZ, maxX, minY, minZ, c);
@@ -123,7 +125,7 @@ public class RenderUtils {
         line(buffer, matrix, maxX, minY, maxZ, maxX, maxY, maxZ, c);
         line(buffer, matrix, minX, minY, maxZ, minX, maxY, maxZ, c);
 
-        OUTLINE_BOX.draw(buffer.buildOrThrow());
+        GeminiTesselator.draw(OUTLINE_BOX, buffer.buildOrThrow());
     }
 
     private static void line(BufferBuilder buffer, Matrix4f matrix, float x1, float y1, float z1, float x2, float y2, float z2, int color) {

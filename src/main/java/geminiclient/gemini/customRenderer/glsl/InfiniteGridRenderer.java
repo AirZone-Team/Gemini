@@ -1,5 +1,8 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
@@ -14,7 +17,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 
-import java.util.OptionalInt;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -66,7 +69,7 @@ public final class InfiniteGridRenderer {
                     .withLocation(getIdentifier("pipeline/infinite_grid"))
                     .withVertexShader(GRID_PATH)
                     .withFragmentShader(GRID_PATH)
-                    .withUniform("GridUniforms", UniformType.UNIFORM_BUFFER)
+                    .withBindGroupLayout(GeminiRenderPipelines.uniform("GridUniforms"))
                     .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
                     .withCull(false)
                     .build();
@@ -94,7 +97,7 @@ public final class InfiniteGridRenderer {
     public static void render(float time) {
         ensureProgram();
 
-        RenderTarget fb = mc.getMainRenderTarget();
+        RenderTarget fb = mc.gameRenderer.mainRenderTarget();
         if (fb.getColorTexture() == null || fb.getColorTextureView() == null) {
             return;
         }
@@ -105,7 +108,7 @@ public final class InfiniteGridRenderer {
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
 
         // Write uniforms
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(uniforms, false, true)) {
+        try (GpuBufferSlice.MappedView view = uniforms.map(false, true)) {
             Std140Builder.intoBuffer(view.data())
                     .putVec4(fbWidth, fbHeight, time, 0f);
         }
@@ -114,12 +117,12 @@ public final class InfiniteGridRenderer {
         try (RenderPass renderPass = encoder.createRenderPass(
                 () -> "Gemini Infinite Grid",
                 fb.getColorTextureView(),
-                OptionalInt.empty()
+                Optional.empty()
         )) {
             renderPass.setPipeline(pipeline);
             RenderSystem.bindDefaultUniforms(renderPass);
             renderPass.setUniform("GridUniforms", uniforms);
-            renderPass.draw(0, 3);
+            renderPass.draw(3, 1, 0, 0);
         }
     }
 }

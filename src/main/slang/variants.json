@@ -1,0 +1,36 @@
+{
+  "core/vfx_post.frag.slang": [
+    "VFX_DISTORT",
+    "VFX_GODRAY",
+    "VFX_CHROMATIC",
+    "VFX_BLOOM_COMPOSITE",
+    "VFX_VIGNETTE"
+  ],
+  "core/mip_bloom.frag.slang": [
+    "MIP_BRIGHT",
+    "MIP_BLUR_H",
+    "MIP_BLUR_V",
+    "MIP_DOWNSAMPLE",
+    "MIP_UPSAMPLE",
+    "MIP_COMPOSITE"
+  ],
+  "core/kill_effect_post.frag.slang": [
+    "BRIGHT_PASS",
+    "BRIGHT_PASS_EDGE",
+    "BLUR_H",
+    "BLUR_V",
+    "DISTORTION",
+    "GODRAY",
+    "VOLUMETRIC_GODRAY",
+    "CHROMATIC",
+    "SCREEN_LIGHTING",
+    "SSRT",
+    "BLACK_HOLE",
+    "GLOW_FLASH",
+    "SHOCKWAVE",
+    "FLASH_SCREEN",
+    "AFTERIMAGE",
+    "ACES",
+    "COMPOSITE"
+  ]
+}

@@ -1,5 +1,12 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import com.mojang.blaze3d.IndexType;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+import geminiclient.gemini.customRenderer.GeminiRenderTargets;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.Std140Builder;
@@ -11,8 +18,7 @@ import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.DestFactor;
-import com.mojang.blaze3d.platform.SourceFactor;
+import com.mojang.blaze3d.platform.BlendFactor;
 import com.mojang.blaze3d.shaders.UniformType;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderPass;
@@ -23,7 +29,7 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.Tesselator;
+import geminiclient.gemini.customRenderer.GeminiTesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -32,7 +38,7 @@ import org.joml.Vector3f;
 import org.joml.Vector4f;
 
 import java.util.OptionalDouble;
-import java.util.OptionalInt;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -87,45 +93,48 @@ public final class SweepAttackRenderer {
     ) {}
 
     private static final DepthStencilState DEPTH_WRITE =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, true, -1f, -1f);
+            new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true, 1f, 1f);
     private static final DepthStencilState DEPTH_NO_WRITE =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false, -1f, -1f);
+            new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false, 1f, 1f);
     private static final ColorTargetState ADDITIVE_BLEND = new ColorTargetState(new BlendFunction(
-            SourceFactor.SRC_ALPHA, DestFactor.ONE, SourceFactor.ONE, DestFactor.ZERO));
+            BlendFactor.SRC_ALPHA, BlendFactor.ONE, BlendFactor.ONE, BlendFactor.ZERO));
     private static final ColorTargetState TRANSLUCENT_BLEND =
             new ColorTargetState(BlendFunction.TRANSLUCENT);
 
     public static final RenderPipeline SWEEP_ARC_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sweep_arc"))
             .withVertexShader(getIdentifier("core/sweep_arc"))
             .withFragmentShader(getIdentifier("core/sweep_arc"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
-            .withUniform("SweepUniforms", UniformType.UNIFORM_BUFFER)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
+            .withBindGroupLayout(GeminiRenderPipelines.uniform("SweepUniforms"))
             .withDepthStencilState(DEPTH_WRITE)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
             .build();
 
     public static final RenderPipeline SWEEP_PARTICLE_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sweep_particle"))
             .withVertexShader(getIdentifier("core/sweep_particle"))
             .withFragmentShader(getIdentifier("core/sweep_particle"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
-            .withUniform("SweepUniforms", UniformType.UNIFORM_BUFFER)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
+            .withBindGroupLayout(GeminiRenderPipelines.uniform("SweepUniforms"))
             .withDepthStencilState(DEPTH_WRITE)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
             .build();
 
     public static final RenderPipeline SWEEP_RING_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sweep_ring"))
             .withVertexShader(getIdentifier("core/sweep_arc"))
             .withFragmentShader(getIdentifier("core/sweep_arc"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
-            .withUniform("SweepUniforms", UniformType.UNIFORM_BUFFER)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
+            .withBindGroupLayout(GeminiRenderPipelines.uniform("SweepUniforms"))
             .withDepthStencilState(DEPTH_NO_WRITE)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
@@ -136,8 +145,8 @@ public final class SweepAttackRenderer {
             .withLocation(getIdentifier("pipeline/sweep_post"))
             .withVertexShader(getIdentifier("core/sweep_post"))
             .withFragmentShader(getIdentifier("core/sweep_post"))
-            .withUniform("SweepPostUniforms", UniformType.UNIFORM_BUFFER)
-            .withSampler("SceneSampler")
+            .withBindGroupLayout(GeminiRenderPipelines.uniformAndSamplers(
+                    "SweepPostUniforms", "SceneSampler"))
             .withColorTargetState(TRANSLUCENT_BLEND)
             .withCull(false)
             .build();
@@ -214,7 +223,7 @@ public final class SweepAttackRenderer {
     private static void writeUniforms(SweepAttackInstance inst, long nowMs,
                                       float sweep, float effect, Config config) {
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(uniforms, false, true)) {
+        try (GpuBufferSlice.MappedView view = uniforms.map(false, true)) {
             Std140Builder builder = Std140Builder.intoBuffer(view.data());
             builder.putVec4(nowMs / 1000f, sweep, effect, config.intensity());
             builder.putVec4(config.radius(), config.thickness(),
@@ -247,8 +256,8 @@ public final class SweepAttackRenderer {
             default -> 72;
         };
 
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         int echoCount = Math.min(Math.max(config.echoes(), 0), 5);
         for (int echo = echoCount; echo >= 0; echo--) {
@@ -310,8 +319,8 @@ public final class SweepAttackRenderer {
         float cameraZ = (float) camera.position().z;
         Matrix4f matrix = poseStack.last().pose();
         float range = positiveAngleRange(inst.arcStart, inst.arcEnd);
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         for (int i = 0; i < count; i++) {
             float t = (i + 0.35f) / count;
@@ -367,8 +376,8 @@ public final class SweepAttackRenderer {
         float cameraY = (float) camera.position().y;
         float cameraZ = (float) camera.position().z;
         Matrix4f matrix = poseStack.last().pose();
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         int drawn = 0;
 
         for (int i = 0; i < inst.particleCount; i++) {
@@ -409,8 +418,8 @@ public final class SweepAttackRenderer {
         float cameraY = (float) camera.position().y;
         float cameraZ = (float) camera.position().z;
         Matrix4f matrix = poseStack.last().pose();
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         int segmentsDrawn = 0;
 
         for (int bolt = 0; bolt < inst.boltCount; bolt++) {
@@ -477,8 +486,8 @@ public final class SweepAttackRenderer {
             float y = (float) inst.y - 0.12f + ring * 0.025f;
             int color = packColor(ring / 5f, 1f, 0f,
                     alpha * config.intensity() * (1f - ring * 0.11f));
-            BufferBuilder buffer = Tesselator.getInstance()
-                    .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+            BufferBuilder buffer = GeminiTesselator.getInstance()
+                    .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
             float x = (float) inst.x - cameraX;
             float z = (float) inst.z - cameraZ;
             buffer.addVertex(matrix, x - quadSize, y - cameraY, z - quadSize)
@@ -512,8 +521,8 @@ public final class SweepAttackRenderer {
         float y = (float) inst.y + config.verticalLift() * 0.5f - cameraY;
         float z = (float) inst.z + inst.dirZ * config.radius() * 0.56f - cameraZ;
         int color = packColor(progress, 1f, 1f, alpha * config.intensity());
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         buffer.addVertex(matrix, x - rightX - upX, y - rightY - upY, z - rightZ - upZ)
                 .setUv(0f, 0f).setColor(color);
         buffer.addVertex(matrix, x - rightX + upX, y - rightY + upY, z - rightZ + upZ)
@@ -536,24 +545,22 @@ public final class SweepAttackRenderer {
 
     private static void drawMesh(MeshData mesh, RenderPipeline pipeline, float time) {
         try {
-            GpuBuffer vertices = pipeline.getVertexFormat()
-                    .uploadImmediateVertexBuffer(mesh.vertexBuffer());
+            GpuBuffer vertices = GeminiTesselator.uploadVertexBuffer(pipeline.getVertexFormatBinding(0), mesh.vertexBuffer());
             GpuBuffer indices;
-            VertexFormat.IndexType indexType;
+            IndexType indexType;
             if (mesh.indexBuffer() == null) {
-                var autoIndices = RenderSystem.getSequentialBuffer(mesh.drawState().mode());
+                var autoIndices = RenderSystem.getSequentialBuffer(mesh.drawState().primitiveTopology());
                 indices = autoIndices.getBuffer(mesh.drawState().indexCount());
                 indexType = autoIndices.type();
             } else {
-                indices = pipeline.getVertexFormat()
-                        .uploadImmediateIndexBuffer(mesh.indexBuffer());
+                indices = GeminiTesselator.uploadIndexBuffer(pipeline.getVertexFormatBinding(0), mesh.indexBuffer());
                 indexType = mesh.drawState().indexType();
             }
 
             GpuBufferSlice transforms = RenderSystem.getDynamicUniforms().writeTransform(
                     new Matrix4f(), new Vector4f(1f, 1f, 1f, 1f),
                     new Vector3f(time, 0f, 0f), new Matrix4f());
-            RenderTarget target = mc.getMainRenderTarget();
+            RenderTarget target = mc.gameRenderer.mainRenderTarget();
             GpuTextureView colorTexture = RenderSystem.outputColorTextureOverride != null
                     ? RenderSystem.outputColorTextureOverride : target.getColorTextureView();
             GpuTextureView depthTexture = target.useDepth
@@ -562,15 +569,15 @@ public final class SweepAttackRenderer {
                     : null;
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             try (RenderPass pass = encoder.createRenderPass(
-                    () -> "Sweeping Attack VFX", colorTexture, OptionalInt.empty(),
+                    () -> "Sweeping Attack VFX", colorTexture, Optional.empty(),
                     depthTexture, OptionalDouble.empty())) {
                 pass.setPipeline(pipeline);
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("DynamicTransforms", transforms);
                 pass.setUniform("SweepUniforms", uniforms);
-                pass.setVertexBuffer(0, vertices);
+                pass.setVertexBuffer(0, vertices.slice());
                 pass.setIndexBuffer(indices, indexType);
-                pass.drawIndexed(0, 0, mesh.drawState().indexCount(), 1);
+                pass.drawIndexed(mesh.drawState().indexCount(), 1, 0, 0, 0);
             }
         } finally {
             mesh.close();
@@ -582,15 +589,15 @@ public final class SweepAttackRenderer {
         if (distortion <= 0.001f && chromatic <= 0.001f
                 && flash <= 0.001f && vignette <= 0.001f) return;
         ensureInit();
-        RenderTarget target = mc.getMainRenderTarget();
+        RenderTarget target = mc.gameRenderer.mainRenderTarget();
         if (target.getColorTexture() == null || target.getColorTextureView() == null) return;
         int width = mc.getWindow().getWidth();
         int height = mc.getWindow().getHeight();
-        if (sceneCopy == null) sceneCopy = new TextureTarget("SweepScene", width, height, false);
+        if (sceneCopy == null) sceneCopy = GeminiRenderTargets.colorTarget("SweepScene", width, height, false);
         if (sceneCopy.width != width || sceneCopy.height != height) sceneCopy.resize(width, height);
 
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(postUniforms, false, true)) {
+        try (GpuBufferSlice.MappedView view = postUniforms.map(false, true)) {
             Std140Builder builder = Std140Builder.intoBuffer(view.data());
             builder.putVec4(width, height, nowSeconds(), 0f);
             builder.putVec4(distortion, chromatic, flash, vignette);
@@ -600,13 +607,13 @@ public final class SweepAttackRenderer {
                 0, 0, 0, 0, 0, width, height);
         try (RenderPass pass = encoder.createRenderPass(
                 () -> "Sweep Attack Post FX",
-                target.getColorTextureView(), OptionalInt.empty())) {
+                target.getColorTextureView(), Optional.empty())) {
             pass.setPipeline(SWEEP_POST_PIPE);
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("SweepPostUniforms", postUniforms);
             pass.bindTexture("SceneSampler", sceneCopy.getColorTextureView(),
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
-            pass.draw(0, 3);
+            pass.draw(3, 1, 0, 0);
         }
     }
 

@@ -21,7 +21,7 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ambient.Bat;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.decoration.ArmorStand;
-import net.minecraft.world.entity.monster.Slime;
+import net.minecraft.world.entity.monster.cubemob.Slime;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -615,9 +615,10 @@ public class KillAura extends Module {
         entities.clear();
         curr = null;
         for (Entity entity : mc.level.entitiesForRendering()) {
-            // 注意：这里假设你的 ReachUtils 返回的是实际距离的平方，如果是返回单边距离，请将 range.getValue() * range.getValue() 改回 range.getValue()
             if (isValidTarget(entity) && isInFov(entity) &&
-                    ReachUtils.getMinDistanceBetweenEntities(mc.player.getBoundingBox(), 0.1, mc.player.getX(), mc.player.getY(), mc.player.getZ(), entity.getBoundingBox(), 0.0, entity.getX(), entity.getY(), entity.getZ()) < range.getValue() * range.getValue()) {
+                    ReachUtils.getMinDistanceSquaredBetweenEntities(
+                            mc.player.getBoundingBox(), 0.1,
+                            entity.getBoundingBox(), 0.0) < range.getValue() * range.getValue()) {
                 entities.add(entity);
             }
         }
@@ -647,7 +648,7 @@ public class KillAura extends Module {
             return false;
         if (mc.player.isUsingItem() && stop.boolValues[0].enabled)
             return false;
-        return mc.screen == null || !stop.boolValues[1].enabled;
+        return mc.gui.screen() == null || !stop.boolValues[1].enabled;
     }
 
     private boolean isValidTarget(Entity entity) {

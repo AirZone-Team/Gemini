@@ -1,6 +1,5 @@
 package geminiclient.mixin;
 
-import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectInstance;
@@ -14,7 +13,6 @@ import geminiclient.gemini.modules.impl.visual.clickgui.AbstractClickGuiScreen;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.state.GameRenderState;
 import net.minecraft.client.renderer.state.gui.GuiRenderState;
@@ -35,18 +33,6 @@ public class MixinGameRenderer {
     private final GameRenderState gameRenderState = new GameRenderState();
 
     /**
-     * While a ClickGui screen is open, skip the vanilla screen extraction in
-     * {@code extractGui}. The screen's render state is submitted later in
-     * {@link #inject2D}, after the client HUD modules, so the ClickGui draws
-     * on top of every other HUD element.
-     */
-    @WrapWithCondition(method = "extractGui", at = @At(value = "INVOKE",
-            target = "Lnet/neoforged/neoforge/client/ClientHooks;drawScreen(Lnet/minecraft/client/gui/screens/Screen;Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V"))
-    public boolean deferClickGuiExtraction(Screen screen, GuiGraphicsExtractor graphics, int mouseX, int mouseY, float deltaTicks) {
-        return !(screen instanceof AbstractClickGuiScreen);
-    }
-
-    /**
      * While a ClickGui screen is open, override the blur radius used by the
      * vanilla menu-blur post chain for this frame. The field is re-extracted
      * from the game options every frame, so the original value is restored
@@ -54,7 +40,7 @@ public class MixinGameRenderer {
      */
     @Inject(method = "render", at = @At("HEAD"))
     public void applyClickGuiBlurRadius(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
-        if (this.minecraft.screen instanceof AbstractClickGuiScreen screen) {
+        if (this.minecraft.gui.screen() instanceof AbstractClickGuiScreen screen) {
             ClickGui clickGui = Gemini.moduleManager.getModule(ClickGui.class);
             int strength = clickGui != null ? clickGui.getBlurStrength() : 0;
             this.gameRenderState.optionsRenderState.menuBackgroundBlurriness =
@@ -62,7 +48,7 @@ public class MixinGameRenderer {
         }
     }
 
-    @Inject(method = "render",at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;render(Lcom/mojang/blaze3d/buffers/GpuBufferSlice;)V"))
+    @Inject(method = "render",at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;render()V"))
     public void inject2D(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
         int i = (int) this.minecraft.mouseHandler.getScaledXPos(this.minecraft.getWindow());
         int j = (int) this.minecraft.mouseHandler.getScaledYPos(this.minecraft.getWindow());
@@ -74,8 +60,8 @@ public class MixinGameRenderer {
         // Everything submitted so far (vanilla HUD + client HUD modules such as
         // the ArrayList) sits in strata before the boundary and gets blurred by
         // the vanilla blur pass; the ClickGui strata draw sharp on top of it.
-        if (this.minecraft.screen instanceof AbstractClickGuiScreen screen
-                && this.minecraft.getOverlay() == null) {
+        if (this.minecraft.gui.screen() instanceof AbstractClickGuiScreen screen
+                && this.minecraft.gui.overlay() == null) {
             GuiRenderState guiState = this.gameRenderState.guiRenderState;
             guiState.nextStratum();
 
@@ -99,7 +85,7 @@ public class MixinGameRenderer {
      *             → (BH Center|Glow Flash|Shockwave) → ACES
      */
     @Inject(method = "render", at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/client/gui/render/GuiRenderer;render(Lcom/mojang/blaze3d/buffers/GpuBufferSlice;)V"))
+            target = "Lnet/minecraft/client/gui/render/GuiRenderer;render()V"))
     public void injectPostProcess(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
         KillEffect killEffect = Gemini.moduleManager.getModule(KillEffect.class);
         if (killEffect == null || !killEffect.enabled || !killEffect.hasActiveEffects()) return;
@@ -351,8 +337,8 @@ public class MixinGameRenderer {
         return t * t * (3f - 2f * t);
     }
 
-    @Inject(method = "getNightVisionScale", at = @At("HEAD"), cancellable = true)
-    private static void getNightVisionScale(LivingEntity camera, float a, CallbackInfoReturnable<Float> cir) {
+    @Inject(method = "nightVisionScale", at = @At("HEAD"), cancellable = true)
+    private static void overrideNightVisionScale(LivingEntity camera, float partialTick, CallbackInfoReturnable<Float> cir) {
         FullLight module = Gemini.moduleManager.getModule(FullLight.class);
         if (module.enabled) {
             cir.setReturnValue(1f);

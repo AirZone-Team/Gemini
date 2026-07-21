@@ -899,7 +899,7 @@ public class AltManagerScreen extends Screen {
             return;
         }
         MicrosoftAuthService.cancelActive();
-        this.minecraft.setScreen(parent);
+        this.minecraft.gui.setScreen(parent);
     }
 
     @Override

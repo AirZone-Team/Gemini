@@ -1,5 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+import geminiclient.gemini.customRenderer.GeminiRenderTargets;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
@@ -16,10 +20,11 @@ import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import net.minecraft.client.renderer.RenderPipelines;
 
-import java.util.OptionalInt;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
+import static geminiclient.gemini.customRenderer.SlangShaderAssets.variant;
 import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
@@ -121,11 +126,9 @@ public final class MipBloomProcessor {
         return RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
                 .withLocation(getIdentifier("pipeline/" + loc))
                 .withVertexShader(getIdentifier(BLOOM_VSH))
-                .withFragmentShader(getIdentifier(BLOOM_FSH))
-                .withShaderDefine(define)
-                .withUniform("BloomUniforms", UniformType.UNIFORM_BUFFER)
-                .withSampler("SceneSampler")
-                .withSampler("BloomSampler")
+                .withFragmentShader(getIdentifier(variant(BLOOM_FSH, define)))
+                .withBindGroupLayout(GeminiRenderPipelines.uniformAndSamplers(
+                        "BloomUniforms", "SceneSampler", "BloomSampler"))
                 .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
                 .withCull(false)
                 .build();
@@ -146,13 +149,13 @@ public final class MipBloomProcessor {
     // ── Resource management ─────────────────────────────────────────
 
     private static void ensureTargets(int w, int h) {
-        if (sceneCopy == null) sceneCopy = new TextureTarget("MBScene", w, h, false);
+        if (sceneCopy == null) sceneCopy = GeminiRenderTargets.colorTarget("MBScene", w, h, false);
 
         int mw = w, mh = h;
         for (int i = 0; i < MIP_COUNT; i++) {
-            if (mipBright[i] == null) mipBright[i] = new TextureTarget("MBBright" + i, mw, mh, false);
-            if (mipPing[i] == null)   mipPing[i]   = new TextureTarget("MBPing" + i, mw, mh, false);
-            if (mipPong[i] == null)   mipPong[i]   = new TextureTarget("MBPong" + i, mw, mh, false);
+            if (mipBright[i] == null) mipBright[i] = GeminiRenderTargets.colorTarget("MBBright" + i, mw, mh, false);
+            if (mipPing[i] == null)   mipPing[i]   = GeminiRenderTargets.colorTarget("MBPing" + i, mw, mh, false);
+            if (mipPong[i] == null)   mipPong[i]   = GeminiRenderTargets.colorTarget("MBPong" + i, mw, mh, false);
 
             if (mipBright[i].width != mw || mipBright[i].height != mh) mipBright[i].resize(mw, mh);
             if (mipPing[i].width != mw || mipPing[i].height != mh)     mipPing[i].resize(mw, mh);
@@ -183,7 +186,7 @@ public final class MipBloomProcessor {
     private static void runPass(CommandEncoder encoder, RenderPipeline pipe,
                                  GpuTextureView sceneSrc, GpuTextureView bloomSrc,
                                  GpuTextureView dest, String label) {
-        try (RenderPass pass = encoder.createRenderPass(() -> label, dest, OptionalInt.empty())) {
+        try (RenderPass pass = encoder.createRenderPass(() -> label, dest, Optional.empty())) {
             pass.setPipeline(pipe);
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("BloomUniforms", uniforms);
@@ -191,7 +194,7 @@ public final class MipBloomProcessor {
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
             pass.bindTexture("BloomSampler", bloomSrc,
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
-            pass.draw(0, 3);
+            pass.draw(3, 1, 0, 0);
         }
     }
 
@@ -207,7 +210,7 @@ public final class MipBloomProcessor {
      */
     public static void processFrame(float threshold, boolean toMainFb) {
         ensureInit();
-        RenderTarget fb = mc.getMainRenderTarget();
+        RenderTarget fb = mc.gameRenderer.mainRenderTarget();
         if (fb.getColorTexture() == null || fb.getColorTextureView() == null) return;
 
         int fbW = mc.getWindow().getWidth();
@@ -217,7 +220,7 @@ public final class MipBloomProcessor {
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
 
         // ── Write uniforms ──────────────────────────────────────────
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(uniforms, false, true)) {
+        try (GpuBufferSlice.MappedView view = uniforms.map(false, true)) {
             Std140Builder b = Std140Builder.intoBuffer(view.data());
             b.putVec4(fbW, fbH, threshold, 0f);
             // Default weights: w0=0.5, w1=0.7, w2=1.0, w3=1.5 (w4=2.0 implied by sum)

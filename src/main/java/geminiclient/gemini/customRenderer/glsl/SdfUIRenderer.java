@@ -1,11 +1,15 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.GpuFormat;
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
-import com.mojang.blaze3d.vertex.VertexFormatElement;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.render.TextureSetup;
@@ -51,55 +55,59 @@ public final class SdfUIRenderer {
     /** Margin (GUI px) the fill/outline quad is expanded by so the AA ramp fits inside the quad. */
     private static final float AA_MARGIN = 1.5f;
 
-    public static final VertexFormat SDF_FORMAT = VertexFormat.builder()
-            .add("Position", VertexFormatElement.POSITION)
-            .add("Color", VertexFormatElement.COLOR)
-            .add("UV0", VertexFormatElement.UV0)
-            .add("UV1", VertexFormatElement.UV1)
-            .add("UV2", VertexFormatElement.UV2)
+    public static final VertexFormat SDF_FORMAT = VertexFormat.builder(0)
+            .addAttribute("Position", GpuFormat.RGB32_FLOAT)
+            .addAttribute("Color", GpuFormat.RGBA8_UNORM)
+            .addAttribute("UV0", GpuFormat.RG32_FLOAT)
+            .addAttribute("UV1", GpuFormat.RG16_SINT)
+            .addAttribute("UV2", GpuFormat.RG16_SINT)
             .build();
 
     /** Anti-aliased rounded-rect fill / border pipeline. */
     public static final RenderPipeline SDF_RECT_PIPELINE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sdf_rounded_rect"))
             .withVertexShader(getIdentifier("core/sdf_rounded"))
             .withFragmentShader(getIdentifier("core/sdf_rounded_rect"))
             .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-            .withVertexFormat(SDF_FORMAT, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, SDF_FORMAT)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withCull(false)
             .build();
 
     /** Gaussian penumbra shadow that follows the corner radius. */
     public static final RenderPipeline SDF_SHADOW_PIPELINE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sdf_rounded_shadow"))
             .withVertexShader(getIdentifier("core/sdf_rounded"))
             .withFragmentShader(getIdentifier("core/sdf_rounded_shadow"))
             .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-            .withVertexFormat(SDF_FORMAT, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, SDF_FORMAT)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withCull(false)
             .build();
 
     /** Material 3 波浪圆形进度带（仅进度带；平坦轨道用 {@link #drawRing} 绘制）。 */
     public static final RenderPipeline SDF_WAVY_RING_PIPELINE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sdf_wavy_ring"))
             .withVertexShader(getIdentifier("core/sdf_rounded"))
             .withFragmentShader(getIdentifier("core/sdf_wavy_ring"))
             .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-            .withVertexFormat(SDF_FORMAT, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, SDF_FORMAT)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withCull(false)
             .build();
 
     /** Anti-aliased Material 3 icon primitives (heart, chevron, check, close). */
     public static final RenderPipeline SDF_ICON_PIPELINE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/sdf_md3_icon"))
             .withVertexShader(getIdentifier("core/sdf_rounded"))
             .withFragmentShader(getIdentifier("core/sdf_md3_icon"))
             .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-            .withVertexFormat(SDF_FORMAT, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, SDF_FORMAT)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withCull(false)
             .build();
 

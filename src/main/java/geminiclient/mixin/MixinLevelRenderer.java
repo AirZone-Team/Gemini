@@ -38,7 +38,7 @@ public class MixinLevelRenderer {
      * billboards (magic circle, black hole, hypernova planes, particles) will
      * shake — which is the desired behavior.</p>
      */
-    @Inject(method = "renderLevel", at = @At("HEAD"))
+    @Inject(method = "render", at = @At("HEAD"))
     private void onPreRenderLevel(GraphicsResourceAllocator resourceAllocator,
                                    DeltaTracker deltaTracker,
                                    boolean renderOutline,
@@ -47,7 +47,6 @@ public class MixinLevelRenderer {
                                    GpuBufferSlice terrainFog,
                                    Vector4f fogColor,
                                    boolean shouldRenderSky,
-                                   ChunkSectionsToRender chunkSectionsToRender,
                                    CallbackInfo ci) {
         KillEffect killEffect = Gemini.moduleManager.getModule(KillEffect.class);
         if (killEffect == null || !killEffect.enabled) return;
@@ -55,7 +54,7 @@ public class MixinLevelRenderer {
         float shake = killEffect.getShakeIntensity();
         if (shake < 0.001f) return;
 
-        var cam = Minecraft.getInstance().gameRenderer.getMainCamera();
+        var cam = Minecraft.getInstance().gameRenderer.mainCamera();
         Quaternionf rot = cam.rotation();
 
         // Save original rotation before modifying
@@ -83,21 +82,20 @@ public class MixinLevelRenderer {
     /**
      * Restore original camera rotation and fire {@link Render3DEvent}.
      */
-    @Inject(method = "renderLevel", at = @At("RETURN"))
+    @Inject(method = "render", at = @At("RETURN"))
     private void onPostRenderLevel(GraphicsResourceAllocator resourceAllocator,
-                                    DeltaTracker deltaTracker,
-                                    boolean renderOutline,
-                                    CameraRenderState cameraState,
-                                    Matrix4fc modelViewMatrix,
-                                    GpuBufferSlice terrainFog,
-                                    Vector4f fogColor,
-                                    boolean shouldRenderSky,
-                                    ChunkSectionsToRender chunkSectionsToRender,
-                                    CallbackInfo ci) {
+                                  DeltaTracker deltaTracker,
+                                  boolean renderOutline,
+                                  CameraRenderState cameraState,
+                                  Matrix4fc modelViewMatrix,
+                                  GpuBufferSlice terrainFog,
+                                  Vector4f fogColor,
+                                  boolean shouldRenderSky,
+                                  CallbackInfo ci) {
         // ── Restore camera rotation (undo shake) ─────────────────────
         KillEffect killEffect = Gemini.moduleManager.getModule(KillEffect.class);
         if (killEffect != null && killEffect.enabled && killEffect.getShakeIntensity() > 0.001f) {
-            var cam = Minecraft.getInstance().gameRenderer.getMainCamera();
+            var cam = Minecraft.getInstance().gameRenderer.mainCamera();
             cam.rotation().set(savedRotation);
         }
 

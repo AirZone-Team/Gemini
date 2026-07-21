@@ -8,7 +8,7 @@ public class ClientUtils {
     private static final String PREFIX = "§7[§b" + "Gemini" + "§7] ";
 
     public static void component(Component component) {
-        ChatComponent chat = Minecraft.getInstance().gui.getChat();
+        ChatComponent chat = Minecraft.getInstance().gui.hud.getChat();
         chat.addClientSystemMessage(component);
     }
 

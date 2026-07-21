@@ -1,5 +1,7 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
+
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.CommandEncoder;
@@ -87,7 +89,7 @@ public class GpuImageProcessor {
 
         encoder.copyTextureToBuffer(texture.getTexture(), stagingBuffer, 0, () -> {
             try {
-                GpuBuffer.MappedView view = encoder.mapBuffer(stagingBuffer, true, false);
+                GpuBufferSlice.MappedView view = stagingBuffer.map(true, false);
                 ByteBuffer data = view.data();
                 NativeImage img = new NativeImage(width, height, false);
                 for (int y = 0; y < height; y++) {

@@ -1,5 +1,11 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import com.mojang.blaze3d.IndexType;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.BlendFunction;
@@ -8,8 +14,7 @@ import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.DestFactor;
-import com.mojang.blaze3d.platform.SourceFactor;
+import com.mojang.blaze3d.platform.BlendFactor;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.GpuTextureView;
@@ -17,7 +22,7 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.Tesselator;
+import geminiclient.gemini.customRenderer.GeminiTesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import geminiclient.gemini.modules.impl.visual.trail.TrailPoint;
 import net.minecraft.client.Camera;
@@ -30,7 +35,7 @@ import org.joml.Vector4f;
 
 import java.util.List;
 import java.util.OptionalDouble;
-import java.util.OptionalInt;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -52,14 +57,14 @@ public final class TrailRenderer {
     private TrailRenderer() {}
 
     private static final DepthStencilState DEPTH =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -1.0F);
+            new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0F, 1.0F);
     private static final DepthStencilState XRAY =
             new DepthStencilState(CompareOp.ALWAYS_PASS, false, -1.0F, -1.0F);
     private static final ColorTargetState ADDITIVE = new ColorTargetState(new BlendFunction(
-            SourceFactor.SRC_ALPHA, DestFactor.ONE, SourceFactor.ONE, DestFactor.ZERO));
+            BlendFactor.SRC_ALPHA, BlendFactor.ONE, BlendFactor.ONE, BlendFactor.ZERO));
     private static final ColorTargetState SOFT = new ColorTargetState(new BlendFunction(
-            SourceFactor.SRC_ALPHA, DestFactor.ONE_MINUS_SRC_ALPHA,
-            SourceFactor.ONE, DestFactor.ONE_MINUS_SRC_ALPHA));
+            BlendFactor.SRC_ALPHA, BlendFactor.ONE_MINUS_SRC_ALPHA,
+            BlendFactor.ONE, BlendFactor.ONE_MINUS_SRC_ALPHA));
 
     public static final RenderPipeline TRAIL_PIPE = createPipeline("trail_ribbon", DEPTH, ADDITIVE);
     private static final RenderPipeline TRAIL_SOFT = createPipeline("trail_ribbon_soft", DEPTH, SOFT);
@@ -69,11 +74,12 @@ public final class TrailRenderer {
 
     private static RenderPipeline createPipeline(
             String location, DepthStencilState depth, ColorTargetState blend) {
-        return RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+        return RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
                 .withLocation(getIdentifier("pipeline/" + location))
                 .withVertexShader(getIdentifier("core/trail_ribbon"))
                 .withFragmentShader(getIdentifier("core/trail_ribbon"))
-                .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+                .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
                 .withDepthStencilState(depth)
                 .withColorTargetState(blend)
                 .withCull(false)
@@ -154,8 +160,8 @@ public final class TrailRenderer {
         float cameraY = (float) camera.position().y;
         float cameraZ = (float) camera.position().z;
         Matrix4f matrix = poseStack.last().pose();
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         for (int i = 0; i < size - 1; i++) {
             TrailPoint a = points.get(i);
@@ -204,15 +210,15 @@ public final class TrailRenderer {
     private static void drawMesh(
             MeshData mesh, RenderPipeline pipeline, float time, TrailConfig config) {
         try {
-            GpuBuffer vertices = pipeline.getVertexFormat().uploadImmediateVertexBuffer(mesh.vertexBuffer());
+            GpuBuffer vertices = GeminiTesselator.uploadVertexBuffer(pipeline.getVertexFormatBinding(0), mesh.vertexBuffer());
             GpuBuffer indices;
-            VertexFormat.IndexType indexType;
+            IndexType indexType;
             if (mesh.indexBuffer() == null) {
-                var autoIndices = RenderSystem.getSequentialBuffer(mesh.drawState().mode());
+                var autoIndices = RenderSystem.getSequentialBuffer(mesh.drawState().primitiveTopology());
                 indices = autoIndices.getBuffer(mesh.drawState().indexCount());
                 indexType = autoIndices.type();
             } else {
-                indices = pipeline.getVertexFormat().uploadImmediateIndexBuffer(mesh.indexBuffer());
+                indices = GeminiTesselator.uploadIndexBuffer(pipeline.getVertexFormatBinding(0), mesh.indexBuffer());
                 indexType = mesh.drawState().indexType();
             }
 
@@ -232,7 +238,7 @@ public final class TrailRenderer {
                     new Vector3f(time, config.quality, 0f),
                     material);
 
-            RenderTarget target = mc.getMainRenderTarget();
+            RenderTarget target = mc.gameRenderer.mainRenderTarget();
             GpuTextureView colorTexture = RenderSystem.outputColorTextureOverride != null
                     ? RenderSystem.outputColorTextureOverride : target.getColorTextureView();
             GpuTextureView depthTexture = target.useDepth
@@ -242,14 +248,14 @@ public final class TrailRenderer {
 
             var encoder = RenderSystem.getDevice().createCommandEncoder();
             try (RenderPass pass = encoder.createRenderPass(
-                    () -> "TrailRibbon", colorTexture, OptionalInt.empty(),
+                    () -> "TrailRibbon", colorTexture, Optional.empty(),
                     depthTexture, OptionalDouble.empty())) {
                 pass.setPipeline(pipeline);
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("DynamicTransforms", dynamicTransforms);
-                pass.setVertexBuffer(0, vertices);
+                pass.setVertexBuffer(0, vertices.slice());
                 pass.setIndexBuffer(indices, indexType);
-                pass.drawIndexed(0, 0, mesh.drawState().indexCount(), 1);
+                pass.drawIndexed(mesh.drawState().indexCount(), 1, 0, 0, 0);
             }
         } finally {
             mesh.close();

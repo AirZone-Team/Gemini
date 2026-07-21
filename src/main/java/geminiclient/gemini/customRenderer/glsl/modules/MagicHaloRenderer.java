@@ -1,5 +1,11 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import com.mojang.blaze3d.IndexType;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.Std140Builder;
@@ -10,8 +16,7 @@ import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.DestFactor;
-import com.mojang.blaze3d.platform.SourceFactor;
+import com.mojang.blaze3d.platform.BlendFactor;
 import com.mojang.blaze3d.shaders.UniformType;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderPass;
@@ -21,7 +26,7 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.Tesselator;
+import geminiclient.gemini.customRenderer.GeminiTesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.math.Axis;
 import net.minecraft.client.Camera;
@@ -32,7 +37,7 @@ import org.joml.Vector3f;
 import org.joml.Vector4f;
 
 import java.util.OptionalDouble;
-import java.util.OptionalInt;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -60,19 +65,20 @@ public final class MagicHaloRenderer {
     private static GpuBuffer haloUniforms;
 
     private static final DepthStencilState HALO_DEPTH =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -1.0F);
+            new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0F, 1.0F);
 
     private static final ColorTargetState HALO_BLEND = new ColorTargetState(new BlendFunction(
-            SourceFactor.SRC_ALPHA, DestFactor.ONE,
-            SourceFactor.ONE, DestFactor.ZERO));
+            BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+            BlendFactor.ONE, BlendFactor.ZERO));
 
     public static final RenderPipeline HALO_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/magic_halo"))
             .withVertexShader(getIdentifier("core/magic_halo"))
             .withFragmentShader(getIdentifier("core/magic_halo"))
-            .withUniform("HaloUniforms", UniformType.UNIFORM_BUFFER)
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.TRIANGLES)
+            .withBindGroupLayout(GeminiRenderPipelines.uniform("HaloUniforms"))
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
             .withDepthStencilState(HALO_DEPTH)
             .withColorTargetState(HALO_BLEND)
             .withCull(false)
@@ -140,8 +146,8 @@ public final class MagicHaloRenderer {
         }
         Matrix4f poseMatrix = poseStack.last().pose();
 
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         buffer.addVertex(poseMatrix, -radius, 0f, -radius).setUv(0f, 0f).setColor(0xFFFFFFFF);
         buffer.addVertex(poseMatrix, -radius, 0f, radius).setUv(0f, 1f).setColor(0xFFFFFFFF);
@@ -151,19 +157,17 @@ public final class MagicHaloRenderer {
         MeshData mesh = buffer.buildOrThrow();
 
         try {
-            GpuBuffer vertices = HALO_PIPE.getVertexFormat()
-                    .uploadImmediateVertexBuffer(mesh.vertexBuffer());
+            GpuBuffer vertices = GeminiTesselator.uploadVertexBuffer(HALO_PIPE.getVertexFormatBinding(0), mesh.vertexBuffer());
 
             GpuBuffer indices;
-            VertexFormat.IndexType indexType;
+            IndexType indexType;
             if (mesh.indexBuffer() == null) {
                 RenderSystem.AutoStorageIndexBuffer autoIndices =
-                        RenderSystem.getSequentialBuffer(mesh.drawState().mode());
+                        RenderSystem.getSequentialBuffer(mesh.drawState().primitiveTopology());
                 indices = autoIndices.getBuffer(mesh.drawState().indexCount());
                 indexType = autoIndices.type();
             } else {
-                indices = HALO_PIPE.getVertexFormat()
-                        .uploadImmediateIndexBuffer(mesh.indexBuffer());
+                indices = GeminiTesselator.uploadIndexBuffer(HALO_PIPE.getVertexFormatBinding(0), mesh.indexBuffer());
                 indexType = mesh.drawState().indexType();
             }
 
@@ -174,7 +178,7 @@ public final class MagicHaloRenderer {
                             new Vector3f(),
                             new Matrix4f());
 
-            RenderTarget mainTarget = mc.getMainRenderTarget();
+            RenderTarget mainTarget = mc.gameRenderer.mainRenderTarget();
             GpuTextureView colorTexture = RenderSystem.outputColorTextureOverride != null
                     ? RenderSystem.outputColorTextureOverride
                     : mainTarget.getColorTextureView();
@@ -190,7 +194,7 @@ public final class MagicHaloRenderer {
             try (RenderPass pass = encoder.createRenderPass(
                     () -> "MagicHalo",
                     colorTexture,
-                    OptionalInt.empty(),
+                    Optional.empty(),
                     depthTexture,
                     OptionalDouble.empty())) {
 
@@ -198,9 +202,9 @@ public final class MagicHaloRenderer {
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("DynamicTransforms", dynamicTransforms);
                 pass.setUniform("HaloUniforms", haloUniforms);
-                pass.setVertexBuffer(0, vertices);
+                pass.setVertexBuffer(0, vertices.slice());
                 pass.setIndexBuffer(indices, indexType);
-                pass.drawIndexed(0, 0, mesh.drawState().indexCount(), 1);
+                pass.drawIndexed(mesh.drawState().indexCount(), 1, 0, 0, 0);
             }
         } finally {
             mesh.close();
@@ -222,7 +226,7 @@ public final class MagicHaloRenderer {
         float[] secondary = rgb(settings.secondaryColor());
         float[] accent = rgb(settings.accentColor());
 
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(haloUniforms, false, true)) {
+        try (GpuBufferSlice.MappedView view = haloUniforms.map(false, true)) {
             Std140Builder.intoBuffer(view.data())
                     .putVec4(settings.time(), settings.style(), settings.colorMode(), settings.flags())
                     .putVec4(primary[0], primary[1], primary[2], settings.alpha())

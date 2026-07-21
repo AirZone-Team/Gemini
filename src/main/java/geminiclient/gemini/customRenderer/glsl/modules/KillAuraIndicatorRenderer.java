@@ -1,16 +1,19 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.DestFactor;
-import com.mojang.blaze3d.platform.SourceFactor;
+import com.mojang.blaze3d.platform.BlendFactor;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.Tesselator;
+import geminiclient.gemini.customRenderer.GeminiTesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -53,16 +56,17 @@ public final class KillAuraIndicatorRenderer {
     public static final int MATERIAL_EYE = 6;
 
     public static final RenderPipeline KILLAURA_DOTS_PIPELINE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/killaura_dots"))
             .withVertexShader(getIdentifier("core/killaura_dots"))
             .withFragmentShader(getIdentifier("core/killaura_dots"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withDepthStencilState(new DepthStencilState(
-                    CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -1.0F))
+                    CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0F, 1.0F))
             .withColorTargetState(new ColorTargetState(new BlendFunction(
-                    SourceFactor.SRC_ALPHA, DestFactor.ONE,
-                    SourceFactor.ONE, DestFactor.ZERO)))
+                    BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+                    BlendFactor.ONE, BlendFactor.ZERO)))
             .withCull(false)
             .build();
 
@@ -104,8 +108,8 @@ public final class KillAuraIndicatorRenderer {
         Vector3f right = camRot.transform(new Vector3f(1, 0, 0));
         Matrix4f viewMatrix = poseStack.last().pose();
 
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         for (int i = 0; i < particleCount; i++) {
             int offset = i * PARTICLE_STRIDE;
@@ -169,7 +173,7 @@ public final class KillAuraIndicatorRenderer {
                     .setUv(materialU + 1f, 0f).setColor(argb);
         }
 
-        KILLAURA_DOTS_TYPE.draw(buffer.buildOrThrow());
+        GeminiTesselator.draw(KILLAURA_DOTS_TYPE, buffer.buildOrThrow());
     }
 
     private static int channelToByte(float value) {

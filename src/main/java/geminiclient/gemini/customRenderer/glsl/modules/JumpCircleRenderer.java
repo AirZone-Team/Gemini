@@ -1,5 +1,8 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import com.mojang.blaze3d.GpuFormat;
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
@@ -7,9 +10,8 @@ import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.Tesselator;
+import geminiclient.gemini.customRenderer.GeminiTesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
-import com.mojang.blaze3d.vertex.VertexFormatElement;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.LayeringTransform;
@@ -36,12 +38,12 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
  */
 public final class JumpCircleRenderer {
 
-    private static final VertexFormat JUMP_CIRCLE_FORMAT = VertexFormat.builder()
-            .add("Position", VertexFormatElement.POSITION)
-            .add("Color", VertexFormatElement.COLOR)
-            .add("UV0", VertexFormatElement.UV0)
-            .add("UV1", VertexFormatElement.UV1)
-            .add("UV2", VertexFormatElement.UV2)
+    private static final VertexFormat JUMP_CIRCLE_FORMAT = VertexFormat.builder(0)
+            .addAttribute("Position", GpuFormat.RGB32_FLOAT)
+            .addAttribute("Color", GpuFormat.RGBA8_UNORM)
+            .addAttribute("UV0", GpuFormat.RG32_FLOAT)
+            .addAttribute("UV1", GpuFormat.RG16_SINT)
+            .addAttribute("UV2", GpuFormat.RG16_SINT)
             .build();
 
     public static final RenderPipeline RING_PIPELINE =
@@ -49,9 +51,10 @@ public final class JumpCircleRenderer {
                     .withLocation(getIdentifier("pipeline/jump_circle"))
                     .withVertexShader(getIdentifier("core/jump_circle_screen"))
                     .withFragmentShader(getIdentifier("core/jump_circle"))
-                    .withVertexFormat(JUMP_CIRCLE_FORMAT, VertexFormat.Mode.QUADS)
+                    .withVertexBinding(0, JUMP_CIRCLE_FORMAT)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
                     .withDepthStencilState(new DepthStencilState(
-                            CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -1.0F))
+                            CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0F, 1.0F))
                     .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
                     .withCull(false)
                     .build();
@@ -61,9 +64,10 @@ public final class JumpCircleRenderer {
                     .withLocation(getIdentifier("pipeline/jump_circle_shadow"))
                     .withVertexShader(getIdentifier("core/jump_circle_screen"))
                     .withFragmentShader(getIdentifier("core/jump_circle_shadow"))
-                    .withVertexFormat(JUMP_CIRCLE_FORMAT, VertexFormat.Mode.QUADS)
+                    .withVertexBinding(0, JUMP_CIRCLE_FORMAT)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
                     .withDepthStencilState(new DepthStencilState(
-                            CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -10.0F))
+                            CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0F, 10.0F))
                     .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
                     .withCull(false)
                     .build();
@@ -135,13 +139,13 @@ public final class JumpCircleRenderer {
         poseStack.translate(x - camPos.x, y + yOffset - camPos.y, z - camPos.z);
         Matrix4f matrix = poseStack.last().pose();
 
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, JUMP_CIRCLE_FORMAT);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, JUMP_CIRCLE_FORMAT);
         addVertex(buffer, matrix, -radius, -radius, 0f, 0f, abgr, packedX, packedY);
         addVertex(buffer, matrix, -radius, radius, 0f, 1f, abgr, packedX, packedY);
         addVertex(buffer, matrix, radius, radius, 1f, 1f, abgr, packedX, packedY);
         addVertex(buffer, matrix, radius, -radius, 1f, 0f, abgr, packedX, packedY);
-        renderType.draw(buffer.buildOrThrow());
+        GeminiTesselator.draw(renderType, buffer.buildOrThrow());
         poseStack.popPose();
     }
 

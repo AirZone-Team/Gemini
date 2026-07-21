@@ -1,5 +1,7 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
+
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
@@ -72,7 +74,7 @@ public final class ShaderUniforms {
     /** Write a single vec4 into the uniform buffer. */
     public static void writeVec4(GpuBuffer buffer, float x, float y, float z, float w) {
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(buffer, false, true)) {
+        try (GpuBufferSlice.MappedView view = buffer.map(false, true)) {
             Std140Builder.intoBuffer(view.data()).putVec4(x, y, z, w);
         }
     }
@@ -82,7 +84,7 @@ public final class ShaderUniforms {
                                     float x0, float y0, float z0, float w0,
                                     float x1, float y1, float z1, float w1) {
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(buffer, false, true)) {
+        try (GpuBufferSlice.MappedView view = buffer.map(false, true)) {
             Std140Builder.intoBuffer(view.data())
                     .putVec4(x0, y0, z0, w0)
                     .putVec4(x1, y1, z1, w1);
@@ -95,7 +97,7 @@ public final class ShaderUniforms {
     public static void writePostUniforms(GpuBuffer buffer, int fbWidth, int fbHeight,
                                           float param1, float param2, float time) {
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(buffer, false, true)) {
+        try (GpuBufferSlice.MappedView view = buffer.map(false, true)) {
             Std140Builder.intoBuffer(view.data())
                     .putVec4(fbWidth, fbHeight, param1, param2)
                     .putVec4(time, 0f, 0f, 0f);

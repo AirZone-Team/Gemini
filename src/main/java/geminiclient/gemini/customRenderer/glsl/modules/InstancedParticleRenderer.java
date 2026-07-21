@@ -1,5 +1,13 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import com.mojang.blaze3d.IndexType;
+
+import geminiclient.gemini.customRenderer.GeminiTesselator;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.BlendFunction;
@@ -8,8 +16,7 @@ import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.DestFactor;
-import com.mojang.blaze3d.platform.SourceFactor;
+import com.mojang.blaze3d.platform.BlendFactor;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
@@ -20,7 +27,7 @@ import org.joml.*;
 import java.lang.Math;
 import java.util.List;
 import java.util.OptionalDouble;
-import java.util.OptionalInt;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -38,18 +45,19 @@ public final class InstancedParticleRenderer {
     // ── Pipeline ─────────────────────────────────────────────────
 
     private static final DepthStencilState PARTICLE_DEPTH =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -1.0F);
+            new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0F, 1.0F);
 
     private static final ColorTargetState PARTICLE_BLEND = new ColorTargetState(new BlendFunction(
-            SourceFactor.SRC_ALPHA, DestFactor.ONE,
-            SourceFactor.ONE, DestFactor.ZERO));
+            BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+            BlendFactor.ONE, BlendFactor.ZERO));
 
     public static final RenderPipeline INSTANCED_PARTICLE_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/particle_instanced"))
             .withVertexShader(getIdentifier("core/particle_instanced"))
             .withFragmentShader(getIdentifier("core/particle_instanced"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withDepthStencilState(PARTICLE_DEPTH)
             .withColorTargetState(PARTICLE_BLEND)
             .withCull(false)
@@ -91,8 +99,8 @@ public final class InstancedParticleRenderer {
         float cz = (float) cam.position().z;
         var vm = poseStack.last().pose();
 
-        var buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        var buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         int drawn = 0;
         for (ParticleData p : particles) {
@@ -148,18 +156,16 @@ public final class InstancedParticleRenderer {
 
     private static void drawMesh(MeshData mesh, float time) {
         try {
-            var vertices = INSTANCED_PARTICLE_PIPE.getVertexFormat()
-                    .uploadImmediateVertexBuffer(mesh.vertexBuffer());
+            var vertices = GeminiTesselator.uploadVertexBuffer(INSTANCED_PARTICLE_PIPE.getVertexFormatBinding(0), mesh.vertexBuffer());
 
             GpuBuffer indices;
-            VertexFormat.IndexType indexType;
+            IndexType indexType;
             if (mesh.indexBuffer() == null) {
-                var autoIndices = RenderSystem.getSequentialBuffer(mesh.drawState().mode());
+                var autoIndices = RenderSystem.getSequentialBuffer(mesh.drawState().primitiveTopology());
                 indices = autoIndices.getBuffer(mesh.drawState().indexCount());
                 indexType = autoIndices.type();
             } else {
-                indices = INSTANCED_PARTICLE_PIPE.getVertexFormat()
-                        .uploadImmediateIndexBuffer(mesh.indexBuffer());
+                indices = GeminiTesselator.uploadIndexBuffer(INSTANCED_PARTICLE_PIPE.getVertexFormatBinding(0), mesh.indexBuffer());
                 indexType = mesh.drawState().indexType();
             }
 
@@ -170,7 +176,7 @@ public final class InstancedParticleRenderer {
                             new Vector3f(time, 0f, 0f),       // ModelOffset.x = time
                             new Matrix4f());
 
-            var mainTarget = mc.getMainRenderTarget();
+            var mainTarget = mc.gameRenderer.mainRenderTarget();
             var colorTexture = RenderSystem.outputColorTextureOverride != null
                     ? RenderSystem.outputColorTextureOverride
                     : mainTarget.getColorTextureView();
@@ -184,7 +190,7 @@ public final class InstancedParticleRenderer {
             try (var pass = encoder.createRenderPass(
                     () -> "InstancedParticle",
                     colorTexture,
-                    OptionalInt.empty(),
+                    Optional.empty(),
                     depthTexture,
                     OptionalDouble.empty())) {
 
@@ -192,9 +198,9 @@ public final class InstancedParticleRenderer {
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("DynamicTransforms", dynamicTransforms);
 
-                pass.setVertexBuffer(0, vertices);
+                pass.setVertexBuffer(0, vertices.slice());
                 pass.setIndexBuffer(indices, indexType);
-                pass.drawIndexed(0, 0, mesh.drawState().indexCount(), 1);
+                pass.drawIndexed(mesh.drawState().indexCount(), 1, 0, 0, 0);
             }
         } finally {
             mesh.close();

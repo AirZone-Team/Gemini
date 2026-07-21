@@ -1,0 +1,38 @@
+plugins {
+    id 'java-gradle-plugin'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'io.github.refux:slang-java:0.0.6'
+    runtimeOnly 'io.github.refux:slang-java-natives:0.0.6:windows-x86_64'
+    testImplementation platform('org.junit:junit-bom:6.0.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+gradlePlugin {
+    plugins {
+        geminiSlang {
+            id = 'gemini.slang'
+            implementationClass = 'gemini.build.slang.GeminiSlangPlugin'
+        }
+    }
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+}

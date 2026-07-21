@@ -1,5 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+import geminiclient.gemini.customRenderer.GeminiRenderTargets;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
@@ -17,10 +21,11 @@ import com.mojang.blaze3d.textures.GpuTextureView;
 import geminiclient.gemini.customRenderer.glsl.modules.MipBloomProcessor;
 import net.minecraft.client.renderer.RenderPipelines;
 
-import java.util.OptionalInt;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
+import static geminiclient.gemini.customRenderer.SlangShaderAssets.variant;
 import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
@@ -112,11 +117,9 @@ public final class VFXManager {
         return RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
                 .withLocation(getIdentifier("pipeline/" + loc))
                 .withVertexShader(getIdentifier(VFX_VSH))
-                .withFragmentShader(getIdentifier(VFX_FSH))
-                .withShaderDefine(define)
-                .withUniform("VFXUniforms", UniformType.UNIFORM_BUFFER)
-                .withSampler("SceneSampler")
-                .withSampler("BloomSampler")
+                .withFragmentShader(getIdentifier(variant(VFX_FSH, define)))
+                .withBindGroupLayout(GeminiRenderPipelines.uniformAndSamplers(
+                        "VFXUniforms", "SceneSampler", "BloomSampler"))
                 .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
                 .withCull(false)
                 .build();
@@ -136,9 +139,9 @@ public final class VFXManager {
     // ── Resource management ─────────────────────────────────────────
 
     private static void ensureTargets(int w, int h) {
-        if (ping == null)  ping  = new TextureTarget("VFXPing", w, h, false);
-        if (pong == null)  pong  = new TextureTarget("VFXPong", w, h, false);
-        if (sceneCopy == null) sceneCopy = new TextureTarget("VFXScene", w, h, false);
+        if (ping == null)  ping  = GeminiRenderTargets.colorTarget("VFXPing", w, h, false);
+        if (pong == null)  pong  = GeminiRenderTargets.colorTarget("VFXPong", w, h, false);
+        if (sceneCopy == null) sceneCopy = GeminiRenderTargets.colorTarget("VFXScene", w, h, false);
         if (ping.width != w || ping.height != h)  { ping.resize(w, h);  pong.resize(w, h); }
         if (sceneCopy.width != w || sceneCopy.height != h) sceneCopy.resize(w, h);
     }
@@ -157,11 +160,11 @@ public final class VFXManager {
                                  GpuTextureView sceneSrc, GpuTextureView bloomSrc,
                                  GpuTextureView dest, String label) {
         boolean toMainFb = (dest == null);
-        RenderTarget fb = mc.getMainRenderTarget();
+        RenderTarget fb = mc.gameRenderer.mainRenderTarget();
         try (RenderPass pass = encoder.createRenderPass(
                 () -> label,
                 toMainFb ? fb.getColorTextureView() : dest,
-                OptionalInt.empty())) {
+                Optional.empty())) {
             pass.setPipeline(pipe);
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("VFXUniforms", uniforms);
@@ -169,7 +172,7 @@ public final class VFXManager {
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
             pass.bindTexture("BloomSampler", bloomSrc,
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
-            pass.draw(0, 3);
+            pass.draw(3, 1, 0, 0);
         }
     }
 
@@ -202,7 +205,7 @@ public final class VFXManager {
                 && vignetteStr <= 0f) return;
 
         ensureInit();
-        RenderTarget fb = mc.getMainRenderTarget();
+        RenderTarget fb = mc.gameRenderer.mainRenderTarget();
         if (fb.getColorTexture() == null || fb.getColorTextureView() == null) return;
 
         int fbW = mc.getWindow().getWidth();
@@ -213,7 +216,7 @@ public final class VFXManager {
         float time = System.currentTimeMillis() / 1000f;
 
         // ── Write shared uniforms ──────────────────────────────────
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(uniforms, false, true)) {
+        try (GpuBufferSlice.MappedView view = uniforms.map(false, true)) {
             Std140Builder b = Std140Builder.intoBuffer(view.data());
             b.putVec4(fbW, fbH, time, 0f);
             b.putVec4(distortionStr, 0f, 0f, 0f);

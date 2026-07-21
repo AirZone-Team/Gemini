@@ -1,16 +1,19 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.DestFactor;
-import com.mojang.blaze3d.platform.SourceFactor;
+import com.mojang.blaze3d.platform.BlendFactor;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.Tesselator;
+import geminiclient.gemini.customRenderer.GeminiTesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -36,12 +39,12 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 public final class TrajectoriesRenderer {
 
     private static final DepthStencilState DEPTH_TESTED =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false, -1.0f, -1.0f);
+            new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0f, 1.0f);
     private static final DepthStencilState XRAY =
             new DepthStencilState(CompareOp.ALWAYS_PASS, false, -1.0f, -1.0f);
     private static final ColorTargetState ADDITIVE = new ColorTargetState(new BlendFunction(
-            SourceFactor.SRC_ALPHA, DestFactor.ONE,
-            SourceFactor.ONE, DestFactor.ZERO));
+            BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+            BlendFactor.ONE, BlendFactor.ZERO));
 
     public static final RenderPipeline RIBBON_PIPELINE = ribbonPipeline(
             "pipeline/trajectory_ribbon", DEPTH_TESTED);
@@ -72,11 +75,12 @@ public final class TrajectoriesRenderer {
     private TrajectoriesRenderer() {}
 
     private static RenderPipeline ribbonPipeline(String location, DepthStencilState depth) {
-        return RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+        return RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
                 .withLocation(getIdentifier(location))
                 .withVertexShader(getIdentifier("core/trajectory"))
                 .withFragmentShader(getIdentifier("core/trajectory_ribbon"))
-                .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+                .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
                 .withDepthStencilState(depth)
                 .withColorTargetState(ADDITIVE)
                 .withCull(false)
@@ -85,11 +89,12 @@ public final class TrajectoriesRenderer {
 
     private static RenderPipeline effectPipeline(String location, String fragment,
                                                  DepthStencilState depth) {
-        return RenderPipeline.builder(RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+        return RenderPipeline.builder(GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
                 .withLocation(getIdentifier(location))
                 .withVertexShader(getIdentifier("core/trajectory"))
                 .withFragmentShader(getIdentifier(fragment))
-                .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+                .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
                 .withDepthStencilState(depth)
                 .withColorTargetState(ADDITIVE)
                 .withCull(false)
@@ -145,8 +150,8 @@ public final class TrajectoriesRenderer {
         float cameraY = (float) camera.position().y;
         float cameraZ = (float) camera.position().z;
         Matrix4f matrix = poseStack.last().pose();
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         for (int i = 0; i < count - 1; i++) {
             float progress0 = i / (float) (count - 1);
@@ -204,7 +209,7 @@ public final class TrajectoriesRenderer {
 
         var mesh = buffer.build();
         if (mesh != null) {
-            (throughWalls ? RIBBON_XRAY_TYPE : RIBBON_TYPE).draw(mesh);
+            GeminiTesselator.draw((throughWalls ? RIBBON_XRAY_TYPE : RIBBON_TYPE), mesh);
         }
     }
 
@@ -233,15 +238,15 @@ public final class TrajectoriesRenderer {
         poseStack.mulPose(new Quaternionf().rotationZ(time * 0.28f));
 
         Matrix4f matrix = poseStack.last().pose();
-        BufferBuilder buffer = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         float u0 = style;
         float u1 = style + 0.999f;
         buffer.addVertex(matrix, -size, -size, 0.0f).setUv(u0, 0.0f).setColor(color);
         buffer.addVertex(matrix, -size, size, 0.0f).setUv(u0, 1.0f).setColor(color);
         buffer.addVertex(matrix, size, size, 0.0f).setUv(u1, 1.0f).setColor(color);
         buffer.addVertex(matrix, size, -size, 0.0f).setUv(u1, 0.0f).setColor(color);
-        renderType.draw(buffer.buildOrThrow());
+        GeminiTesselator.draw(renderType, buffer.buildOrThrow());
         poseStack.popPose();
     }
 

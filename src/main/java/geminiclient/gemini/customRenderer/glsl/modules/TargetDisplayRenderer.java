@@ -1,5 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
@@ -66,16 +70,17 @@ public final class TargetDisplayRenderer {
     // ── Pipeline ─────────────────────────────────────────────────
 
     public static final RenderPipeline TARGET_BG_PIPELINE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/target_display"))
             .withVertexShader(getIdentifier("core/target_display"))
             .withFragmentShader(getIdentifier("core/target_display"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
-                    com.mojang.blaze3d.platform.SourceFactor.SRC_ALPHA,
-                    com.mojang.blaze3d.platform.DestFactor.ONE_MINUS_SRC_ALPHA,
-                    com.mojang.blaze3d.platform.SourceFactor.ONE,
-                    com.mojang.blaze3d.platform.DestFactor.ZERO)))
+                    com.mojang.blaze3d.platform.BlendFactor.SRC_ALPHA,
+                    com.mojang.blaze3d.platform.BlendFactor.ONE_MINUS_SRC_ALPHA,
+                    com.mojang.blaze3d.platform.BlendFactor.ONE,
+                    com.mojang.blaze3d.platform.BlendFactor.ZERO)))
             .withCull(false)
             .build();
 

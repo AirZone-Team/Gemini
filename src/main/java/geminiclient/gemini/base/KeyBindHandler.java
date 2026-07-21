@@ -19,7 +19,7 @@ public class KeyBindHandler {
     public void keyEvent(KeyInputEvent event) {
         long currentTime = System.currentTimeMillis();
         final long MIN_INTERVAL_MS = 180;
-        if (mc.screen != null || (currentTime - lastTriggerTime <= MIN_INTERVAL_MS)) {
+        if (mc.gui.screen() != null || (currentTime - lastTriggerTime <= MIN_INTERVAL_MS)) {
             return;
         }
         boolean triggered = false;

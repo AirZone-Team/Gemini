@@ -1,5 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+import geminiclient.gemini.customRenderer.GeminiRenderTargets;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
@@ -16,10 +20,11 @@ import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import net.minecraft.client.renderer.RenderPipelines;
 
-import java.util.OptionalInt;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
+import static geminiclient.gemini.customRenderer.SlangShaderAssets.variant;
 import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
@@ -161,14 +166,12 @@ public final class KillEffectPostProcessor {
         var builder = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
                 .withLocation(getIdentifier("pipeline/" + loc))
                 .withVertexShader(getIdentifier(POST_VSH))
-                .withFragmentShader(getIdentifier(POST_FSH))
-                .withShaderDefine(define)
-                .withUniform("PostUniforms", UniformType.UNIFORM_BUFFER)
-                .withSampler("SceneSampler")
-                .withSampler("BloomSampler");
-        if (needsDepth) {
-            builder.withSampler("DepthSampler");
-        }
+                .withFragmentShader(getIdentifier(variant(POST_FSH, define)))
+                .withBindGroupLayout(needsDepth
+                        ? GeminiRenderPipelines.uniformAndSamplers(
+                                "PostUniforms", "SceneSampler", "BloomSampler", "DepthSampler")
+                        : GeminiRenderPipelines.uniformAndSamplers(
+                                "PostUniforms", "SceneSampler", "BloomSampler"));
         return builder.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
                 .withCull(false)
                 .build();
@@ -202,11 +205,11 @@ public final class KillEffectPostProcessor {
     // ════════════════════════════════════════════════════════════════
 
     private static void ensureTargets(int w, int h) {
-        if (ping == null)  ping  = new TextureTarget("KillPing", w, h, false);
-        if (pong == null)  pong  = new TextureTarget("KillPong", w, h, false);
-        if (sceneCopy == null) sceneCopy = new TextureTarget("KillScene", w, h, false);
-        if (history1 == null) history1 = new TextureTarget("KillHist1", w, h, false);
-        if (history2 == null) history2 = new TextureTarget("KillHist2", w, h, false);
+        if (ping == null)  ping  = GeminiRenderTargets.colorTarget("KillPing", w, h, false);
+        if (pong == null)  pong  = GeminiRenderTargets.colorTarget("KillPong", w, h, false);
+        if (sceneCopy == null) sceneCopy = GeminiRenderTargets.colorTarget("KillScene", w, h, false);
+        if (history1 == null) history1 = GeminiRenderTargets.colorTarget("KillHist1", w, h, false);
+        if (history2 == null) history2 = GeminiRenderTargets.colorTarget("KillHist2", w, h, false);
         if (ping.width != w || ping.height != h)  { ping.resize(w, h);  pong.resize(w, h); }
         if (sceneCopy.width != w || sceneCopy.height != h) sceneCopy.resize(w, h);
         if (history1.width != w || history1.height != h) history1.resize(w, h);
@@ -246,12 +249,12 @@ public final class KillEffectPostProcessor {
                                  GpuTextureView sceneSrc, GpuTextureView bloomSrc,
                                  GpuTextureView dest, String label) {
         boolean toMainFb = (dest == null);
-        RenderTarget fb = mc.getMainRenderTarget();
+        RenderTarget fb = mc.gameRenderer.mainRenderTarget();
 
         try (RenderPass pass = encoder.createRenderPass(
                 () -> label,
                 toMainFb ? fb.getColorTextureView() : dest,
-                toMainFb ? OptionalInt.empty() : OptionalInt.empty())) {
+                toMainFb ? Optional.empty() : Optional.empty())) {
             pass.setPipeline(pipe);
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("PostUniforms", uniforms);
@@ -259,7 +262,7 @@ public final class KillEffectPostProcessor {
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
             pass.bindTexture("BloomSampler", bloomSrc,
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
-            pass.draw(0, 3);
+            pass.draw(3, 1, 0, 0);
         }
     }
 
@@ -283,7 +286,7 @@ public final class KillEffectPostProcessor {
                                           GpuTextureView depthSrc, GpuTextureView dest,
                                           String label) {
         try (RenderPass pass = encoder.createRenderPass(
-                () -> label, dest, OptionalInt.empty())) {
+                () -> label, dest, Optional.empty())) {
             pass.setPipeline(pipe);
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("PostUniforms", uniforms);
@@ -293,7 +296,7 @@ public final class KillEffectPostProcessor {
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
             pass.bindTexture("DepthSampler", depthSrc,
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
-            pass.draw(0, 3);
+            pass.draw(3, 1, 0, 0);
         }
     }
 
@@ -337,7 +340,7 @@ public final class KillEffectPostProcessor {
                 && bhStage <= 0 && ssrIntensity <= 0f && !lightActive) return;
 
         ensureInit();
-        RenderTarget fb = mc.getMainRenderTarget();
+        RenderTarget fb = mc.gameRenderer.mainRenderTarget();
         if (fb.getColorTexture() == null || fb.getColorTextureView() == null) return;
 
         int fbW = mc.getWindow().getWidth();
@@ -345,7 +348,7 @@ public final class KillEffectPostProcessor {
         ensureTargets(fbW, fbH);
 
         // ── Camera & view-projection data ──────────────────────────
-        var cam = mc.gameRenderer.getMainCamera();
+        var cam = mc.gameRenderer.mainCamera();
         float cx = (float) cam.position().x;
         float cy = (float) cam.position().y;
         float cz = (float) cam.position().z;
@@ -444,7 +447,7 @@ public final class KillEffectPostProcessor {
         float time = System.currentTimeMillis() / 1000f;
         float frameIdx = (float) (time * 60f); // approximate frame counter
         int steps = Math.clamp(volumetricSteps, 8, 32);
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(uniforms, false, true)) {
+        try (GpuBufferSlice.MappedView view = uniforms.map(false, true)) {
             Std140Builder b = Std140Builder.intoBuffer(view.data());
             b.putVec4(fbW, fbH, bloomStrength, threshold);
             b.putVec4(time, frameIdx, 0f, 0f);

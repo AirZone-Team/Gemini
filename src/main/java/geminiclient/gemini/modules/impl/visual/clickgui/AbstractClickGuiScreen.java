@@ -46,13 +46,13 @@ public abstract class AbstractClickGuiScreen extends Screen {
     @Override
     public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
         this.extractTransparentBackground(graphics);
-        this.minecraft.gui.extractDeferredSubtitles();
+        this.minecraft.gui.hud.extractDeferredSubtitles();
     }
 
     @Override
     public void onClose() {
         if (this.minecraft != null) {
-            this.minecraft.setScreen(null);
+            this.minecraft.gui.setScreen(null);
         }
         Gemini.moduleManager.getModules().stream()
                 .filter(m -> m instanceof ClickGui)

@@ -1,5 +1,9 @@
 package geminiclient.gemini.customRenderer.glsl;
 
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+import geminiclient.gemini.customRenderer.GeminiRenderTargets;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
@@ -16,7 +20,7 @@ import com.mojang.blaze3d.textures.FilterMode;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 
-import java.util.OptionalInt;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
@@ -76,8 +80,7 @@ public final class CustomBlurRenderer {
                     .withLocation(getIdentifier("pipeline/blur"))
                     .withVertexShader(BLUR_PATH)
                     .withFragmentShader(BLUR_PATH)
-                    .withUniform("BlurUniforms", UniformType.UNIFORM_BUFFER)
-                    .withSampler("InputSampler")
+                    .withBindGroupLayout(GeminiRenderPipelines.uniformAndSamplers("BlurUniforms", "InputSampler"))
                     .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
                     .withCull(false)
                     .build();
@@ -87,7 +90,7 @@ public final class CustomBlurRenderer {
                     .withLocation(getIdentifier("pipeline/blur_copy"))
                     .withVertexShader(BLUR_PATH)
                     .withFragmentShader(BLUR_COPY_PATH)
-                    .withSampler("InputSampler")
+                    .withBindGroupLayout(GeminiRenderPipelines.samplers("InputSampler"))
                     .withColorTargetState(ColorTargetState.DEFAULT)
                     .withCull(false)
                     .build();
@@ -139,52 +142,69 @@ public final class CustomBlurRenderer {
         }
         ensureProgram();
 
-        RenderTarget fb = mc.getMainRenderTarget();
+        RenderTarget fb = mc.gameRenderer.mainRenderTarget();
         if (fb.getColorTexture() == null || fb.getColorTextureView() == null) {
             return;
         }
 
-        int fbWidth = mc.getWindow().getWidth();
-        int fbHeight = mc.getWindow().getHeight();
+        int targetWidth = fb.width;
+        int targetHeight = fb.height;
+        int guiWidth = mc.getWindow().getGuiScaledWidth();
+        int guiHeight = mc.getWindow().getGuiScaledHeight();
+        if (targetWidth <= 0 || targetHeight <= 0 || guiWidth <= 0 || guiHeight <= 0) {
+            return;
+        }
 
-        // Lazily create the input texture (copy of framebuffer)
+        // The snapshot must match the attachment used by both render passes.
         if (input == null) {
-            input = new TextureTarget("Gemini Blur Input", fbWidth, fbHeight, false);
+            input = GeminiRenderTargets.colorTarget("Gemini Blur Input", targetWidth, targetHeight, false);
         }
-        if (input.width != fbWidth || input.height != fbHeight) {
-            input.resize(fbWidth, fbHeight);
+        if (input.width != targetWidth || input.height != targetHeight) {
+            input.resize(targetWidth, targetHeight);
         }
 
-        // Convert GUI coordinates to framebuffer pixels
-        double scale = (double) fbWidth / mc.getWindow().getGuiScaledWidth();
-        float pxX = (float) (x * scale);
-        float pxY = (float) (y * scale);
-        float pxW = (float) (width * scale);
-        float pxH = (float) (height * scale);
+        // GUI coordinates use a top-left origin. Render-pass scissors and shader
+        // uniforms use attachment pixels, whose dimensions may differ from the window.
+        double scaleX = (double) targetWidth / guiWidth;
+        double scaleY = (double) targetHeight / guiHeight;
+        float pxX = (float) (x * scaleX);
+        float pxY = (float) (y * scaleY);
+        float pxRight = (float) ((x + width) * scaleX);
+        float pxBottom = (float) ((y + height) * scaleY);
+        float pxW = pxRight - pxX;
+        float pxH = pxBottom - pxY;
+        if (!Float.isFinite(pxX) || !Float.isFinite(pxY)
+                || !Float.isFinite(pxRight) || !Float.isFinite(pxBottom)
+                || pxW <= 0.0f || pxH <= 0.0f) {
+            return;
+        }
 
-        // Preserve the original integer scissor coverage, then clip it before
-        // issuing GPU work. A fully off-screen region now costs nothing.
-        int rawScissorX = (int) pxX;
-        int rawScissorY = fbHeight - (int) pxY - (int) pxH;
-        int rawScissorRight = rawScissorX + Math.max(0, (int) pxW);
-        int rawScissorTop = rawScissorY + Math.max(0, (int) pxH);
-        int scissorX = Math.max(0, rawScissorX);
-        int scissorY = Math.max(0, rawScissorY);
-        int scissorRight = Math.min(fbWidth, rawScissorRight);
-        int scissorTop = Math.min(fbHeight, rawScissorTop);
+        // Outward rounding covers every touched attachment pixel. Clamp endpoints
+        // before deriving sizes because RenderPass rejects empty/out-of-bounds scissors.
+        int rawScissorX = floorToInt(pxX);
+        int rawScissorY = floorToInt(targetHeight - pxBottom);
+        int rawScissorRight = ceilToInt(pxRight);
+        int rawScissorTop = ceilToInt(targetHeight - pxY);
+        int scissorX = clamp(rawScissorX, 0, targetWidth);
+        int scissorY = clamp(rawScissorY, 0, targetHeight);
+        int scissorRight = clamp(rawScissorRight, 0, targetWidth);
+        int scissorTop = clamp(rawScissorTop, 0, targetHeight);
         int scissorWidth = scissorRight - scissorX;
         int scissorHeight = scissorTop - scissorY;
         if (scissorWidth <= 0 || scissorHeight <= 0) {
             return;
         }
 
-        float s = (float) scale;
-        float rTLPx = Math.max(0.0f, rTL * s);
-        float rTRPx = Math.max(0.0f, rTR * s);
-        float rBRPx = Math.max(0.0f, rBR * s);
-        float rBLPx = Math.max(0.0f, rBL * s);
+        float scalarScale = (float) Math.min(scaleX, scaleY);
+        float maxRadius = Math.min(pxW, pxH) * 0.5f;
+        float rTLPx = Math.min(maxRadius, scaledLength(rTL, scalarScale));
+        float rTRPx = Math.min(maxRadius, scaledLength(rTR, scalarScale));
+        float rBRPx = Math.min(maxRadius, scaledLength(rBR, scalarScale));
+        float rBLPx = Math.min(maxRadius, scaledLength(rBL, scalarScale));
 
-        float quality = Math.max(0.0f, blurStrength);
+        float quality = Math.min(
+                Math.max(targetWidth, targetHeight),
+                scaledLength(blurStrength, scalarScale));
 
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
 
@@ -195,30 +215,35 @@ public final class CustomBlurRenderer {
          * one-texel guard for linear filtering, with region-sized bandwidth.
          */
         int sampleGuard = (int) Math.ceil(quality) + 1;
-        int copyX = Math.max(0, scissorX - sampleGuard);
-        int copyY = Math.max(0, scissorY - sampleGuard);
-        int copyRight = Math.min(fbWidth, scissorRight + sampleGuard);
-        int copyTop = Math.min(fbHeight, scissorTop + sampleGuard);
+        int copyX = clamp(scissorX - sampleGuard, 0, targetWidth);
+        int copyY = clamp(scissorY - sampleGuard, 0, targetHeight);
+        int copyRight = clamp(scissorRight + sampleGuard, 0, targetWidth);
+        int copyTop = clamp(scissorTop + sampleGuard, 0, targetHeight);
+        int copyWidth = copyRight - copyX;
+        int copyHeight = copyTop - copyY;
+        if (copyWidth <= 0 || copyHeight <= 0) {
+            return;
+        }
         try (RenderPass copyPass = encoder.createRenderPass(
                 () -> "Gemini Blur Region Copy",
                 input.getColorTextureView(),
-                OptionalInt.empty()
+                Optional.empty()
         )) {
             copyPass.setPipeline(copyPipeline);
-            copyPass.enableScissor(copyX, copyY, copyRight - copyX, copyTop - copyY);
+            copyPass.enableScissor(copyX, copyY, copyWidth, copyHeight);
             RenderSystem.bindDefaultUniforms(copyPass);
             copyPass.bindTexture(
                     "InputSampler",
                     fb.getColorTextureView(),
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST)
             );
-            copyPass.draw(0, 3);
+            copyPass.draw(3, 1, 0, 0);
         }
 
         // Write uniforms
-        try (GpuBuffer.MappedView view = encoder.mapBuffer(uniforms, false, true)) {
+        try (GpuBufferSlice.MappedView view = uniforms.map(false, true)) {
             Std140Builder builder = Std140Builder.intoBuffer(view.data());
-            builder.putVec3(fbWidth, fbHeight, quality);
+            builder.putVec3(targetWidth, targetHeight, quality);
             builder.putVec4(pxW, pxH, pxX, pxY);
             builder.putVec4(
                     ((color >> 16) & 0xFF) / 255.0f,
@@ -233,7 +258,7 @@ public final class CustomBlurRenderer {
         try (RenderPass renderPass = encoder.createRenderPass(
                 () -> "Gemini Blur",
                 fb.getColorTextureView(),
-                OptionalInt.empty()
+                Optional.empty()
         )) {
             renderPass.setPipeline(pipeline);
             renderPass.enableScissor(scissorX, scissorY, scissorWidth, scissorHeight);
@@ -244,8 +269,40 @@ public final class CustomBlurRenderer {
                     input.getColorTextureView(),
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR)
             );
-            renderPass.draw(0, 3);
+            renderPass.draw(3, 1, 0, 0);
         }
+    }
+
+    private static float scaledLength(float value, float scale) {
+        if (!Float.isFinite(value) || value <= 0.0f) {
+            return 0.0f;
+        }
+        float scaled = value * scale;
+        return Float.isFinite(scaled) ? scaled : Float.MAX_VALUE;
+    }
+
+    private static int floorToInt(float value) {
+        if (value <= Integer.MIN_VALUE) {
+            return Integer.MIN_VALUE;
+        }
+        if (value >= Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) Math.floor(value);
+    }
+
+    private static int ceilToInt(float value) {
+        if (value <= Integer.MIN_VALUE) {
+            return Integer.MIN_VALUE;
+        }
+        if (value >= Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) Math.ceil(value);
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(value, max));
     }
 
     // ========================

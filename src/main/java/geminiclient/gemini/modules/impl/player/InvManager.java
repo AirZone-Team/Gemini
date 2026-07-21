@@ -166,7 +166,7 @@ public class InvManager extends Module {
     public void onMotion(MotionEvent event) {
         if (event.getTimeEnum() != TimeEnum.Pre || mc.player == null || mc.gameMode == null) return;
 
-        if (!(mc.screen instanceof InventoryScreen)) {
+        if (!(mc.gui.screen() instanceof InventoryScreen)) {
             openDelayUntil = -1;
         }
 
@@ -183,12 +183,12 @@ public class InvManager extends Module {
             return;
         }
 
-        if (this.inventoryOnly.enabled && !(mc.screen instanceof InventoryScreen)) {
+        if (this.inventoryOnly.enabled && !(mc.gui.screen() instanceof InventoryScreen)) {
             actions.clickOffHand = false;
             return;
         }
 
-        if (mc.screen instanceof InventoryScreen) {
+        if (mc.gui.screen() instanceof InventoryScreen) {
             if (openDelayUntil == -1) {
                 openDelayUntil = (long) (System.currentTimeMillis()
                         + MathHelper.getRandom(openDelay.getMinValue(), openDelay.getMaxValue()));
@@ -219,7 +219,7 @@ public class InvManager extends Module {
     }
 
     private boolean isForeignContainerOpen() {
-        return mc.screen instanceof AbstractContainerScreen<?> container
+        return mc.gui.screen() instanceof AbstractContainerScreen<?> container
                 && container.getMenu().containerId != mc.player.inventoryMenu.containerId;
     }
 

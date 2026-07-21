@@ -1,5 +1,9 @@
 package geminiclient.gemini.modules.impl.visual.effectDisplay;
 
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
@@ -58,12 +62,13 @@ public final class Md3ShadowRenderer {
     // ── Pipeline ──────────────────────────────────────────────────
 
     public static final RenderPipeline MD3_ELEVATION_PIPELINE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/md3_elevation"))
             .withVertexShader(getIdentifier("core/md3_elevation"))
             .withFragmentShader(getIdentifier("core/md3_elevation"))
             .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withCull(false)
             .build();
 

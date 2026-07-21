@@ -1,12 +1,17 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import geminiclient.gemini.customRenderer.GeminiTesselator;
+
+import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
+
+import com.mojang.blaze3d.PrimitiveTopology;
+
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.DestFactor;
-import com.mojang.blaze3d.platform.SourceFactor;
+import com.mojang.blaze3d.platform.BlendFactor;
 import com.mojang.blaze3d.vertex.*;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -55,7 +60,7 @@ public final class KillEffectRenderer {
     // ════════════════════════════════════════════════════════════════
 
     private static final DepthStencilState EFFECT_DEPTH =
-            new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false, -1.0F, -1.0F);
+            new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0F, 1.0F);
 
     /** No depth testing — always pass (for flash / explosion overlays). */
     private static final DepthStencilState NO_DEPTH =
@@ -63,13 +68,13 @@ public final class KillEffectRenderer {
 
     /** Blending for additive glow effects. */
     private static final ColorTargetState ADDITIVE_BLEND = new ColorTargetState(new BlendFunction(
-            SourceFactor.SRC_ALPHA, DestFactor.ONE,
-            SourceFactor.ONE, DestFactor.ZERO));
+            BlendFactor.SRC_ALPHA, BlendFactor.ONE,
+            BlendFactor.ONE, BlendFactor.ZERO));
 
     /** Blending for alpha-blended effects. */
     private static final ColorTargetState ALPHA_BLEND = new ColorTargetState(new BlendFunction(
-            SourceFactor.SRC_ALPHA, DestFactor.ONE_MINUS_SRC_ALPHA,
-            SourceFactor.ONE, DestFactor.ZERO));
+            BlendFactor.SRC_ALPHA, BlendFactor.ONE_MINUS_SRC_ALPHA,
+            BlendFactor.ONE, BlendFactor.ZERO));
 
     // ════════════════════════════════════════════════════════════════
     //  Pipelines
@@ -77,11 +82,12 @@ public final class KillEffectRenderer {
 
     /** Magic circle + tower — additive gold glow. */
     public static final RenderPipeline MAGIC_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/kill_effect_magic"))
             .withVertexShader(getIdentifier("core/kill_effect_magic"))
             .withFragmentShader(getIdentifier("core/kill_effect_magic"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withDepthStencilState(EFFECT_DEPTH)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
@@ -89,11 +95,12 @@ public final class KillEffectRenderer {
 
     /** Black hole: event horizon + photon ring + gravitational lensing. */
     public static final RenderPipeline BLACK_HOLE_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/kill_effect_hole"))
             .withVertexShader(getIdentifier("core/kill_effect_hole"))
             .withFragmentShader(getIdentifier("core/kill_effect_hole"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withDepthStencilState(EFFECT_DEPTH)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
@@ -101,11 +108,12 @@ public final class KillEffectRenderer {
 
     /** Accretion particles + general particle rendering. */
     public static final RenderPipeline PARTICLE_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/kill_effect_particle"))
             .withVertexShader(getIdentifier("core/kill_effect_particle"))
             .withFragmentShader(getIdentifier("core/kill_effect_particle"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withDepthStencilState(EFFECT_DEPTH)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
@@ -113,11 +121,12 @@ public final class KillEffectRenderer {
 
     /** Hypernova explosion + flash: no depth test — always visible. */
     public static final RenderPipeline HYPERNOVA_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/kill_effect_nova"))
             .withVertexShader(getIdentifier("core/kill_effect_nova"))
             .withFragmentShader(getIdentifier("core/kill_effect_nova"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withDepthStencilState(NO_DEPTH)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
@@ -137,11 +146,12 @@ public final class KillEffectRenderer {
      * occluded by blocks and entities.</p>
      */
     public static final RenderPipeline ORB_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/kill_effect_orb"))
             .withVertexShader(getIdentifier("core/kill_effect_orb"))
             .withFragmentShader(getIdentifier("core/kill_effect_orb"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withDepthStencilState(EFFECT_DEPTH)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
@@ -155,11 +165,12 @@ public final class KillEffectRenderer {
      * at block/entity surfaces, producing realistic occlusion.</p>
      */
     public static final RenderPipeline RAY_PIPE = RenderPipeline.builder(
-                    RenderPipelines.MATRICES_PROJECTION_SNIPPET)
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
             .withLocation(getIdentifier("pipeline/kill_effect_ray"))
             .withVertexShader(getIdentifier("core/kill_effect_ray"))
             .withFragmentShader(getIdentifier("core/kill_effect_ray"))
-            .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withDepthStencilState(EFFECT_DEPTH)
             .withColorTargetState(ADDITIVE_BLEND)
             .withCull(false)
@@ -309,8 +320,8 @@ public final class KillEffectRenderer {
         float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.01f;
         float baseSize = 1.5f * (1f + dist * 0.08f);
 
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         if (stage == KillEffectInstance.STAGE_MAGIC_CIRCLE) {
             // Single magic circle on the ground, facing upward (horizontal)
@@ -392,7 +403,7 @@ public final class KillEffectRenderer {
             }
         }
 
-        MAGIC_TYPE.draw(buf.buildOrThrow());
+        GeminiTesselator.draw(MAGIC_TYPE, buf.buildOrThrow());
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -463,8 +474,8 @@ public final class KillEffectRenderer {
         float py = (float) inst.position.y + 1.5f; // raised above ground
         float pz = (float) inst.position.z;
 
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         int rgba = packColor(progress, stage / 8f, brightness / 4f, alpha);
         // Leave enough UV room for the wide disk and its lensed far-side arc.
@@ -473,7 +484,7 @@ public final class KillEffectRenderer {
         emitBillboard(buf, vm, cx, cy, cz, px, py, pz, halfSize,
                 0f, 0f, 1f, 1f, rgba);
 
-        BLACK_HOLE_TYPE.draw(buf.buildOrThrow());
+        GeminiTesselator.draw(BLACK_HOLE_TYPE, buf.buildOrThrow());
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -496,8 +507,8 @@ public final class KillEffectRenderer {
         float cz = (float) cam.position().z;
         Matrix4f vm = poseStack.last().pose();
 
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         for (int i = 0; i < count; i++) {
             int off = i * 8;
@@ -511,7 +522,7 @@ public final class KillEffectRenderer {
                     0f, 0f, 1f, 1f, rgba);
         }
 
-        PARTICLE_TYPE.draw(buf.buildOrThrow());
+        GeminiTesselator.draw(PARTICLE_TYPE, buf.buildOrThrow());
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -587,8 +598,8 @@ public final class KillEffectRenderer {
             float echoSize = ringSize * 0.72f;
             int echoRgba = packColor(echoProgress * 0.58f, 0f, 1.55f / 4f, ringAlpha * 0.62f);
 
-            BufferBuilder ringBuf = Tesselator.getInstance()
-                    .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+            BufferBuilder ringBuf = GeminiTesselator.getInstance()
+                    .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
             float rx = px - cx, ry = groundY - cy, rz = pz - cz;
             ringBuf.addVertex(vm, rx - ringSize, ry, rz - ringSize).setUv(0f, 0f).setColor(ringRgba);
             ringBuf.addVertex(vm, rx - ringSize, ry, rz + ringSize).setUv(0f, 1f).setColor(ringRgba);
@@ -598,7 +609,7 @@ public final class KillEffectRenderer {
             ringBuf.addVertex(vm, rx - echoSize, ry + 0.015f, rz + echoSize).setUv(0f, 1f).setColor(echoRgba);
             ringBuf.addVertex(vm, rx + echoSize, ry + 0.015f, rz + echoSize).setUv(1f, 1f).setColor(echoRgba);
             ringBuf.addVertex(vm, rx + echoSize, ry + 0.015f, rz - echoSize).setUv(1f, 0f).setColor(echoRgba);
-            HYPERNOVA_TYPE.draw(ringBuf.buildOrThrow());
+            GeminiTesselator.draw(HYPERNOVA_TYPE, ringBuf.buildOrThrow());
         }
 
         // ── Layer 1: Full-screen flash overlay (no depth, always visible) ──
@@ -609,8 +620,8 @@ public final class KillEffectRenderer {
         float flashIntensity = 3.85f + (float)Math.sin(progress * Math.PI * 3.5f)
                 * 0.15f * (1.0f - progress);
 
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         // Submit the actual nova mode before the central flash. Previously only
         // mode 0 was sent, leaving the fireball/nebula/lightning branch dormant.
@@ -631,7 +642,7 @@ public final class KillEffectRenderer {
                     0f, 0f, 1f, 1f, flashRgba);
         }
 
-        HYPERNOVA_TYPE.draw(buf.buildOrThrow());
+        GeminiTesselator.draw(HYPERNOVA_TYPE, buf.buildOrThrow());
 
         // ── Layer 2: Volumetric orb — real 3D sphere, ray-marched ─────
         drawGlowSphere(poseStack, px, py, pz, progress, alpha, stage);
@@ -736,8 +747,8 @@ public final class KillEffectRenderer {
         Matrix4f svm = poseStack.last().pose();
 
         float[][] sphere = getUnitSphere();
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         for (int i = 0; i < sphere.length; i += 4) {
             for (int k = 0; k < 4; k++) {
                 float[] v = sphere[i + k];
@@ -745,7 +756,7 @@ public final class KillEffectRenderer {
                         .setUv(radius, 0f).setColor(rgba);
             }
         }
-        ORB_TYPE.draw(buf.buildOrThrow());
+        GeminiTesselator.draw(ORB_TYPE, buf.buildOrThrow());
         poseStack.popPose();
     }
 
@@ -814,8 +825,8 @@ public final class KillEffectRenderer {
         float oy = py - cy;
         float oz = pz - cz;
 
-        BufferBuilder buf = Tesselator.getInstance()
-                .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        BufferBuilder buf = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         for (int i = 0; i < rayCount; i++) {
             float angle = (float)(2.0 * Math.PI * i / rayCount);
@@ -840,7 +851,7 @@ public final class KillEffectRenderer {
                     0f, 0f, 1f, 1f, rgba);
         }
 
-        RAY_TYPE.draw(buf.buildOrThrow());
+        GeminiTesselator.draw(RAY_TYPE, buf.buildOrThrow());
     }
 
     // ════════════════════════════════════════════════════════════════
