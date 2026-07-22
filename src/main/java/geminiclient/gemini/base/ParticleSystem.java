@@ -30,23 +30,26 @@ public class ParticleSystem {
             particles.add(new Particle(
                 random.nextFloat() * screenWidth,
                 random.nextFloat() * screenHeight,
-                (random.nextFloat() - 0.5f) * 0.2f, // vx: very slow
-                (random.nextFloat() - 0.5f) * 0.2f  // vy: very slow
+                (random.nextFloat() - 0.5f) * 0.5f, // vx: slower
+                (random.nextFloat() - 0.5f) * 0.5f  // vy: slower
             ));
         }
     }
 
     public void updateMousePosition(float mouseX, float mouseY) {
-        // Mouse interaction: subtle repulsion
+        // Mouse interaction: push particles away in opposite direction
         for (Particle p : particles) {
             float dx = p.x - mouseX;
             float dy = p.y - mouseY;
             float distSq = dx * dx + dy * dy;
-            float minDist = 150f * 150f;
+            float influenceRadius = 200f;
+            float minDist = influenceRadius * influenceRadius;
 
             if (distSq < minDist && distSq > 1f) {
                 float dist = (float) Math.sqrt(distSq);
-                float force = (1f - dist / 150f) * 0.1f;
+                // Stronger force when closer
+                float force = (1f - dist / influenceRadius) * 3f;
+                // Push away: add to position in direction away from mouse
                 p.x += (dx / dist) * force;
                 p.y += (dy / dist) * force;
             }
@@ -101,8 +104,9 @@ public class ParticleSystem {
                     float alpha = (1f - dist / CONNECTION_DISTANCE) * 0.2f;
                     int color = ARGB.color((int)(alpha * 255), 255, 255, 255);
 
-                    // Draw line (simple sampling)
-                    drawLine(gui, (int)p1.x, (int)p1.y, (int)p2.x, (int)p2.y, color);
+                    // Draw line (use rounded positions)
+                    drawLine(gui, Math.round(p1.x), Math.round(p1.y),
+                            Math.round(p2.x), Math.round(p2.y), color);
 
                     counts[i]++;
                     counts[j]++;
@@ -110,11 +114,14 @@ public class ParticleSystem {
             }
         }
 
-        // Draw particles
+        // Draw particles (use float positions for smooth rendering)
         for (Particle p : particles) {
             int color = ARGB.color(128, 255, 255, 255);
+            // Round to nearest pixel instead of truncating
+            int x = Math.round(p.x);
+            int y = Math.round(p.y);
             CustomRoundedRectRenderer.drawRoundedRect(gui,
-                (int)p.x - 2, (int)p.y - 2, 4, 4, 2, color);
+                x - 2, y - 2, 4, 4, 2, color);
         }
     }
 
