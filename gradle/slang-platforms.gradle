@@ -1,0 +1,45 @@
+// Shared Slang native platform mapping for buildSrc and its tests.
+def supportedClassifiers = [
+        'windows-x86_64', 'windows-aarch64',
+        'linux-x86_64', 'linux-aarch64',
+        'macos-x86_64', 'macos-aarch64'
+].asImmutable()
+
+def normalizeOs = { String value ->
+    String os = value == null ? '' : value.trim().toLowerCase(Locale.ROOT)
+    if (os in ['windows', 'win', 'win32', 'win64'] || os.startsWith('windows ')) {
+        return 'windows'
+    }
+    if (os in ['linux', 'gnu/linux', 'unix']) {
+        return 'linux'
+    }
+    if (os in ['macos', 'mac', 'osx', 'darwin', 'mac os x']) {
+        return 'macos'
+    }
+    throw new GradleException("Unsupported Slang native operating system '${value}'. Supported OS families: windows, linux, macos. Use -PslangNativeClassifier=<classifier> to override detection.")
+}
+
+def normalizeArch = { String value ->
+    String arch = value == null ? '' : value.trim().toLowerCase(Locale.ROOT)
+    if (arch in ['x86_64', 'x86-64', 'amd64', 'x64']) {
+        return 'x86_64'
+    }
+    if (arch in ['aarch64', 'arm64', 'arm64-v8a']) {
+        return 'aarch64'
+    }
+    throw new GradleException("Unsupported Slang native architecture '${value}'. Supported architectures: x86_64, aarch64. Use -PslangNativeClassifier=<classifier> to override detection.")
+}
+
+def classifierFor = { String osName, String archName, Object override ->
+    String requested = override == null ? '' : override.toString().trim().toLowerCase(Locale.ROOT)
+    if (!requested.isEmpty()) {
+        if (!supportedClassifiers.contains(requested)) {
+            throw new GradleException("Unsupported -PslangNativeClassifier='${override}'. Supported classifiers: ${supportedClassifiers.join(', ')}")
+        }
+        return requested
+    }
+    return "${normalizeOs(osName)}-${normalizeArch(archName)}".toString()
+}
+
+ext.slangSupportedNativeClassifiers = supportedClassifiers
+ext.slangNativeClassifierFor = classifierFor

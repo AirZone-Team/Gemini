@@ -148,6 +148,16 @@ public class AltManagerScreen extends Screen {
     /** 模态框面板矩形。 */
     private record PanelRect(float x, float y, float w, float h) {}
 
+    /** 单一权威屏幕布局，绘制和命中测试都从这里取坐标。 */
+    private record ScreenLayout(float contentLeft, float contentRight, float contentWidth,
+                                float titleY, float subtitleY, float listTop, float listViewportH,
+                                float actionsY, float statusY, float footerY, boolean compact) {}
+
+    private record LinkBounds(int index, float x, float y, float w, float h, float textX, float textY) {}
+
+    /** 已测量、可换行的链接布局；绘制和命中测试共享同一组边界。 */
+    private record LinkLayout(List<LinkBounds> bounds, float width, float height) {}
+
     // ========================
     // State
     // ========================
@@ -165,6 +175,9 @@ public class AltManagerScreen extends Screen {
     // 滚动
     private float scrollOffset;
     private float targetScroll;
+    private int layoutWidth = -1;
+    private int layoutHeight = -1;
+    private float layoutViewportH = -1f;
 
     // 模态框
     private Modal modal;
@@ -219,6 +232,7 @@ public class AltManagerScreen extends Screen {
         float dt = Math.min((now - lastFrameMs) / 1000f, 0.1f);
         lastFrameMs = now;
         float elapsed = (now - screenOpenTime) / 1000f;
+        screenLayout();
 
         entryAlpha += (1f - entryAlpha) * dt * ENTRY_FADE_SPEED;
         if (entryAlpha > 0.99f) entryAlpha = 1f;
@@ -266,10 +280,10 @@ public class AltManagerScreen extends Screen {
         float reveal = easeOutCubic(clamp01((elapsed - 0.15f) * 2.8f)) * entryAlpha;
         if (reveal <= 0.01f) return;
 
-        int x = Math.round(contentLeft() - 16f);
-        int y = Math.round(LIST_TOP - 10f + (1f - reveal) * 8f);
-        int w = Math.round(contentWidth() + 32f);
-        int h = Math.max(72, Math.round(listViewportH() + 18f));
+        int x = Math.round(screenLayout().contentLeft() - 16f);
+        int y = Math.round(screenLayout().listTop() - 10f + (1f - reveal) * 8f);
+        int w = Math.round(screenLayout().contentWidth() + 32f);
+        int h = Math.max(72, Math.round(screenLayout().listViewportH() + 18f));
         int r = 14;
 
         SdfUIRenderer.drawShadow(gui, x, y, w, h, r,
@@ -281,7 +295,7 @@ public class AltManagerScreen extends Screen {
         CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, r,
                 scaleAlpha(GLASS_OUTLINE, reveal), 1);
 
-        SdfUIRenderer.drawCircle(gui, contentRight() + 34f, 54f, 118,
+        SdfUIRenderer.drawCircle(gui, screenLayout().contentRight() + 34f, 54f, 118,
                 scaleAlpha(0x1489DDFF, reveal));
     }
 
@@ -292,7 +306,7 @@ public class AltManagerScreen extends Screen {
     private void drawHeader(GuiGraphicsExtractor gui, float elapsed) {
         // 标题：逐字揭示 + 白→青渐变（与主菜单一致）
         String title = "ALT MANAGER";
-        float left = contentLeft();
+        float left = screenLayout().contentLeft();
         float cx = left;
         int letterIndex = 0;
         int letterCount = title.replace(" ", "").length();
@@ -307,7 +321,7 @@ public class AltManagerScreen extends Screen {
                 if (alpha > 0) {
                     float t = letterCount <= 1 ? 0f : (float) letterIndex / (letterCount - 1);
                     int base = lerpColor(TITLE_COLOR, TITLE_GRADIENT, t);
-                    CustomFontRenderer.drawString(gui, titleFont, ch, cx, TITLE_Y,
+                    CustomFontRenderer.drawString(gui, titleFont, ch, cx, screenLayout().titleY(),
                             (alpha << 24) | (base & 0x00FFFFFF));
                 }
                 letterIndex++;
@@ -321,7 +335,7 @@ public class AltManagerScreen extends Screen {
         float progress = easeOutCubic(clamp01((elapsed - 0.35f) * 2.4f));
         if (progress > 0.01f) {
             int a = (int) (entryAlpha * progress * 255);
-            CustomRectRenderer.drawRect(gui, Math.round(left), (int) (TITLE_Y + 30f),
+            CustomRectRenderer.drawRect(gui, Math.round(left), (int) (screenLayout().titleY() + 30f),
                     (int) (titleW * 0.28f * progress), 1, (a << 24) | (ACCENT & 0x00FFFFFF));
         }
 
@@ -331,7 +345,8 @@ public class AltManagerScreen extends Screen {
         if (subAlpha > 0) {
             String sub = "共 " + accounts.size() + " 个账号    ·    当前会话："
                     + AltManager.currentSessionName();
-            CustomFontRenderer.drawString(gui, bodyFont, sub, left, SUBTITLE_Y,
+            sub = ellipsize(bodyFont, sub, screenLayout().contentWidth());
+            CustomFontRenderer.drawString(gui, bodyFont, sub, left, screenLayout().subtitleY(),
                     (subAlpha << 24) | (SUBTITLE_COLOR & 0x00FFFFFF));
         }
     }
@@ -340,33 +355,41 @@ public class AltManagerScreen extends Screen {
     // 账号列表
     // ========================
 
-    private float listViewportH() {
-        return this.height - STATUS_Y_FROM_BOTTOM - 8f - LIST_TOP;
-    }
+    private ScreenLayout screenLayout() {
+        float pad = Math.max(12f, Math.min(CONTENT_MIN_PAD, this.width * 0.06f));
+        float contentW = Math.max(1f, Math.min(CONTENT_MAX_W, this.width - pad * 2f));
+        float left = (this.width - contentW) / 2f;
+        boolean compact = this.width < 620 || this.height < 330;
+        float titleY = compact ? 18f : TITLE_Y;
+        float subtitleY = compact ? 60f : SUBTITLE_Y;
+        float listTop = compact ? 82f : LIST_TOP;
 
-    private float contentWidth() {
-        float available = Math.max(260f, this.width - CONTENT_MIN_PAD * 2f);
-        return Math.max(260f, Math.min(available, CONTENT_MAX_W));
-    }
+        Link[] links = buildActionLinks();
+        LinkLayout measured = layoutLinks(links, left, 0f, contentW);
+        boolean wrapped = measured.bounds().stream().anyMatch(b -> b.textY() > 0f);
+        float actionsY = wrapped
+                ? Math.max(listTop, this.height - 58f - measured.height() + 5f)
+                : this.height - ACTIONS_Y_FROM_BOTTOM;
+        float statusY = Math.min(this.height - STATUS_Y_FROM_BOTTOM, actionsY - 28f);
+        float footerY = this.height - FOOTER_BOTTOM_PAD;
+        float viewportH = Math.max(0f, statusY - 8f - listTop);
 
-    private float contentLeft() {
-        return (this.width - contentWidth()) / 2f;
-    }
-
-    private float contentRight() {
-        return contentLeft() + contentWidth();
-    }
-
-    private float listLeft() {
-        return contentLeft();
-    }
-
-    private float listRight() {
-        return contentRight();
+        ScreenLayout result = new ScreenLayout(left, left + contentW, contentW, titleY,
+                subtitleY, listTop, viewportH, actionsY, statusY, footerY, compact);
+        if (layoutWidth != this.width || layoutHeight != this.height
+                || Math.abs(layoutViewportH - viewportH) > 0.01f) {
+            layoutWidth = this.width;
+            layoutHeight = this.height;
+            layoutViewportH = viewportH;
+            float max = Math.max(0f, accounts.size() * ROW_H - viewportH);
+            targetScroll = Math.clamp(targetScroll, 0f, max);
+            scrollOffset = Math.clamp(scrollOffset, 0f, max);
+        }
+        return result;
     }
 
     private float maxScroll() {
-        return Math.max(0f, accounts.size() * ROW_H - listViewportH());
+        return Math.max(0f, accounts.size() * ROW_H - screenLayout().listViewportH());
     }
 
     private void updateRowHover(int mouseX, int mouseY, float dt, boolean interactive) {
@@ -381,21 +404,23 @@ public class AltManagerScreen extends Screen {
     }
 
     private int rowAt(double mx, double my) {
-        float viewH = listViewportH();
-        if (mx < listLeft() - 12 || mx > listRight()) return -1;
-        if (my < LIST_TOP || my > LIST_TOP + viewH) return -1;
-        int row = (int) ((my - LIST_TOP + scrollOffset) / ROW_H);
+        float viewH = screenLayout().listViewportH();
+        if (mx < screenLayout().contentLeft() - 12 || mx > screenLayout().contentRight()) return -1;
+        if (my < screenLayout().listTop() || my > screenLayout().listTop() + viewH) return -1;
+        int row = (int) ((my - screenLayout().listTop() + scrollOffset) / ROW_H);
         return row >= 0 && row < accounts.size() ? row : -1;
     }
 
     private void drawList(GuiGraphicsExtractor gui, int mouseX, int mouseY, float elapsed, boolean interactive) {
-        float viewH = listViewportH();
-        gui.enableScissor(0, (int) LIST_TOP - 2, this.width, (int) (LIST_TOP + viewH) + 2);
+        float viewH = screenLayout().listViewportH();
+        if (viewH <= 0f || this.width <= 0) return;
+        gui.enableScissor(0, Math.max(0, (int) screenLayout().listTop() - 2), this.width,
+                Math.min(this.height, (int) (screenLayout().listTop() + viewH) + 2));
 
         for (int i = 0; i < accounts.size(); i++) {
             AltAccount acc = accounts.get(i);
-            float rowY = LIST_TOP + i * ROW_H - scrollOffset;
-            if (rowY + ROW_H < LIST_TOP - 4 || rowY > LIST_TOP + viewH + 4) continue;
+            float rowY = screenLayout().listTop() + i * ROW_H - scrollOffset;
+            if (rowY + ROW_H < screenLayout().listTop() - 4 || rowY > screenLayout().listTop() + viewH + 4) continue;
 
             float reveal = easeOutCubic(clamp01((elapsed - 0.30f - i * ENTRY_STAGGER) * 3f));
             if (reveal <= 0.01f) continue;
@@ -408,10 +433,10 @@ public class AltManagerScreen extends Screen {
             int alpha = (int) (entryAlpha * reveal * dim * 255);
             if (alpha <= 0) continue;
 
-            float left = listLeft();
+            float left = screenLayout().contentLeft();
             int cardX = Math.round(left - 8f);
             int cardY = Math.round(rowY + 3f);
-            int cardW = Math.max(40, Math.round(listRight() - cardX - 8f));
+            int cardW = Math.max(40, Math.round(screenLayout().contentRight() - cardX - 8f));
             int cardH = Math.round(ROW_H - 6f);
             float cardStrength = Math.max(hp, isSelected ? 0.68f : 0f);
             if (cardStrength > 0.01f) {
@@ -443,11 +468,13 @@ public class AltManagerScreen extends Screen {
             int nameColor = lerpColor(
                     (alpha << 24) | ((isSelected ? TEXT_HOVER : TEXT_IDLE) & 0x00FFFFFF),
                     (alpha << 24) | (TEXT_HOVER & 0x00FFFFFF), hp);
-            CustomFontRenderer.drawString(gui, nameFont, acc.getName(), textX, rowY + 5f, nameColor);
+            String displayName = ellipsize(nameFont, acc.getName(), Math.max(30f, screenLayout().contentRight() - textX - 92f));
+            CustomFontRenderer.drawString(gui, nameFont, displayName, textX, rowY + 5f, nameColor);
 
             // 次级信息：类型 · 短 UUID
             String sub = acc.typeLabel() + "  ·  " + acc.shortUuid();
             int subAlpha = (int) (alpha * 0.75f);
+            sub = ellipsize(tinyFont, sub, Math.max(30f, screenLayout().contentRight() - textX - 92f));
             CustomFontRenderer.drawString(gui, tinyFont, sub, textX, rowY + 24f,
                     (subAlpha << 24) | (SUBTITLE_COLOR & 0x00FFFFFF));
 
@@ -472,7 +499,7 @@ public class AltManagerScreen extends Screen {
             return;
         }
         float w = CustomFontRenderer.stringWidth(hintFont, text);
-        float x = listRight() - w;
+        float x = screenLayout().contentRight() - w;
         float y = rowY + (ROW_H - hintFont.lineHeight) / 2f - 1f;
         int a = (int) (rowAlpha * 0.95f);
         int chipX = Math.round(x - 17f);
@@ -492,13 +519,14 @@ public class AltManagerScreen extends Screen {
     }
 
     private void drawScrollbar(GuiGraphicsExtractor gui, float viewH) {
+        if (viewH <= 0f) return;
         float max = maxScroll();
         if (max <= 0.5f) return;
         float contentH = accounts.size() * ROW_H;
-        float barH = Math.max(24f, viewH * viewH / contentH);
-        float barY = LIST_TOP + (viewH - barH) * (scrollOffset / max);
+        float barH = Math.min(viewH, Math.max(Math.min(24f, viewH), viewH * viewH / contentH));
+        float barY = screenLayout().listTop() + (viewH - barH) * (scrollOffset / max);
         int alpha = (int) (entryAlpha * 0.35f * 255);
-        CustomRectRenderer.drawRect(gui, Math.round(listRight() + 12f), (int) barY, 2, (int) barH,
+        CustomRectRenderer.drawRect(gui, Math.round(screenLayout().contentRight() + 12f), (int) barY, 2, (int) barH,
                 (alpha << 24) | (ACCENT & 0x00FFFFFF));
     }
 
@@ -506,12 +534,12 @@ public class AltManagerScreen extends Screen {
         float reveal = easeOutCubic(clamp01((elapsed - 0.4f) * 2f));
         int alpha = (int) (entryAlpha * reveal * 255);
         if (alpha <= 0) return;
-        float cy = LIST_TOP + listViewportH() / 2f - 20f;
+        float cy = screenLayout().listTop() + screenLayout().listViewportH() / 2f - 20f;
         String line1 = "列表为空";
         String line2 = "使用下方链接添加 Microsoft 或离线账号";
         float w1 = CustomFontRenderer.stringWidth(nameFont, line1);
         float w2 = CustomFontRenderer.stringWidth(bodyFont, line2);
-        float centerX = contentLeft() + contentWidth() / 2f;
+        float centerX = screenLayout().contentLeft() + screenLayout().contentWidth() / 2f;
         int a1 = (int) (alpha * 0.8f);
         int a2 = (int) (alpha * 0.55f);
         CustomFontRenderer.drawString(gui, nameFont, line1, centerX - w1 / 2f, cy,
@@ -545,13 +573,14 @@ public class AltManagerScreen extends Screen {
         if (alpha <= 0) return;
 
         Link[] links = buildActionLinks();
-        float y = this.height - ACTIONS_Y_FROM_BOTTOM;
-        float left = contentLeft();
+        float y = screenLayout().actionsY();
+        float left = screenLayout().contentLeft();
 
-        float trayW = Math.min(contentWidth() + 24f, 520f);
+        float trayW = Math.min(screenLayout().contentWidth() + 24f, 520f);
+        LinkLayout linkLayout = layoutLinks(links, left, y, Math.max(1f, trayW - 24f));
         int trayX = Math.round(left - 12f);
         int trayY = Math.round(y - 12f);
-        int trayH = Math.round(linkFont.lineHeight + 24f);
+        int trayH = Math.round(linkLayout.height() + 14f);
         CustomBlurRenderer.render(trayX, trayY, trayW, trayH, 10,
                 scaleAlpha(0x48101820, reveal), 5f);
         CustomRoundedRectRenderer.drawRoundedRect(gui, trayX, trayY,
@@ -559,8 +588,8 @@ public class AltManagerScreen extends Screen {
         CustomRoundedRectRenderer.drawRoundedOutline(gui, trayX, trayY,
                 Math.round(trayW), trayH, 10, scaleAlpha(GLASS_OUTLINE, reveal * 0.75f), 1);
 
-        drawHLinks(gui, links, actionHover, interactive ? mouseX : -1, interactive ? mouseY : -1,
-                dt, left, y, alpha);
+        drawLinks(gui, links, actionHover, interactive ? mouseX : -1, interactive ? mouseY : -1,
+                dt, linkLayout, alpha);
     }
 
     private void drawStatus(GuiGraphicsExtractor gui, long now) {
@@ -585,26 +614,28 @@ public class AltManagerScreen extends Screen {
         }
         int alpha = (int) (entryAlpha * alphaScale * 255);
         if (alpha <= 0) return;
-        CustomFontRenderer.drawString(gui, bodyFont, msg, contentLeft(),
-                this.height - STATUS_Y_FROM_BOTTOM, (alpha << 24) | (color & 0x00FFFFFF));
+        CustomFontRenderer.drawString(gui, bodyFont, msg, screenLayout().contentLeft(),
+                screenLayout().statusY(), (alpha << 24) | (color & 0x00FFFFFF));
     }
 
     private void drawFooter(GuiGraphicsExtractor gui, float elapsed) {
         float reveal = easeOutCubic(clamp01((elapsed - 0.7f) * 3f));
         int alpha = (int) (entryAlpha * reveal * 255);
         if (alpha <= 0) return;
-        float y = this.height - FOOTER_BOTTOM_PAD;
+        if (screenLayout().compact() && this.height < 250) return;
+        float y = screenLayout().footerY();
 
         String hints = "↑↓  选择    Enter  应用    Delete  删除    Esc  返回";
-        CustomFontRenderer.drawString(gui, hintFont, hints, contentLeft(), y,
+        hints = ellipsize(hintFont, hints, Math.max(1f, screenLayout().contentWidth() - 110f));
+        CustomFontRenderer.drawString(gui, hintFont, hints, screenLayout().contentLeft(), y,
                 (alpha << 24) | (HINT_COLOR & 0x00FFFFFF));
 
         String line1 = "Gemini Client";
         String line2 = "v" + MOD_VERSION;
         float w1 = CustomFontRenderer.stringWidth(hintFont, line1);
         float w2 = CustomFontRenderer.stringWidth(hintFont, line2);
-        float x1 = listRight() - w1;
-        float x2 = listRight() - w2;
+        float x1 = screenLayout().contentRight() - w1;
+        float x2 = screenLayout().contentRight() - w2;
         float y2 = y;
         float y1 = y2 - 11f - 3f;
         int color = (alpha << 24) | (VERSION_COLOR & 0x00FFFFFF);
@@ -619,67 +650,84 @@ public class AltManagerScreen extends Screen {
     // 链接绘制（水平排版链接：悬停下划线）
     // ========================
 
-    private void drawHLinks(GuiGraphicsExtractor gui, Link[] links, HoverSet hover,
-                            int mouseX, int mouseY, float dt, float x, float y, int baseAlpha) {
-        hover.ensure(links.length);
-        String sep = "    ·    ";
-        float sepW = CustomFontRenderer.stringWidth(linkFont, sep);
+    private LinkLayout layoutLinks(Link[] links, float x, float y, float maxWidth) {
+        float gap = CustomFontRenderer.stringWidth(linkFont, "    ·    ");
+        float lineStep = linkFont.lineHeight + 14f;
         float cx = x;
+        float cy = y;
+        float right = x;
+        List<LinkBounds> bounds = new ArrayList<>(links.length);
         for (int i = 0; i < links.length; i++) {
-            Link link = links[i];
-            float w = CustomFontRenderer.stringWidth(linkFont, link.label());
-            boolean over = link.enabled()
-                    && mouseX >= cx - 7 && mouseX <= cx + w + 7
-                    && mouseY >= y - 5 && mouseY <= y + linkFont.lineHeight + 5;
-            hover.update(i, over, dt);
-            float hp = hover.get(i);
-
-            int idle = link.enabled() ? link.idleColor() : HINT_COLOR;
-            int a = baseAlpha * (idle >>> 24) / 255;
-            int pillX = Math.round(cx - 7f);
-            int pillY = Math.round(y - 5f);
-            int pillW = Math.round(w + 14f);
-            int pillH = Math.round(linkFont.lineHeight + 10f);
-            float enabledBase = link.enabled() ? 0.16f : 0.06f;
-            CustomRoundedRectRenderer.drawRoundedRect(gui, pillX, pillY, pillW, pillH,
-                    6, scaleAlpha(0xFF24323D, baseAlpha / 255f * (enabledBase + hp * 0.34f)));
-            CustomRoundedRectRenderer.drawRoundedOutline(gui, pillX, pillY, pillW, pillH,
-                    6, scaleAlpha(hp > 0.01f ? ACCENT : GLASS_OUTLINE,
-                            baseAlpha / 255f * (0.35f + hp * 0.55f)), 1);
-            int idleC = (a << 24) | (idle & 0x00FFFFFF);
-            int hoverC = (a << 24) | (TEXT_HOVER & 0x00FFFFFF);
-            CustomFontRenderer.drawString(gui, linkFont, link.label(), cx, y,
-                    lerpColor(idleC, hoverC, hp));
-
-            if (hp > 0.01f) {
-                int ulA = (int) (a * hp);
-                float ulW = w * hp;
-                float ulX = cx + (w - ulW) / 2f;
-                CustomRectRenderer.drawRect(gui, (int) ulX, (int) (y + linkFont.lineHeight + 2f),
-                        (int) ulW, 1, (ulA << 24) | (ACCENT & 0x00FFFFFF));
+            float textW = CustomFontRenderer.stringWidth(linkFont, links[i].label());
+            float pillW = textW + 14f;
+            if (cx > x && cx + pillW > x + Math.max(1f, maxWidth)) {
+                cx = x;
+                cy += lineStep;
             }
-            cx += w + sepW;
+            bounds.add(new LinkBounds(i, cx - 7f, cy - 5f, pillW,
+                    linkFont.lineHeight + 10f, cx, cy));
+            right = Math.max(right, cx + textW);
+            cx += textW + gap;
         }
+        return new LinkLayout(bounds, Math.max(0f, right - x),
+                bounds.isEmpty() ? 0f : cy - y + linkFont.lineHeight + 10f);
     }
 
-    /** 返回水平链接布局的命中盒（与 drawHLinks 布局完全一致）。 */
-    private float[][] layoutHLinks(Link[] links, float x, float y) {
-        float sepW = CustomFontRenderer.stringWidth(linkFont, "    ·    ");
-        float[][] bounds = new float[links.length][4];
-        float cx = x;
-        for (int i = 0; i < links.length; i++) {
-            float w = CustomFontRenderer.stringWidth(linkFont, links[i].label());
-            bounds[i] = new float[]{cx - 7, y - 5, w + 14, linkFont.lineHeight + 10};
-            cx += w + sepW;
+    private void drawHLinks(GuiGraphicsExtractor gui, Link[] links, HoverSet hover,
+                            int mouseX, int mouseY, float dt, float x, float y, int baseAlpha) {
+        drawLinks(gui, links, hover, mouseX, mouseY, dt,
+                layoutLinks(links, x, y, linkMaxWidth(x)), baseAlpha);
+    }
+
+    private void drawLinks(GuiGraphicsExtractor gui, Link[] links, HoverSet hover,
+                           int mouseX, int mouseY, float dt, LinkLayout layout, int baseAlpha) {
+        hover.ensure(links.length);
+        for (LinkBounds b : layout.bounds()) {
+            Link link = links[b.index()];
+            boolean over = link.enabled() && mouseX >= b.x() && mouseX <= b.x() + b.w()
+                    && mouseY >= b.y() && mouseY <= b.y() + b.h();
+            hover.update(b.index(), over, dt);
+            float hp = hover.get(b.index());
+            int idle = link.enabled() ? link.idleColor() : HINT_COLOR;
+            int a = baseAlpha * (idle >>> 24) / 255;
+            CustomRoundedRectRenderer.drawRoundedRect(gui, Math.round(b.x()), Math.round(b.y()),
+                    Math.round(b.w()), Math.round(b.h()), 6,
+                    scaleAlpha(0xFF24323D, baseAlpha / 255f * ((link.enabled() ? 0.16f : 0.06f) + hp * 0.34f)));
+            CustomRoundedRectRenderer.drawRoundedOutline(gui, Math.round(b.x()), Math.round(b.y()),
+                    Math.round(b.w()), Math.round(b.h()), 6,
+                    scaleAlpha(hp > 0.01f ? ACCENT : GLASS_OUTLINE,
+                            baseAlpha / 255f * (0.35f + hp * 0.55f)), 1);
+            CustomFontRenderer.drawString(gui, linkFont, link.label(), b.textX(), b.textY(),
+                    lerpColor((a << 24) | (idle & 0x00FFFFFF),
+                            (a << 24) | (TEXT_HOVER & 0x00FFFFFF), hp));
+            if (hp > 0.01f) {
+                float textW = CustomFontRenderer.stringWidth(linkFont, link.label());
+                float ulW = textW * hp;
+                CustomRectRenderer.drawRect(gui, (int) (b.textX() + (textW - ulW) / 2f),
+                        (int) (b.textY() + linkFont.lineHeight + 2f), (int) ulW, 1,
+                        ((int) (a * hp) << 24) | (ACCENT & 0x00FFFFFF));
+            }
         }
-        return bounds;
     }
 
     private int hLinkAt(Link[] links, float x, float y, double mx, double my) {
-        float[][] bounds = layoutHLinks(links, x, y);
-        for (int i = 0; i < bounds.length; i++) {
-            float[] b = bounds[i];
-            if (mx >= b[0] && mx <= b[0] + b[2] && my >= b[1] && my <= b[1] + b[3]) return i;
+        return linkAt(layoutLinks(links, x, y, linkMaxWidth(x)), mx, my);
+    }
+
+    private float linkMaxWidth(float x) {
+        Modal active = modal != null ? modal : closingModal;
+        if (active != null) {
+            PanelRect p = active.panel();
+            if (x >= p.x() && x <= p.x() + p.w()) return Math.max(1f, p.x() + p.w() - active.inset(p) - x);
+        }
+        return Math.max(1f, AltManagerScreen.this.width - x - 12f);
+    }
+
+    private int linkAt(LinkLayout layout, double mx, double my) {
+        for (LinkBounds b : layout.bounds()) {
+            if (mx >= b.x() && mx <= b.x() + b.w() && my >= b.y() && my <= b.y() + b.h()) {
+                return b.index();
+            }
         }
         return -1;
     }
@@ -792,7 +840,7 @@ public class AltManagerScreen extends Screen {
     private void ensureRowVisible(int i) {
         float rowTop = i * ROW_H;
         float rowBottom = rowTop + ROW_H;
-        float viewH = listViewportH();
+        float viewH = screenLayout().listViewportH();
         if (rowTop < targetScroll) targetScroll = rowTop;
         else if (rowBottom > targetScroll + viewH) targetScroll = rowBottom - viewH;
         clampScroll();
@@ -820,8 +868,9 @@ public class AltManagerScreen extends Screen {
 
         // 操作链接
         Link[] links = buildActionLinks();
-        float linkY = this.height - ACTIONS_Y_FROM_BOTTOM;
-        int linkIdx = hLinkAt(links, contentLeft(), linkY, mouse.x(), mouse.y());
+        float linkY = screenLayout().actionsY();
+        int linkIdx = linkAt(layoutLinks(links, screenLayout().contentLeft(), linkY,
+                Math.max(1f, Math.min(screenLayout().contentWidth() + 24f, 520f) - 24f)), mouse.x(), mouse.y());
         if (linkIdx >= 0 && links[linkIdx].enabled()) {
             links[linkIdx].action().run();
             return true;
@@ -939,12 +988,25 @@ public class AltManagerScreen extends Screen {
 
         void onClose() {}
 
+        float inset(PanelRect p) {
+            return Math.clamp(p.w() * 0.06f, 12f, 26f);
+        }
+
+        float contentY(PanelRect p, float normalOffset) {
+            float desired = panelHeight();
+            if (p.h() >= desired - 0.5f || normalOffset <= 48f) return p.y() + normalOffset;
+            float usable = Math.max(1f, p.h() - 58f);
+            float desiredUsable = Math.max(1f, desired - 58f);
+            return p.y() + 48f + (normalOffset - 48f) * usable / desiredUsable;
+        }
+
         PanelRect panel() {
-            float w = 430f;
-            float h = panelHeight();
+            float margin = 12f;
+            float w = Math.max(1f, Math.min(430f, AltManagerScreen.this.width - margin * 2f));
+            float h = Math.max(1f, Math.min(panelHeight(), AltManagerScreen.this.height - margin * 2f));
             float x = (AltManagerScreen.this.width - w) / 2f;
             float y = (AltManagerScreen.this.height - h) / 2f
-                    + (1f - easeOutCubic(modalAlpha)) * 12f;
+                    + (1f - easeOutCubic(modalAlpha)) * Math.min(12f, margin);
             return new PanelRect(x, y, w, h);
         }
 
@@ -970,12 +1032,18 @@ public class AltManagerScreen extends Screen {
                     14, scaleAlpha(0xFF3B5261, a), 1);
 
             // 标题 + 强调线
-            CustomFontRenderer.drawString(gui, modalTitleFont, title(),
-                    p.x() + 26, p.y() + 20, scaleAlpha(TITLE_COLOR, a));
-            CustomRectRenderer.drawRect(gui, (int) (p.x() + 26), (int) (p.y() + 46),
+            float inset = inset(p);
+            String panelTitle = ellipsize(modalTitleFont, title(), Math.max(1f, p.w() - inset * 2f));
+            CustomFontRenderer.drawString(gui, modalTitleFont, panelTitle,
+                    p.x() + inset, p.y() + 20, scaleAlpha(TITLE_COLOR, a));
+            CustomRectRenderer.drawRect(gui, (int) (p.x() + inset), (int) (p.y() + 46),
                     26, 1, scaleAlpha(ACCENT, a));
 
+            gui.enableScissor(Math.max(0, (int) p.x()), Math.max(0, (int) (p.y() + Math.min(49f, p.h()))),
+                    Math.min(AltManagerScreen.this.width, (int) (p.x() + p.w())),
+                    Math.min(AltManagerScreen.this.height, (int) (p.y() + p.h())));
             extractContent(gui, p, mouseX, mouseY, dt, now, a);
+            gui.disableScissor();
         }
     }
 
@@ -1157,16 +1225,15 @@ public class AltManagerScreen extends Screen {
                     "手动模式：自行完成登录后粘贴浏览器重定向链接。");
             String[] items = {"自动登录（推荐）", "手动粘贴链接", "取消"};
             vHover.ensure(items.length);
-            float y = p.y() + 108f;
             for (int i = 0; i < items.length; i++) {
-                float itemY = y + i * 26f;
+                float itemY = contentY(p, 108f + i * 26f);
                 boolean over = mouseX >= p.x() + 20 && mouseX <= p.x() + p.w() - 20
                         && mouseY >= itemY - 4 && mouseY <= itemY + linkFont.lineHeight + 4;
                 vHover.update(i, over, dt);
                 float hp = vHover.get(i);
                 if (hp > 0.01f) {
                     float barH = linkFont.lineHeight * hp;
-                    CustomRectRenderer.drawRect(gui, (int) (p.x() + 26),
+                    CustomRectRenderer.drawRect(gui, (int) (p.x() + inset(p)),
                             (int) (itemY + (linkFont.lineHeight - barH) / 2f), 2, (int) barH,
                             scaleAlpha(ACCENT, a * hp));
                 }
@@ -1184,20 +1251,21 @@ public class AltManagerScreen extends Screen {
                 return;
             }
             String status = statusText.isEmpty() ? "等待浏览器回调" : statusText;
+            status = ellipsize(bodyFont, status, Math.max(1f, p.w() - inset(p) * 2f - 18f));
             CustomFontRenderer.drawString(gui, bodyFont, status + dots(now),
-                    p.x() + 26, p.y() + 62, scaleAlpha(TEXT_HOVER, a));
+                    p.x() + inset(p), contentY(p, 62f), scaleAlpha(TEXT_HOVER, a));
 
             long remain = Math.max(0, 300 - (now - waitStartMs) / 1000);
             String countdown = String.format("剩余 %d:%02d", remain / 60, remain % 60);
             CustomFontRenderer.drawString(gui, bodyFont, countdown,
-                    p.x() + 26, p.y() + 82, scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 82f), scaleAlpha(SUBTITLE_COLOR, a));
 
             CustomFontRenderer.drawString(gui, bodyFont, "页面没有打开？可以改用手动模式自行复制链接。",
-                    p.x() + 26, p.y() + 102, scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 102f), scaleAlpha(SUBTITLE_COLOR, a));
 
             Link[] links = waitingLinks();
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
-                    p.x() + 26, p.y() + 140, (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 140f), (int) (a * 255));
         }
 
         private void extractManual(GuiGraphicsExtractor gui, PanelRect p,
@@ -1206,55 +1274,60 @@ public class AltManagerScreen extends Screen {
                     "在浏览器中完成登录后，地址栏会跳转到 localhost 链接",
                     "（页面可能无法打开）——复制完整链接粘贴到下方：");
 
-            float fieldY = p.y() + 100f;
-            urlField.render(gui, fieldFont, p.x() + 26, fieldY, p.w() - 52, now, a);
+            float fieldY = contentY(p, 100f);
+            urlField.render(gui, fieldFont, p.x() + inset(p), fieldY, Math.max(1f, p.w() - inset(p) * 2f), now, a);
             // 输入框强调下划线
-            CustomRectRenderer.drawRect(gui, (int) (p.x() + 26),
+            CustomRectRenderer.drawRect(gui, (int) (p.x() + inset(p)),
                     (int) (fieldY + fieldFont.lineHeight + 5f),
-                    (int) (p.w() - 52), 1, scaleAlpha(ACCENT, a));
+                    (int) (Math.max(1f, p.w() - inset(p) * 2f)), 1, scaleAlpha(ACCENT, a));
 
             Link[] links = manualLinks();
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
-                    p.x() + 26, p.y() + 168, (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 168f), (int) (a * 255));
         }
 
         private void extractProgress(GuiGraphicsExtractor gui, PanelRect p,
                                      int mouseX, int mouseY, float dt, long now, float a) {
             String status = statusText.isEmpty() ? "正在与微软服务器通信" : statusText;
+            status = ellipsize(bodyFont, status, Math.max(1f, p.w() - inset(p) * 2f - 18f));
             CustomFontRenderer.drawString(gui, bodyFont, status + dots(now),
-                    p.x() + 26, p.y() + 66, scaleAlpha(TEXT_HOVER, a));
+                    p.x() + inset(p), contentY(p, 66f), scaleAlpha(TEXT_HOVER, a));
             CustomFontRenderer.drawString(gui, bodyFont, "请稍候，正在完成令牌交换…",
-                    p.x() + 26, p.y() + 88, scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 88f), scaleAlpha(SUBTITLE_COLOR, a));
 
             Link[] links = {new Link("取消", TEXT_IDLE, true, this::cancelLogin)};
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
-                    p.x() + 26, p.y() + 122, (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 122f), (int) (a * 255));
         }
 
         private void extractError(GuiGraphicsExtractor gui, PanelRect p,
                                   int mouseX, int mouseY, float dt, float a) {
             List<String> lines = errorLines();
-            float y = p.y() + 58f;
+            float y = contentY(p, 58f);
+            int lineIndex = 0;
             for (String line : lines) {
-                CustomFontRenderer.drawString(gui, bodyFont, line, p.x() + 26, y,
+                CustomFontRenderer.drawString(gui, bodyFont, ellipsize(bodyFont, line,
+                        Math.max(1f, p.w() - inset(p) * 2f)), p.x() + inset(p), y,
                         scaleAlpha(ERROR_COLOR, a));
-                y += 16f;
+                lineIndex++;
+                y = contentY(p, 58f + lineIndex * 16f);
             }
             Link[] links = {
                     new Link("返回", TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
                     new Link("关闭", TEXT_IDLE, true, AltManagerScreen.this::closeModal),
             };
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
-                    p.x() + 26, y + 14, (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 58f + lines.size() * 16f + 14f),
+                    (int) (a * 255));
         }
 
         private void drawBodyLines(GuiGraphicsExtractor gui, PanelRect p, float a,
                                    float offsetY, String... lines) {
-            float y = p.y() + offsetY;
-            for (String line : lines) {
-                CustomFontRenderer.drawString(gui, bodyFont, line, p.x() + 26, y,
+            for (int i = 0; i < lines.length; i++) {
+                float y = contentY(p, offsetY + i * 16f);
+                String line = ellipsize(bodyFont, lines[i], Math.max(1f, p.w() - inset(p) * 2f));
+                CustomFontRenderer.drawString(gui, bodyFont, line, p.x() + inset(p), y,
                         scaleAlpha(SUBTITLE_COLOR, a));
-                y += 16f;
             }
         }
 
@@ -1350,9 +1423,9 @@ public class AltManagerScreen extends Screen {
             switch (state) {
                 case CHOICE -> {
                     String[] items = {"自动登录（推荐）", "手动粘贴链接", "取消"};
-                    float y = p.y() + 108f;
+                    float y = contentY(p, 108f);
                     for (int i = 0; i < items.length; i++) {
-                        float itemY = y + i * 26f;
+                        float itemY = contentY(p, 108f + i * 26f);
                         if (mx >= p.x() + 20 && mx <= p.x() + p.w() - 20
                                 && my >= itemY - 4 && my <= itemY + linkFont.lineHeight + 4) {
                             if (i == 0) startAutoLogin();
@@ -1364,27 +1437,27 @@ public class AltManagerScreen extends Screen {
                 }
                 case WAITING -> {
                     Link[] links = waitingLinks();
-                    int idx = hLinkAt(links, p.x() + 26, p.y() + 140, mx, my);
+                    int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 140f), mx, my);
                     if (idx >= 0 && links[idx].enabled()) links[idx].action().run();
                 }
                 case MANUAL -> {
                     Link[] links = manualLinks();
-                    int idx = hLinkAt(links, p.x() + 26, p.y() + 168, mx, my);
+                    int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 168f), mx, my);
                     if (idx >= 0 && links[idx].enabled()) links[idx].action().run();
                 }
                 case PROGRESS -> {
                     Link[] links = {new Link("取消", TEXT_IDLE, true, this::cancelLogin)};
-                    int idx = hLinkAt(links, p.x() + 26, p.y() + 122, mx, my);
+                    int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 122f), mx, my);
                     if (idx >= 0) links[idx].action().run();
                 }
                 case ERROR -> {
                     List<String> lines = errorLines();
-                    float y = p.y() + 58f + lines.size() * 16f + 14f;
+                    float y = contentY(p, 58f + lines.size() * 16f + 14f);
                     Link[] links = {
                             new Link("返回", TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
                             new Link("关闭", TEXT_IDLE, true, AltManagerScreen.this::closeModal),
                     };
-                    int idx = hLinkAt(links, p.x() + 26, y, mx, my);
+                    int idx = hLinkAt(links, p.x() + inset(p), y, mx, my);
                     if (idx >= 0) links[idx].action().run();
                 }
             }
@@ -1491,27 +1564,27 @@ public class AltManagerScreen extends Screen {
                             int mouseX, int mouseY, float dt, long now, float a) {
             CustomFontRenderer.drawString(gui, bodyFont,
                     "离线账号无需联网验证，仅适用于离线模式服务器。",
-                    p.x() + 26, p.y() + 58, scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 58f), scaleAlpha(SUBTITLE_COLOR, a));
 
-            float fieldY = p.y() + 88f;
-            nameField.render(gui, fieldFont, p.x() + 26, fieldY, p.w() - 52, now, a);
-            CustomRectRenderer.drawRect(gui, (int) (p.x() + 26),
+            float fieldY = contentY(p, 88f);
+            nameField.render(gui, fieldFont, p.x() + inset(p), fieldY, Math.max(1f, p.w() - inset(p) * 2f), now, a);
+            CustomRectRenderer.drawRect(gui, (int) (p.x() + inset(p)),
                     (int) (fieldY + fieldFont.lineHeight + 5f),
-                    (int) (p.w() - 52), 1, scaleAlpha(ACCENT, a));
+                    (int) (Math.max(1f, p.w() - inset(p) * 2f)), 1, scaleAlpha(ACCENT, a));
 
             if (!errorText.isEmpty()) {
                 CustomFontRenderer.drawString(gui, bodyFont, errorText,
-                        p.x() + 26, p.y() + 128, scaleAlpha(ERROR_COLOR, a));
+                        p.x() + inset(p), contentY(p, 128f), scaleAlpha(ERROR_COLOR, a));
             }
 
             drawHLinks(gui, links(), hHover, mouseX, mouseY, dt,
-                    p.x() + 26, p.y() + 160, (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 160f), (int) (a * 255));
         }
 
         @Override
         void mouseClicked(double mx, double my) {
             PanelRect p = panel();
-            int idx = hLinkAt(links(), p.x() + 26, p.y() + 160, mx, my);
+            int idx = hLinkAt(links(), p.x() + inset(p), contentY(p, 160f), mx, my);
             if (idx >= 0 && links()[idx].enabled()) links()[idx].action().run();
         }
 
@@ -1577,18 +1650,18 @@ public class AltManagerScreen extends Screen {
                             int mouseX, int mouseY, float dt, long now, float a) {
             CustomFontRenderer.drawString(gui, bodyFont,
                     "确定删除账号 " + target.getName() + "（" + target.typeLabel() + "）？",
-                    p.x() + 26, p.y() + 62, scaleAlpha(TEXT_HOVER, a));
+                    p.x() + inset(p), contentY(p, 62f), scaleAlpha(TEXT_HOVER, a));
             CustomFontRenderer.drawString(gui, bodyFont, "此操作不可撤销。",
-                    p.x() + 26, p.y() + 80, scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 80f), scaleAlpha(SUBTITLE_COLOR, a));
 
             drawHLinks(gui, links(), hHover, mouseX, mouseY, dt,
-                    p.x() + 26, p.y() + 130, (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 130f), (int) (a * 255));
         }
 
         @Override
         void mouseClicked(double mx, double my) {
             PanelRect p = panel();
-            int idx = hLinkAt(links(), p.x() + 26, p.y() + 130, mx, my);
+            int idx = hLinkAt(links(), p.x() + inset(p), contentY(p, 130f), mx, my);
             if (idx >= 0 && links()[idx].enabled()) links()[idx].action().run();
         }
 
@@ -1637,6 +1710,20 @@ public class AltManagerScreen extends Screen {
         }
         if (w > 0) w -= spacing;
         return w;
+    }
+
+    private static String ellipsize(GlyphFont font, String text, float maxWidth) {
+        if (text == null || text.isEmpty() || maxWidth <= 0f) return "";
+        if (CustomFontRenderer.stringWidth(font, text) <= maxWidth) return text;
+        String suffix = "…";
+        if (CustomFontRenderer.stringWidth(font, suffix) > maxWidth) return "";
+        int end = text.length();
+        while (end > 0) {
+            end = text.offsetByCodePoints(end, -1);
+            String candidate = text.substring(0, end) + suffix;
+            if (CustomFontRenderer.stringWidth(font, candidate) <= maxWidth) return candidate;
+        }
+        return suffix;
     }
 
     private static float clamp01(float v) {

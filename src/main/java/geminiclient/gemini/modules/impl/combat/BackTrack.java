@@ -324,7 +324,7 @@ public class BackTrack extends Module {
 
     private boolean isVelocitySuspending() {
         Velocity vel = Gemini.moduleManager.getModule(Velocity.class);
-        return vel != null && vel.enabled && vel.isSuspending();
+        return vel != null && vel.enabled;
     }
 
     // --- Public API ---

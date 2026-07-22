@@ -13,8 +13,9 @@ import net.minecraft.world.item.PotionItem;
 public class NoSlow extends Module {
 
     // 使用物品时的最大速度倍率
-    public final FloatValue factor = new FloatValue("Factor", 0.98f, 0.2f, 0.98f);
+    public final FloatValue factor = new FloatValue("Factor", 1.0f, 0.2f, 1.0f);
 
+    public final ListValue swordMode = new ListValue("SwordMode", "Vanilla", new String[] { "Vanilla", "None" });
     public final ListValue foodMode = new ListValue("FoodMode", "Vanilla", new String[] { "Vanilla", "None" });
     public final ListValue bowMode = new ListValue("BowMode", "Vanilla", new String[] { "Vanilla", "None" });
     public final ListValue otherMode = new ListValue("OtherMode", "Vanilla", new String[] { "Vanilla", "None" });
@@ -47,6 +48,13 @@ public class NoSlow extends Module {
             return; // 明确返回，防止继续处理其他模式
         }
 
+        if (isSword(item)) {
+            if (swordMode.is("Vanilla")) {
+                event.setFactor(factor.getValue());
+            }
+            return;
+        }
+
         // 弓 / 弩
         if (item == Items.BOW || item == Items.CROSSBOW) {
             if (bowMode.is("Vanilla")) {
@@ -64,6 +72,11 @@ public class NoSlow extends Module {
     /**
      * 判断是否为食物或药水（兼容 1.21.9）
      */
+    private boolean isSword(Item item) {
+        String name = item.toString().toLowerCase();
+        return name.contains("sword");
+    }
+
     private boolean isFoodOrPotion(Item item) {
         if (item instanceof PotionItem || item == Items.MILK_BUCKET)
             return true;

@@ -62,6 +62,9 @@ public class MainMenuScreen extends Screen {
 
     private static final int MENU_PANEL_W = 320;
     private static final int MENU_PANEL_RADIUS = 14;
+    private static final int MIN_EDGE_PAD = 8;
+    private static final int NORMAL_EDGE_PAD = 24;
+    private static final int MIN_MENU_SPACING = 20;
 
     // ========================
     // Fonts
@@ -123,6 +126,27 @@ public class MainMenuScreen extends Screen {
     // ========================
 
     private record MenuItem(String label, Runnable action) {}
+
+    private record Layout(
+            String titleText,
+            float titleX, float titleY, float titleWidth, float titleSpacing,
+            float accentY, float subtitleX, float subtitleY,
+            int panelX, int panelY, int panelW, int panelH,
+            float menuStartY, float menuSpacing, int rowX, int rowW, int rowH,
+            float navStartX, float navY, float githubW, float separatorW, float discordW,
+            int navSurfaceX, int navSurfaceY, int navSurfaceW, int navSurfaceH,
+            float footerNameX, float footerVersionX, float footerNameY, float footerVersionY,
+            float hintsX, boolean showSubtitle, boolean showAtmosphere, boolean showNavigation,
+            boolean showFooter, boolean showHints) {
+
+        float menuY(int index) {
+            return menuStartY + index * menuSpacing;
+        }
+
+        float discordX() {
+            return navStartX + githubW + separatorW;
+        }
+    }
 
     // ========================
     // State
@@ -198,53 +222,133 @@ public class MainMenuScreen extends Screen {
         entryAlpha += (1f - entryAlpha) * dt * ENTRY_FADE_SPEED;
         if (entryAlpha > 0.99f) entryAlpha = 1f;
 
+        Layout layout = layout();
+
         // ── 1. GLSL Background ─────────────────────────────
         InfiniteGridRenderer.render(elapsed);
 
         // ── 2. Update hover animations ─────────────────────
-        updateMenuHover(mouseX, mouseY, dt);
-        updateNavHover(mouseX, mouseY, dt);
+        updateMenuHover(layout, mouseX, mouseY, dt);
+        updateNavHover(layout, mouseX, mouseY, dt);
 
         // ── 3. Frosted surfaces + ambient lighting ─────────
-        drawAtmosphere(gui, elapsed);
-        drawGlassSurfaces(gui, elapsed);
+        drawAtmosphere(gui, layout, elapsed);
+        drawGlassSurfaces(gui, layout, elapsed);
 
         // ── 4. Title ───────────────────────────────────────
-        drawTitle(gui, elapsed);
+        drawTitle(gui, layout, elapsed);
 
         // ── 5. Accent rule + Subtitle ──────────────────────
-        drawAccentRule(gui, elapsed);
-        drawSubtitle(gui, elapsed);
+        drawAccentRule(gui, layout, elapsed);
+        drawSubtitle(gui, layout, elapsed);
 
         // ── 6. Menu items ──────────────────────────────────
-        drawMenuItems(gui, mouseX, mouseY, elapsed);
+        drawMenuItems(gui, layout, elapsed);
 
         // ── 7. Navigation ──────────────────────────────────
-        drawNavigation(gui, elapsed);
+        drawNavigation(gui, layout, elapsed);
 
         // ── 8. Footer ──────────────────────────────────────
-        drawFooter(gui, elapsed);
+        drawFooter(gui, layout, elapsed);
     }
 
-    private float menuStartY() {
-        return Math.max(this.height * 0.43f, this.height * 0.25f + TITLE_FONT_SIZE + 98f);
+    private Layout layout() {
+        ensureFontsLoaded();
+
+        float githubW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, "Github");
+        float separatorW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, "   ·   ");
+        float discordW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, "Discord");
+        float navW = githubW + separatorW + discordW;
+        float navRight = Math.min(NAV_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f));
+        float navStartX = Math.max(MIN_EDGE_PAD, this.width - navRight - navW);
+
+        int edgePad = Math.min(NORMAL_EDGE_PAD, Math.max(MIN_EDGE_PAD, this.width / 12));
+        int panelW = Math.max(1, Math.min(MENU_PANEL_W, this.width - edgePad * 2));
+        int panelX = Math.max(0, (this.width - panelW) / 2);
+
+        boolean showSubtitle = this.height >= 340;
+        boolean showAtmosphere = this.height >= 260;
+        boolean showNavigation = this.height >= 210 && navW <= this.width - MIN_EDGE_PAD * 2f;
+        boolean showFooter = this.height >= 420;
+        boolean showHints = this.height >= 480 && panelW >= 210;
+
+        String titleText = "G E M I N I";
+        float rawTitleWidth = titleFont == null ? 0f
+                : computeSpacedWidth(titleFont, titleText, TITLE_SPACING_PX);
+        int titleGaps = titleText.codePointCount(0, titleText.length()) - 1;
+        float glyphWidth = Math.max(0f, rawTitleWidth - titleGaps * TITLE_SPACING_PX);
+        if (glyphWidth > this.width - MIN_EDGE_PAD * 2f) {
+            titleText = "GEMINI";
+            rawTitleWidth = titleFont == null ? 0f
+                    : computeSpacedWidth(titleFont, titleText, TITLE_SPACING_PX);
+            titleGaps = titleText.codePointCount(0, titleText.length()) - 1;
+            glyphWidth = Math.max(0f, rawTitleWidth - titleGaps * TITLE_SPACING_PX);
+        }
+        float titleSpacing = titleGaps <= 0 ? TITLE_SPACING_PX
+                : Math.clamp((this.width - MIN_EDGE_PAD * 2f - glyphWidth) / titleGaps, 1f, TITLE_SPACING_PX);
+        float titleWidth = titleFont == null ? 0f
+                : computeSpacedWidth(titleFont, titleText, titleSpacing);
+
+        float titleY = Math.max(44f, this.height * 0.25f);
+        float panelBottom = this.height - (showFooter ? 64f : MIN_EDGE_PAD);
+        float compactTitleGap = showSubtitle ? 50f : 22f;
+        float desiredMenuY = Math.max(this.height * 0.43f, titleY + TITLE_FONT_SIZE + 98f);
+        float availableSpacing = (panelBottom - (desiredMenuY - 15f) - 18f) / menuItems.size();
+
+        if (availableSpacing < MIN_MENU_SPACING) {
+            titleY = Math.max(34f, Math.min(titleY,
+                    panelBottom - TITLE_FONT_SIZE - compactTitleGap
+                            - menuItems.size() * MIN_MENU_SPACING - 3f));
+            desiredMenuY = titleY + TITLE_FONT_SIZE + compactTitleGap;
+            availableSpacing = (panelBottom - (desiredMenuY - 15f) - 18f) / menuItems.size();
+        }
+
+        float menuSpacing = Math.clamp(availableSpacing, 16f, MENU_SPACING);
+        float menuStartY = desiredMenuY;
+        int panelY = Math.round(menuStartY - 15f);
+        int panelH = Math.round(menuItems.size() * menuSpacing + 18f);
+        if (panelY + panelH > this.height - MIN_EDGE_PAD) {
+            panelY = Math.max(0, this.height - MIN_EDGE_PAD - panelH);
+            menuStartY = panelY + 15f;
+        }
+
+        int rowX = panelX + Math.min(12, Math.max(4, panelW / 20));
+        int rowW = Math.max(1, panelW - (rowX - panelX) * 2);
+        int rowH = Math.round((menuFont == null ? MENU_FONT_SIZE : menuFont.lineHeight) + 14f);
+
+        String subtitle = "Modern Minecraft Client";
+        float subtitleW = subtitleFont == null ? 0f : CustomFontRenderer.stringWidth(subtitleFont, subtitle);
+        float subtitleY = titleY + TITLE_FONT_SIZE + 22f;
+
+        int navSurfaceX = Math.max(0, Math.round(navStartX - 13f));
+        int navSurfaceW = Math.max(1, this.width - navSurfaceX - Math.round(navRight) + 13);
+
+        String line1 = "Gemini Client";
+        String line2 = "v" + MOD_VERSION;
+        float w1 = versionFont == null ? 0f : CustomFontRenderer.stringWidth(versionFont, line1);
+        float w2 = versionFont == null ? 0f : CustomFontRenderer.stringWidth(versionFont, line2);
+        float footerRight = Math.min(FOOTER_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f));
+        float footerVersionY = this.height - Math.min(FOOTER_BOTTOM_PAD, Math.max(12, this.height / 12));
+        float footerNameY = footerVersionY - VERSION_FONT_SIZE - 4f;
+        String hints = "↑↓  Select    Enter  Open";
+        float hintsW = versionFont == null ? 0f : CustomFontRenderer.stringWidth(versionFont, hints);
+
+        return new Layout(
+                titleText, (this.width - titleWidth) / 2f, titleY, titleWidth, titleSpacing,
+                titleY + TITLE_FONT_SIZE + 10f,
+                (this.width - subtitleW) / 2f, subtitleY,
+                panelX, panelY, panelW, panelH,
+                menuStartY, menuSpacing, rowX, rowW, rowH,
+                navStartX, 20f, githubW, separatorW, discordW,
+                navSurfaceX, 10, navSurfaceW, 31,
+                this.width - footerRight - w1, this.width - footerRight - w2,
+                footerNameY, footerVersionY,
+                panelX + (panelW - hintsW) / 2f,
+                showSubtitle, showAtmosphere, showNavigation, showFooter, showHints);
     }
 
-    private int menuPanelX() {
-        int margin = Math.max(24, Math.round(this.width * 0.08f));
-        int centered = Math.round((this.width - MENU_PANEL_W) / 2f);
-        return Math.max(margin, Math.min(centered, this.width - MENU_PANEL_W - margin));
-    }
-
-    private float menuPanelY() {
-        return menuStartY() - 15f;
-    }
-
-    private float menuPanelH() {
-        return menuItems.size() * MENU_SPACING + 18f;
-    }
-
-    private void drawAtmosphere(GuiGraphicsExtractor gui, float elapsed) {
+    private void drawAtmosphere(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+        if (!layout.showAtmosphere) return;
         float reveal = easeOutCubic(clamp01(elapsed * 1.6f)) * entryAlpha;
         if (reveal <= 0.01f) return;
 
@@ -255,14 +359,14 @@ public class MainMenuScreen extends Screen {
                 scaleAlpha(0x105C7CFF, reveal));
     }
 
-    private void drawGlassSurfaces(GuiGraphicsExtractor gui, float elapsed) {
+    private void drawGlassSurfaces(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         float reveal = easeOutCubic(clamp01((elapsed - 0.18f) * 2.8f)) * entryAlpha;
         if (reveal <= 0.01f) return;
 
-        int panelX = menuPanelX();
-        int panelY = Math.round(menuPanelY() + (1f - reveal) * 10f);
-        int panelW = MENU_PANEL_W;
-        int panelH = Math.round(menuPanelH());
+        int panelX = layout.panelX;
+        int panelY = Math.round(layout.panelY + (1f - reveal) * 10f);
+        int panelW = layout.panelW;
+        int panelH = layout.panelH;
 
         SdfUIRenderer.drawShadow(gui, panelX, panelY, panelW, panelH,
                 MENU_PANEL_RADIUS, 0, 8, 24, scaleAlpha(0x78000000, reveal));
@@ -277,32 +381,29 @@ public class MainMenuScreen extends Screen {
                 panelX + 1, panelY + 18, 2, Math.max(8, panelH - 36), 1,
                 scaleAlpha(ACCENT, reveal * 0.85f), scaleAlpha(0x0089DDFF, reveal));
 
-        ensureFontsLoaded();
-        if (navFont == null) return;
-        float githubW = CustomFontRenderer.stringWidth(navFont, "Github");
-        float navX = navStartX(githubW) - 13f;
-        float navW = this.width - NAV_RIGHT_PAD - navX + 13f;
-        int navY = 10;
-        int navH = 31;
-        SdfUIRenderer.drawShadow(gui, Math.round(navX), navY, Math.round(navW), navH,
+        if (!layout.showNavigation) return;
+        int navY = layout.navSurfaceY;
+        int navH = layout.navSurfaceH;
+        SdfUIRenderer.drawShadow(gui, layout.navSurfaceX, navY, layout.navSurfaceW, navH,
                 10, 0, 4, 12, scaleAlpha(0x50000000, reveal));
-        CustomBlurRenderer.render(navX, navY, navW, navH, 10,
+        CustomBlurRenderer.render(layout.navSurfaceX, navY, layout.navSurfaceW, navH, 10,
                 scaleAlpha(0x42101820, reveal), 6f);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, Math.round(navX), navY,
-                Math.round(navW), navH, 10, scaleAlpha(0x7210151D, reveal));
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, Math.round(navX), navY,
-                Math.round(navW), navH, 10, scaleAlpha(0x3EFFFFFF, reveal), 1);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, layout.navSurfaceX, navY,
+                layout.navSurfaceW, navH, 10, scaleAlpha(0x7210151D, reveal));
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, layout.navSurfaceX, navY,
+                layout.navSurfaceW, navH, 10, scaleAlpha(0x3EFFFFFF, reveal), 1);
     }
 
     // ========================
     // Hover updates (exponential lerp)
     // ========================
 
-    private void updateMenuHover(int mouseX, int mouseY, float dt) {
+    private void updateMenuHover(Layout layout, int mouseX, int mouseY, float dt) {
         hoveredIndex = -1;
         for (int i = 0; i < menuItems.size(); i++) {
-            boolean over = isMenuHover(mouseX, mouseY, i) || i == focusedIndex;
-            if (isMenuHover(mouseX, mouseY, i)) hoveredIndex = i;
+            boolean mouseOver = isMenuHover(layout, mouseX, mouseY, i);
+            boolean over = mouseOver || i == focusedIndex;
+            if (mouseOver) hoveredIndex = i;
             float target = over ? 1f : 0f;
             hoverProgress[i] += (target - hoverProgress[i]) * dt * HOVER_SPEED;
         }
@@ -310,9 +411,9 @@ public class MainMenuScreen extends Screen {
         anyHoverProgress += (anyTarget - anyHoverProgress) * dt * HOVER_SPEED;
     }
 
-    private void updateNavHover(int mouseX, int mouseY, float dt) {
-        boolean overGithub = isNavGithubHover(mouseX, mouseY);
-        boolean overDiscord = isNavDiscordHover(mouseX, mouseY);
+    private void updateNavHover(Layout layout, int mouseX, int mouseY, float dt) {
+        boolean overGithub = isNavGithubHover(layout, mouseX, mouseY);
+        boolean overDiscord = isNavDiscordHover(layout, mouseX, mouseY);
 
         githubHover += ((overGithub ? 1f : 0f) - githubHover) * dt * HOVER_SPEED;
         discordHover += ((overDiscord ? 1f : 0f) - discordHover) * dt * HOVER_SPEED;
@@ -326,14 +427,13 @@ public class MainMenuScreen extends Screen {
     // Letters reveal one by one, white → soft cyan gradient.
     // ========================
 
-    private void drawTitle(GuiGraphicsExtractor gui, float elapsed) {
+    private void drawTitle(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         ensureFontsLoaded();
         if (titleFont == null) return;
 
-        String title = "G E M I N I";
-        float titleWidth = computeSpacedWidth(titleFont, title, TITLE_SPACING_PX);
-        float titleX = (this.width - titleWidth) / 2f;
-        float titleY = this.height * 0.25f;
+        String title = layout.titleText;
+        float titleX = layout.titleX;
+        float titleY = layout.titleY;
 
         int letterIndex = 0;
         float cx = titleX;
@@ -359,7 +459,7 @@ public class MainMenuScreen extends Screen {
                 letterIndex++;
             }
 
-            cx += chW + TITLE_SPACING_PX;
+            cx += chW + layout.titleSpacing;
             i += Character.charCount(cp);
         }
     }
@@ -368,17 +468,14 @@ public class MainMenuScreen extends Screen {
     // Accent rule under the title — draws itself outward from center
     // ========================
 
-    private void drawAccentRule(GuiGraphicsExtractor gui, float elapsed) {
-        ensureFontsLoaded();
-        if (titleFont == null) return;
-
-        float titleWidth = computeSpacedWidth(titleFont, "G E M I N I", TITLE_SPACING_PX);
+    private void drawAccentRule(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+        if (!layout.showSubtitle) return;
         float progress = easeOutCubic(clamp01((elapsed - 0.45f) * 2.2f));
         if (progress <= 0.01f) return;
 
-        float lineW = titleWidth * 0.32f * progress;
+        float lineW = layout.titleWidth * 0.32f * progress;
         float x = (this.width - lineW) / 2f;
-        float y = this.height * 0.25f + TITLE_FONT_SIZE + 10f;
+        float y = layout.accentY;
 
         int alpha = (int) (entryAlpha * progress * 255);
         int color = (alpha << 24) | (ACCENT & 0x00FFFFFF);
@@ -389,16 +486,14 @@ public class MainMenuScreen extends Screen {
     // Subtitle: "Modern Minecraft Client"
     // ========================
 
-    private void drawSubtitle(GuiGraphicsExtractor gui, float elapsed) {
+    private void drawSubtitle(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+        if (!layout.showSubtitle) return;
         ensureFontsLoaded();
         if (subtitleFont == null) return;
 
         String subtitle = "Modern Minecraft Client";
-        float subWidth = CustomFontRenderer.stringWidth(subtitleFont, subtitle);
-        float subX = (this.width - subWidth) / 2f;
-
-        float titleY = this.height * 0.25f;
-        float subY = titleY + TITLE_FONT_SIZE + 22f;
+        float subX = layout.subtitleX;
+        float subY = layout.subtitleY;
 
         float reveal = easeOutCubic(clamp01((elapsed - 0.55f) * 2.5f));
         int alpha = (int) (entryAlpha * reveal * 255);
@@ -413,11 +508,9 @@ public class MainMenuScreen extends Screen {
     // hover slide, idle items dim while another is hovered.
     // ========================
 
-    private void drawMenuItems(GuiGraphicsExtractor gui, int mouseX, int mouseY, float elapsed) {
+    private void drawMenuItems(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         ensureFontsLoaded();
         if (menuFont == null) return;
-
-        float menuStartY = menuStartY();
 
         for (int i = 0; i < menuItems.size(); i++) {
             MenuItem item = menuItems.get(i);
@@ -427,7 +520,7 @@ public class MainMenuScreen extends Screen {
             if (reveal <= 0.01f) continue;
 
             float slideIn = (1f - reveal) * -ENTRY_SLIDE_PX;
-            float y = menuStartY + i * MENU_SPACING;
+            float y = layout.menuY(i);
             float hp = hoverProgress[i];
 
             // Dim idle items while another is hovered
@@ -435,11 +528,11 @@ public class MainMenuScreen extends Screen {
             int alpha = (int) (entryAlpha * reveal * dim * 255);
             if (alpha <= 0) continue;
 
-            int panelX = menuPanelX();
-            int rowX = panelX + 12;
+            int panelX = layout.panelX;
+            int rowX = layout.rowX;
             int rowY = Math.round(y - 7f);
-            int rowW = MENU_PANEL_W - 24;
-            int rowH = Math.round(menuFont.lineHeight + 14f);
+            int rowW = layout.rowW;
+            int rowH = layout.rowH;
             float active = Math.max(hp, i == focusedIndex ? 0.75f : 0f);
             if (active > 0.01f) {
                 SdfUIRenderer.drawShadow(gui, rowX, rowY, rowW, rowH,
@@ -470,7 +563,8 @@ public class MainMenuScreen extends Screen {
             int hoverColor = (alpha << 24) | (TEXT_HOVER & 0x00FFFFFF);
             int textColor = lerpColor(idleColor, hoverColor, hp);
 
-            float textX = panelX + 46f + slideIn + hp * HOVER_SLIDE_PX;
+            float textX = Math.min(panelX + 46f, panelX + Math.max(22f, layout.panelW * 0.14f))
+                    + slideIn + hp * HOVER_SLIDE_PX;
             CustomFontRenderer.drawString(gui, menuFont, item.label, textX, y, textColor);
 
             String shortcut = switch (i) {
@@ -484,7 +578,7 @@ public class MainMenuScreen extends Screen {
             int shortcutColor = scaleAlpha(hp > 0.01f ? ACCENT : VERSION_COLOR,
                     entryAlpha * reveal * (0.65f + hp * 0.35f));
             CustomFontRenderer.drawString(gui, versionFont, shortcut,
-                    panelX + MENU_PANEL_W - 28f - shortcutW,
+                    panelX + layout.panelW - Math.min(28f, Math.max(12f, layout.panelW * 0.09f)) - shortcutW,
                     y + 1f, shortcutColor);
         }
     }
@@ -494,22 +588,21 @@ public class MainMenuScreen extends Screen {
     // Accent underlines grow outward from the center; clickable.
     // ========================
 
-    private void drawNavigation(GuiGraphicsExtractor gui, float elapsed) {
+    private void drawNavigation(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+        if (!layout.showNavigation) return;
         ensureFontsLoaded();
         if (navFont == null) return;
 
-        float navY = 20f;
+        float navY = layout.navY;
 
         String githubText = "Github";
         String discordText = "Discord";
         String separator = "   ·   ";
 
-        float githubW = CustomFontRenderer.stringWidth(navFont, githubText);
-        float separatorW = CustomFontRenderer.stringWidth(navFont, separator);
-        float discordW = CustomFontRenderer.stringWidth(navFont, discordText);
-
-        float totalW = githubW + separatorW + discordW;
-        float startX = this.width - NAV_RIGHT_PAD - totalW;
+        float githubW = layout.githubW;
+        float separatorW = layout.separatorW;
+        float discordW = layout.discordW;
+        float startX = layout.navStartX;
 
         float reveal = easeOutCubic(clamp01((elapsed - 0.65f) * 3f));
         int alpha = (int) (entryAlpha * reveal * 255);
@@ -560,7 +653,8 @@ public class MainMenuScreen extends Screen {
     // Footer: version info (right) + shortcut hints (left)
     // ========================
 
-    private void drawFooter(GuiGraphicsExtractor gui, float elapsed) {
+    private void drawFooter(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+        if (!layout.showFooter) return;
         ensureFontsLoaded();
         if (versionFont == null) return;
 
@@ -572,13 +666,10 @@ public class MainMenuScreen extends Screen {
         String line1 = "Gemini Client";
         String line2 = "v" + MOD_VERSION;
 
-        float w1 = CustomFontRenderer.stringWidth(versionFont, line1);
-        float w2 = CustomFontRenderer.stringWidth(versionFont, line2);
-
-        float x1 = this.width - FOOTER_RIGHT_PAD - w1;
-        float x2 = this.width - FOOTER_RIGHT_PAD - w2;
-        float y2 = this.height - FOOTER_BOTTOM_PAD;
-        float y1 = y2 - VERSION_FONT_SIZE - 4f;
+        float x1 = layout.footerNameX;
+        float x2 = layout.footerVersionX;
+        float y2 = layout.footerVersionY;
+        float y1 = layout.footerNameY;
 
         int color = (alpha << 24) | (VERSION_COLOR & 0x00FFFFFF);
 
@@ -590,11 +681,11 @@ public class MainMenuScreen extends Screen {
         CustomFontRenderer.drawString(gui, versionFont, line1, x1, y1, color);
         CustomFontRenderer.drawString(gui, versionFont, line2, x2, y2, color);
 
-        String hints = "↑↓  Select    Enter  Open";
-        float hintsW = CustomFontRenderer.stringWidth(versionFont, hints);
-        float hintsX = menuPanelX() + (MENU_PANEL_W - hintsW) / 2f;
-        int hintColor = (int) (alpha * 0.58f) << 24 | (HINT_COLOR & 0x00FFFFFF);
-        CustomFontRenderer.drawString(gui, versionFont, hints, hintsX, y2, hintColor);
+        if (layout.showHints) {
+            String hints = "↑↓  Select    Enter  Open";
+            int hintColor = (int) (alpha * 0.58f) << 24 | (HINT_COLOR & 0x00FFFFFF);
+            CustomFontRenderer.drawString(gui, versionFont, hints, layout.hintsX, y2, hintColor);
+        }
     }
 
     // ========================
@@ -603,18 +694,19 @@ public class MainMenuScreen extends Screen {
 
     @Override
     public boolean mouseClicked(@NotNull MouseButtonEvent mouse, boolean idk) {
+        Layout layout = layout();
         // Navigation links
-        if (isNavGithubHover(mouse.x(), mouse.y())) {
+        if (isNavGithubHover(layout, mouse.x(), mouse.y())) {
 //            Util.getPlatform().openUri(GITHUB_URL);
             return true;
         }
-        if (isNavDiscordHover(mouse.x(), mouse.y())) {
+        if (isNavDiscordHover(layout, mouse.x(), mouse.y())) {
 //            Util.getPlatform().openUri(DISCORD_URL);
             return true;
         }
 
         for (int i = 0; i < menuItems.size(); i++) {
-            if (isMenuHover(mouse.x(), mouse.y(), i)) {
+            if (isMenuHover(layout, mouse.x(), mouse.y(), i)) {
                 focusedIndex = i;
                 menuItems.get(i).action.run();
                 return true;
@@ -674,38 +766,24 @@ public class MainMenuScreen extends Screen {
     // Hit testing
     // ========================
 
-    private boolean isMenuHover(double mx, double my, int index) {
+    private boolean isMenuHover(Layout layout, double mx, double my, int index) {
         if (menuFont == null) return false;
-        float menuStartY = menuStartY();
-        float y = menuStartY + index * MENU_SPACING;
-        int panelX = menuPanelX();
-        return mx >= panelX + 12 && mx <= panelX + MENU_PANEL_W - 12
-                && my >= y - 7 && my <= y + menuFont.lineHeight + 7;
+        float y = layout.menuY(index);
+        return mx >= layout.rowX && mx <= layout.rowX + layout.rowW
+                && my >= y - 7 && my <= y - 7 + layout.rowH;
     }
 
-    private boolean isNavGithubHover(double mx, double my) {
-        if (navFont == null) return false;
-        float githubW = CustomFontRenderer.stringWidth(navFont, "Github");
-        float startX = navStartX(githubW);
-        return mx >= startX - 4 && mx <= startX + githubW + 4
-                && my >= 16f && my <= 20f + navFont.lineHeight + 4;
+    private boolean isNavGithubHover(Layout layout, double mx, double my) {
+        if (!layout.showNavigation || navFont == null) return false;
+        return mx >= layout.navStartX - 4 && mx <= layout.navStartX + layout.githubW + 4
+                && my >= layout.navY - 4 && my <= layout.navY + navFont.lineHeight + 4;
     }
 
-    private boolean isNavDiscordHover(double mx, double my) {
-        if (navFont == null) return false;
-        String separator = "   ·   ";
-        float githubW = CustomFontRenderer.stringWidth(navFont, "Github");
-        float separatorW = CustomFontRenderer.stringWidth(navFont, separator);
-        float discordW = CustomFontRenderer.stringWidth(navFont, "Discord");
-        float discordX = navStartX(githubW) + githubW + separatorW;
-        return mx >= discordX - 4 && mx <= discordX + discordW + 4
-                && my >= 16f && my <= 20f + navFont.lineHeight + 4;
-    }
-
-    private float navStartX(float githubW) {
-        float separatorW = CustomFontRenderer.stringWidth(navFont, "   ·   ");
-        float discordW = CustomFontRenderer.stringWidth(navFont, "Discord");
-        return this.width - NAV_RIGHT_PAD - (githubW + separatorW + discordW);
+    private boolean isNavDiscordHover(Layout layout, double mx, double my) {
+        if (!layout.showNavigation || navFont == null) return false;
+        float discordX = layout.discordX();
+        return mx >= discordX - 4 && mx <= discordX + layout.discordW + 4
+                && my >= layout.navY - 4 && my <= layout.navY + navFont.lineHeight + 4;
     }
 
     // ========================

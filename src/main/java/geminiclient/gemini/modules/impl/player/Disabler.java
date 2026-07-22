@@ -7,7 +7,7 @@ import geminiclient.gemini.values.impl.BoolValue;
 public class Disabler extends Module {
     private final BoolValue aimModulo360 = new BoolValue("AimModulo360");
     public Disabler() {
-        super("Disabler", ModuleEnum.Visual);
+        super("Disabler", ModuleEnum.Player);
         addValue(aimModulo360);
     }
 }

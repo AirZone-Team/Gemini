@@ -13,6 +13,7 @@ import geminiclient.gemini.base.RotationManager;
 import geminiclient.gemini.utils.MathHelper;
 import geminiclient.gemini.utils.ReachUtils;
 import geminiclient.gemini.utils.TimerUtils;
+import geminiclient.gemini.utils.animation.SpringAnimation;
 import geminiclient.gemini.values.impl.*;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
@@ -25,11 +26,13 @@ import net.minecraft.world.entity.monster.cubemob.Slime;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.UnknownNullability;
 
 import java.awt.Color;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class KillAura extends Module {
     private final BoolValue noCoolDown = new BoolValue("NoCoolDown", false);
@@ -43,7 +46,8 @@ public class KillAura extends Module {
     });
     private final CheckboxValue targets = new CheckboxValue("Targets", new BoolValue[]{
             new BoolValue("AttackPlayers", true), new BoolValue("AttackMobs", true),
-            new BoolValue("AttackAnimals", false), new BoolValue("AttackDead")
+            new BoolValue("AttackAnimals", false), new BoolValue("AttackDead"),
+            new BoolValue("AttackTeammates")
     });
     private final CheckboxValue stop = new CheckboxValue("StopWorking", new BoolValue[]{
             new BoolValue("UsingItem"),
@@ -52,11 +56,28 @@ public class KillAura extends Module {
     private final ListValue rotationMode = new ListValue("RotationMode", "Linear", new String[]{
             "Linear", "Exponential", "Smooth", "Adaptive"
     });
+    private final ListValue easingCurve = new ListValue("EasingCurve", "Smoothstep", new String[]{
+            "Smoothstep", "EaseInOutCubic", "EaseOutCubic", "EaseOutExpo"
+    }, () -> rotationMode.is("Smooth"));
+    private final FloatValue overshoot = new FloatValue("Overshoot", 0f, 0f, 1f,
+            () -> rotationMode.is("Smooth"));
+    private final FloatValue rotationJitter = new FloatValue("RotationJitter", 0.15f, 0f, 3f);
+    private final FloatValue distanceSpread = new FloatValue("DistanceSpread", 0.75f, 0f, 2f,
+            () -> rotationJitter.getValue() > 0f);
+    private final FloatValue prediction = new FloatValue("Prediction", 1f, 0f, 5f);
     private final BoolValue silentRotate = new BoolValue("SilentRotate", true);
-    private final BoolValue requireAim = new BoolValue("RequireAim", false);
+    private final BoolValue rayTrace = new BoolValue("RayTrace", false);
     private final ListValue aimMode = new ListValue("AimMode", "Head", new String[]{
             "Head", "Chest", "Body", "Legs", "Random"
     });
+    private final FloatValue aimPointSmooth = new FloatValue("AimPointSmooth", 0.30f, 0.05f, 1f);
+    private final IntValue randomAimInterval = new IntValue("RandomAimInterval", 10, 3, 40,
+            () -> aimMode.is("Random"));
+    private final BoolValue movementReaction = new BoolValue("MovementReaction", true);
+    private final IntRangeValue reactionDelay = new IntRangeValue("ReactionDelay", 60, 110, 0, 300,
+            () -> movementReaction.enabled);
+    private final FloatValue repositionThreshold = new FloatValue("RepositionThreshold", 0.20f, 0.05f, 1.5f,
+            () -> movementReaction.enabled);
 
     // Target visuals
     private final BoolValue targetIndicator = new BoolValue("TargetIndicator", true);
@@ -111,13 +132,47 @@ public class KillAura extends Module {
 
     // Smooth mode state
     private float smoothStartYaw, smoothStartPitch, smoothProgress;
+    private float smoothEndYaw, smoothEndPitch;
     private Entity smoothTarget;
+
+    private float jitterYaw, jitterPitch, jitterTargetYaw, jitterTargetPitch;
+    private int jitterRefreshTicks;
+    private Entity jitterTarget;
+
+    private Entity aimPointTarget;
+    private String aimPointMode;
+    private Vec3 currentLocalAim;
+    private Vec3 goalLocalAim;
+    private int randomAimTicksRemaining;
+
+    private Entity reactionTarget;
+    private Vec3 lastObservedTargetPosition;
+    private Vec3 lastObservedTargetVelocity;
+    private Vec3 acceptedWorldAim;
+    private Vec3 heldWorldAim;
+    private Vec3 catchupWorldAim;
+    private float heldYaw, heldPitch;
+    private long reactionUntilNanos;
+    private int reactionCooldownTicks;
+    private int catchupTicksRemaining;
+    private boolean reactionHolding;
+    private boolean reactionCatchingUp;
+
+    private static final int JITTER_MIN_REFRESH_INTERVAL = 3;
+    private static final int JITTER_MAX_REFRESH_INTERVAL = 7;
+    private static final float JITTER_LERP_FACTOR = 0.25f;
+    private static final float SMOOTH_REPLAN_THRESHOLD = 3f;
+    private static final int REACTION_COOLDOWN_TICKS = 4;
+    private static final int MAX_CATCHUP_TICKS = 12;
+    private static final double MAX_PREDICTION_VELOCITY = 1.5;
 
     public KillAura() {
         super("KillAura", ModuleEnum.Combat);
         addValue(noCoolDown, cps, range, fov, hurtTime, pro,
                 targets, stop, rotationSpeed, rotationMode,
-                silentRotate, requireAim, aimMode,
+                easingCurve, overshoot, rotationJitter, distanceSpread, prediction,
+                silentRotate, rayTrace, aimMode, aimPointSmooth, randomAimInterval,
+                movementReaction, reactionDelay, repositionThreshold,
                 targetIndicator, indicatorStyle, targetEffects,
                 indicatorTargets, indicatorColorMode,
                 indicatorPrimaryColor, indicatorSecondaryColor, indicatorRainbowSpeed,
@@ -129,8 +184,7 @@ public class KillAura extends Module {
 
     @Override
     public void onEnabled() {
-        smoothTarget = null;
-        smoothProgress = 0f;
+        resetRotationEffects();
         indicatorAnimationStartNanos = System.nanoTime();
         nextAttackDelay = getRandomDelay(); // 初始化第一次延迟
         if (mc.player != null) {
@@ -142,7 +196,7 @@ public class KillAura extends Module {
     @Override
     public void onDisabled() {
         Gemini.rotationManager.releaseRotation(this);
-        smoothTarget = null;
+        resetRotationEffects();
         indicatorAnimationStartNanos = 0L;
     }
 
@@ -172,7 +226,7 @@ public class KillAura extends Module {
             Gemini.rotationManager.requestRotation(this, serverYaw, serverPitch,
                     RotationManager.PRIORITY_KILLAURA, true);
 
-            if (requireAim.enabled && !isLookingAtTarget(curr))
+            if (rayTrace.enabled && !isLookingAtTarget(curr))
                 return;
 
             if (noCoolDown.enabled) {
@@ -192,6 +246,7 @@ public class KillAura extends Module {
             }
         } else {
             Gemini.rotationManager.releaseRotation(this);
+            resetRotationEffects();
         }
     }
 
@@ -668,6 +723,11 @@ public class KillAura extends Module {
             if ((entity instanceof Mob || entity instanceof Slime || entity instanceof Bat)
                     && targets.boolValues[1].enabled)
                 return true;
+            if (entity instanceof Player && targets.boolValues[4].enabled) {
+                if (isTeammate(entity)) {
+                    return false;
+                }
+            }
             return entity instanceof Animal && targets.boolValues[2].enabled;
         }
         return false;
@@ -689,49 +749,228 @@ public class KillAura extends Module {
         if (mc.player == null)
             return;
 
-        double targetX = entity.getX();
-        double targetZ = entity.getZ();
-        double targetY;
-
-        switch (aimMode.get()) {
-            case "Chest":
-                targetY = entity.getY() + entity.getBbHeight() * 0.65;
-                break;
-            case "Body":
-                targetY = entity.getY() + entity.getBbHeight() * 0.5;
-                break;
-            case "Legs":
-                targetY = entity.getY() + entity.getBbHeight() * 0.2;
-                break;
-            case "Random":
-                targetY = entity.getY() + entity.getBbHeight() * (0.1 + Math.random() * 0.85);
-                double halfWidth = entity.getBbWidth() / 2.0;
-                targetX += (Math.random() - 0.5) * halfWidth;
-                targetZ += (Math.random() - 0.5) * halfWidth;
-                break;
-            case "Head":
-            default:
-                targetY = entity.getY() + entity.getEyeHeight();
+        boolean targetChanged = entity != aimPointTarget;
+        if (targetChanged) {
+            initializeAimPoint(entity);
+            resetJitter();
+        } else {
+            updateAimPointGoal(entity);
+        }
+        if (!currentLocalAim.equals(goalLocalAim)) {
+            currentLocalAim = currentLocalAim.lerp(goalLocalAim, aimPointSmooth.getValue());
         }
 
-        final double xSize = targetX - mc.player.getX();
-        final double ySize = targetY - (mc.player.getY() + mc.player.getEyeHeight());
-        final double zSize = targetZ - mc.player.getZ();
-        final double theta = MathHelper.sqrt_double(xSize * xSize + zSize * zSize);
+        Vec3 eyePosition = new Vec3(
+                mc.player.getX(),
+                mc.player.getY() + mc.player.getEyeHeight(),
+                mc.player.getZ());
+        Vec3 liveWorldAim = localAimToWorld(entity, currentLocalAim);
+        Vec3 predictedWorldAim = applyForwardPrediction(liveWorldAim);
+        Vec3 reactedWorldAim = applyReactionDelay(
+                entity, eyePosition, predictedWorldAim, targetChanged);
 
-        final float targetYaw = (float) (Math.atan2(zSize, xSize) * 180 / Math.PI) - 90;
-        final float targetPitch = (float) (-(Math.atan2(ySize, theta) * 180 / Math.PI));
+        Vec3 aimDelta = reactedWorldAim.subtract(eyePosition);
+        double horizontalDistance = MathHelper.sqrt_double(
+                aimDelta.x * aimDelta.x + aimDelta.z * aimDelta.z);
+        float targetYaw = (float) (Math.atan2(aimDelta.z, aimDelta.x) * 180 / Math.PI) - 90;
+        float targetPitch = (float) (-(Math.atan2(aimDelta.y, horizontalDistance) * 180 / Math.PI));
 
         float currentYaw = mc.player.getYRot();
         float currentPitch = mc.player.getXRot();
-
         float yawDiff = MathHelper.wrapAngleTo180_float(targetYaw - currentYaw);
         float pitchDiff = MathHelper.wrapAngleTo180_float(targetPitch - currentPitch);
+        updateRotationJitter(entity, eyePosition.distanceTo(reactedWorldAim));
 
-        float finalYaw = currentYaw + yawDiff;
-        float finalPitch = net.minecraft.util.Mth.clamp(currentPitch + pitchDiff, -90.0f, 90.0f);
-
+        float finalYaw = currentYaw + yawDiff + jitterYaw;
+        float finalPitch = net.minecraft.util.Mth.clamp(
+                currentPitch + pitchDiff + jitterPitch, -90.0f, 90.0f);
         applyRotation(finalYaw, finalPitch, entity);
+    }
+
+    private void initializeAimPoint(Entity entity) {
+        resetAimTracking();
+        aimPointTarget = entity;
+        aimPointMode = aimMode.get();
+        goalLocalAim = selectLocalAimPoint(entity);
+        currentLocalAim = goalLocalAim;
+        randomAimTicksRemaining = aimMode.is("Random") ? randomAimInterval.getValue() : 0;
+    }
+
+    private void updateAimPointGoal(Entity entity) {
+        String selectedMode = aimMode.get();
+        if (!selectedMode.equals(aimPointMode)) {
+            aimPointMode = selectedMode;
+            goalLocalAim = selectLocalAimPoint(entity);
+            randomAimTicksRemaining = aimMode.is("Random") ? randomAimInterval.getValue() : 0;
+            return;
+        }
+        if (aimMode.is("Random") && --randomAimTicksRemaining <= 0) {
+            goalLocalAim = selectLocalAimPoint(entity);
+            randomAimTicksRemaining = randomAimInterval.getValue();
+        }
+    }
+
+    private Vec3 selectLocalAimPoint(Entity entity) {
+        return switch (aimMode.get()) {
+            case "Chest" -> new Vec3(0.0, 0.65, 0.0);
+            case "Body" -> new Vec3(0.0, 0.50, 0.0);
+            case "Legs" -> new Vec3(0.0, 0.20, 0.0);
+            case "Random" -> {
+                ThreadLocalRandom random = ThreadLocalRandom.current();
+                yield new Vec3(
+                        random.nextDouble(-0.25, 0.25),
+                        random.nextDouble(0.15, 0.90),
+                        random.nextDouble(-0.25, 0.25));
+            }
+            case "Head" -> new Vec3(0.0,
+                    net.minecraft.util.Mth.clamp(
+                            entity.getEyeHeight() / Math.max(entity.getBbHeight(), 0.001f),
+                            0.0f, 1.0f),
+                    0.0);
+            default -> new Vec3(0.0, 0.50, 0.0);
+        };
+    }
+
+    private Vec3 localAimToWorld(Entity entity, Vec3 localAim) {
+        return new Vec3(
+                entity.getX() + localAim.x * entity.getBbWidth(),
+                entity.getY() + localAim.y * entity.getBbHeight(),
+                entity.getZ() + localAim.z * entity.getBbWidth());
+    }
+
+    private Vec3 applyForwardPrediction(Vec3 worldAim) {
+        if (mc.player == null || prediction.getValue() <= 0f)
+            return worldAim;
+
+        Vec3 relativeVelocity = clampVelocity(
+                aimPointTarget.getDeltaMovement().subtract(mc.player.getDeltaMovement()));
+        Vec3 predictedAim = worldAim.add(relativeVelocity.scale(prediction.getValue()));
+        return isFinite(predictedAim) ? predictedAim : worldAim;
+    }
+
+    private Vec3 clampVelocity(Vec3 velocity) {
+        if (!isFinite(velocity))
+            return Vec3.ZERO;
+        double length = velocity.length();
+        if (length <= MAX_PREDICTION_VELOCITY)
+            return velocity;
+        return velocity.scale(MAX_PREDICTION_VELOCITY / length);
+    }
+
+    private Vec3 applyReactionDelay(Entity entity, Vec3 eyePosition,
+                                    Vec3 predictedWorldAim, boolean targetChanged) {
+        Vec3 targetPosition = entity.position();
+        Vec3 targetVelocity = isFinite(entity.getDeltaMovement())
+                ? entity.getDeltaMovement() : Vec3.ZERO;
+
+        if (targetChanged || entity != reactionTarget) {
+            reactionTarget = entity;
+            lastObservedTargetPosition = targetPosition;
+            lastObservedTargetVelocity = targetVelocity;
+            acceptedWorldAim = predictedWorldAim;
+            if (movementReaction.enabled) {
+                startReaction(createHeldAim(eyePosition, predictedWorldAim));
+            }
+        } else {
+            boolean repositioned = detectReposition(targetPosition);
+            lastObservedTargetPosition = targetPosition;
+            lastObservedTargetVelocity = targetVelocity;
+            if (reactionCooldownTicks > 0)
+                reactionCooldownTicks--;
+            if (movementReaction.enabled && repositioned && !reactionHolding
+                    && !reactionCatchingUp && reactionCooldownTicks <= 0) {
+                startReaction(acceptedWorldAim != null ? acceptedWorldAim : predictedWorldAim);
+            }
+        }
+
+        if (!movementReaction.enabled) {
+            clearReactionState();
+            reactionTarget = null;
+            lastObservedTargetPosition = null;
+            lastObservedTargetVelocity = null;
+            acceptedWorldAim = predictedWorldAim;
+            return predictedWorldAim;
+        }
+
+        if (reactionHolding) {
+            if (System.nanoTime() < reactionUntilNanos)
+                return aimFromRotation(eyePosition, heldYaw, heldPitch,
+                        eyePosition.distanceTo(predictedWorldAim));
+            reactionHolding = false;
+            reactionCatchingUp = true;
+            catchupWorldAim = aimFromRotation(eyePosition, heldYaw, heldPitch,
+                    eyePosition.distanceTo(predictedWorldAim));
+            catchupTicksRemaining = MAX_CATCHUP_TICKS;
+            reactionCooldownTicks = REACTION_COOLDOWN_TICKS;
+        }
+
+        if (reactionCatchingUp) {
+            double catchupFactor = Math.max(aimPointSmooth.getValue(), 0.25f);
+            catchupWorldAim = catchupWorldAim.lerp(predictedWorldAim, catchupFactor);
+            catchupTicksRemaining--;
+            if (catchupTicksRemaining <= 0 || catchupWorldAim.distanceToSqr(predictedWorldAim) < 0.0004) {
+                reactionCatchingUp = false;
+                catchupWorldAim = predictedWorldAim;
+            }
+            acceptedWorldAim = catchupWorldAim;
+            return catchupWorldAim;
+        }
+
+        acceptedWorldAim = predictedWorldAim;
+        return predictedWorldAim;
+    }
+
+    private boolean detectReposition(Vec3 targetPosition) {
+        if (lastObservedTargetPosition == null || lastObservedTargetVelocity == null
+                || reactionHolding)
+            return false;
+        Vec3 residual = targetPosition.subtract(
+                lastObservedTargetPosition.add(lastObservedTargetVelocity));
+        double horizontalResidual = Math.sqrt(
+                residual.x * residual.x + residual.z * residual.z);
+        double threshold = repositionThreshold.getValue();
+        return horizontalResidual > threshold || Math.abs(residual.y) > threshold * 1.5;
+    }
+
+    private void startReaction(Vec3 holdPoint) {
+        int minDelay = reactionDelay.getMinValue();
+        int maxDelay = reactionDelay.getMaxValue();
+        int delayMillis = minDelay == maxDelay
+                ? minDelay
+                : ThreadLocalRandom.current().nextInt(minDelay, maxDelay + 1);
+        heldWorldAim = holdPoint;
+        Vec3 holdDelta = holdPoint.subtract(new Vec3(
+                mc.player.getX(),
+                mc.player.getY() + mc.player.getEyeHeight(),
+                mc.player.getZ()));
+        double horizontalDistance = Math.sqrt(
+                holdDelta.x * holdDelta.x + holdDelta.z * holdDelta.z);
+        heldYaw = (float) (Math.atan2(holdDelta.z, holdDelta.x) * 180 / Math.PI) - 90f;
+        heldPitch = (float) -Math.toDegrees(Math.atan2(holdDelta.y, horizontalDistance));
+        reactionUntilNanos = System.nanoTime() + delayMillis * 1_000_000L;
+        reactionHolding = delayMillis > 0;
+        reactionCatchingUp = false;
+        catchupWorldAim = holdPoint;
+        catchupTicksRemaining = 0;
+    }
+
+    private Vec3 createHeldAim(Vec3 eyePosition, Vec3 liveAim) {
+        return aimFromRotation(eyePosition, serverYaw, serverPitch,
+                Math.max(eyePosition.distanceTo(liveAim), 0.1));
+    }
+
+    private Vec3 aimFromRotation(Vec3 eyePosition, float yaw, float pitch, double distance) {
+        double yawRadians = Math.toRadians(yaw);
+        double pitchRadians = Math.toRadians(pitch);
+        Vec3 look = new Vec3(
+                -Math.sin(yawRadians) * Math.cos(pitchRadians),
+                -Math.sin(pitchRadians),
+                Math.cos(yawRadians) * Math.cos(pitchRadians));
+        return eyePosition.add(look.scale(Math.max(distance, 0.1)));
+    }
+
+    private static boolean isFinite(Vec3 value) {
+        return Double.isFinite(value.x) && Double.isFinite(value.y) && Double.isFinite(value.z);
     }
 
     private void applyRotation(float targetYaw, float targetPitch, Entity target) {
@@ -752,21 +991,28 @@ public class KillAura extends Module {
                 break;
             }
             case "Smooth": {
-                if (target != smoothTarget) {
+                float endpointYawDiff = Math.abs(MathHelper.wrapAngleTo180_float(targetYaw - smoothEndYaw));
+                float endpointPitchDiff = Math.abs(targetPitch - smoothEndPitch);
+                if (target != smoothTarget || smoothProgress >= 1f
+                        || endpointYawDiff + endpointPitchDiff > SMOOTH_REPLAN_THRESHOLD) {
                     smoothTarget = target;
                     smoothStartYaw = serverYaw;
                     smoothStartPitch = serverPitch;
+                    smoothEndYaw = targetYaw;
+                    smoothEndPitch = targetPitch;
                     smoothProgress = 0f;
                 }
-                float totalYawDiff = MathHelper.wrapAngleTo180_float(targetYaw - smoothStartYaw);
-                float totalPitchDiff = targetPitch - smoothStartPitch;
+                float totalYawDiff = MathHelper.wrapAngleTo180_float(smoothEndYaw - smoothStartYaw);
+                float totalPitchDiff = smoothEndPitch - smoothStartPitch;
                 float totalDist = Math.abs(totalYawDiff) + Math.abs(totalPitchDiff);
-                if (totalDist > 0.5f) {
+                if (totalDist <= 0.5f) {
+                    serverYaw = smoothEndYaw;
+                    serverPitch = smoothEndPitch;
+                    smoothProgress = 1f;
+                } else {
                     float duration = Math.max(totalDist / speed, 3f);
-                    smoothProgress += 1f / duration;
-                    if (smoothProgress >= 1f) smoothProgress = 1f;
-                    float t = smoothProgress;
-                    float eased = t * t * (3f - 2f * t);
+                    smoothProgress = Math.min(smoothProgress + 1f / duration, 1f);
+                    float eased = applyEasing(smoothProgress);
                     serverYaw = smoothStartYaw + totalYawDiff * eased;
                     serverPitch = smoothStartPitch + totalPitchDiff * eased;
                 }
@@ -785,6 +1031,102 @@ public class KillAura extends Module {
 
         // [修复] 强制限制最终的 serverPitch 避免平滑计算越界翻转引发的反作弊拦截
         serverPitch = net.minecraft.util.Mth.clamp(serverPitch, -90f, 90f);
+    }
+
+    private float applyEasing(float t) {
+        float eased = switch (easingCurve.get()) {
+            case "EaseInOutCubic" -> SpringAnimation.easeInOutCubic(t);
+            case "EaseOutCubic" -> SpringAnimation.easeOutCubic(t);
+            case "EaseOutExpo" -> SpringAnimation.easeOutExpo(t);
+            case "Smoothstep" -> t * t * (3f - 2f * t);
+            default -> t;
+        };
+        float overshootStrength = overshoot.getValue();
+        if (overshootStrength > 0f) {
+            float back = SpringAnimation.easeOutBack(t);
+            eased += (back - eased) * overshootStrength;
+        }
+        return eased;
+    }
+
+    private void updateRotationJitter(Entity target, double distance) {
+        float baseAmount = rotationJitter.getValue();
+        if (baseAmount <= 0f) {
+            resetJitter();
+            return;
+        }
+        if (target != jitterTarget) {
+            resetJitter();
+            jitterTarget = target;
+        }
+
+        float normalizedDistance = net.minecraft.util.Mth.clamp(
+                (float) (distance / Math.max(range.getValue(), 0.001f)), 0f, 1f);
+        float amount = baseAmount * (1f
+                + distanceSpread.getValue() * normalizedDistance * normalizedDistance);
+        if (--jitterRefreshTicks <= 0) {
+            ThreadLocalRandom random = ThreadLocalRandom.current();
+            jitterTargetYaw = centeredRandom(random, amount);
+            jitterTargetPitch = centeredRandom(random, amount * 0.65f);
+            jitterRefreshTicks = random.nextInt(
+                    JITTER_MIN_REFRESH_INTERVAL, JITTER_MAX_REFRESH_INTERVAL + 1);
+        }
+        jitterTargetYaw = net.minecraft.util.Mth.clamp(jitterTargetYaw, -amount, amount);
+        jitterTargetPitch = net.minecraft.util.Mth.clamp(
+                jitterTargetPitch, -amount * 0.65f, amount * 0.65f);
+        jitterYaw += (jitterTargetYaw - jitterYaw) * JITTER_LERP_FACTOR;
+        jitterPitch += (jitterTargetPitch - jitterPitch) * JITTER_LERP_FACTOR;
+    }
+
+    private float centeredRandom(ThreadLocalRandom random, float amount) {
+        return ((random.nextFloat() + random.nextFloat()) - 1f) * amount;
+    }
+
+    private void resetRotationEffects() {
+        smoothTarget = null;
+        smoothProgress = 0f;
+        smoothEndYaw = 0f;
+        smoothEndPitch = 0f;
+        if (mc.player != null) {
+            serverYaw = mc.player.getYRot();
+            serverPitch = mc.player.getXRot();
+        }
+        resetAimTracking();
+        resetJitter();
+    }
+
+    private void resetAimTracking() {
+        aimPointTarget = null;
+        aimPointMode = null;
+        currentLocalAim = null;
+        goalLocalAim = null;
+        randomAimTicksRemaining = 0;
+        reactionTarget = null;
+        lastObservedTargetPosition = null;
+        lastObservedTargetVelocity = null;
+        acceptedWorldAim = null;
+        clearReactionState();
+    }
+
+    private void clearReactionState() {
+        heldWorldAim = null;
+        catchupWorldAim = null;
+        heldYaw = 0f;
+        heldPitch = 0f;
+        reactionUntilNanos = 0L;
+        reactionCooldownTicks = 0;
+        catchupTicksRemaining = 0;
+        reactionHolding = false;
+        reactionCatchingUp = false;
+    }
+
+    private void resetJitter() {
+        jitterTarget = null;
+        jitterYaw = 0f;
+        jitterPitch = 0f;
+        jitterTargetYaw = 0f;
+        jitterTargetPitch = 0f;
+        jitterRefreshTicks = 0;
     }
 
     private boolean isLookingAtTarget(Entity entity) {
@@ -839,5 +1181,11 @@ public class KillAura extends Module {
         tMax = Math.min(tMax, t2);
 
         return tMin <= tMax;
+    }
+
+    private boolean isTeammate(@UnknownNullability Entity player) {
+        if (mc.player == null)
+            return false;
+        return player.getTeamColor() == mc.player.getTeamColor();
     }
 }

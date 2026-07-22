@@ -16,4 +16,5 @@ public class Mode implements MinecraftInstance {
     public void onUpdate(UpdateEvent event) {}
     public void onPacket(PacketEvent event) {}
     public void onDisabled() {}
+    public void onEnabled() {}
 }

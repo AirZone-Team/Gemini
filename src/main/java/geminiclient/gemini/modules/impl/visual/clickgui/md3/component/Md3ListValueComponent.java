@@ -109,9 +109,11 @@ public class Md3ListValueComponent extends Md3ValueComponent {
                 int textColor = selected ? Md3Theme.ON_PRIMARY_CONTAINER : Md3Theme.ON_SURFACE;
                 float textX = menuX + 16;
                 if (selected) {
-                    Md3RenderUtils.drawCheck(gui, menuX + 12, (int) (itemY + (ITEM_HEIGHT - lh) / 2f), 10,
+                    int checkSize = 16;
+                    Md3RenderUtils.drawCheck(gui, menuX + 12,
+                            itemY + (ITEM_HEIGHT - checkSize) / 2, checkSize,
                             Md3Theme.ON_PRIMARY_CONTAINER);
-                    textX = menuX + 32;
+                    textX = menuX + 36;
                 }
                 Md3Fonts.drawText(gui, font, mode, textX, itemY + (ITEM_HEIGHT - lh) / 2f, textColor);
             }
