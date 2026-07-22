@@ -189,6 +189,9 @@ public class MainMenuScreen extends Screen {
     private float mouseX = 0;
     private float mouseY = 0;
 
+    // Particle system for custom background
+    private ParticleSystem particleSystem;
+
     private long screenOpenTime;
     private long lastFrameMs;
     private boolean firstInit = true;
@@ -210,6 +213,13 @@ public class MainMenuScreen extends Screen {
         // Initialize background config
         if (backgroundConfig == null) {
             backgroundConfig = new BackgroundConfig();
+        }
+
+        // Initialize particle system
+        if (particleSystem == null) {
+            particleSystem = new ParticleSystem(this.width, this.height);
+        } else {
+            particleSystem.resize(this.width, this.height);
         }
 
         menuItems.clear();
@@ -251,6 +261,12 @@ public class MainMenuScreen extends Screen {
         this.mouseX = mouseX;
         this.mouseY = mouseY;
 
+        // Update particle system
+        if (particleSystem != null && backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
+            particleSystem.updateMousePosition(mouseX, mouseY);
+            particleSystem.update(dt);
+        }
+
         // Entry fade-in
         entryAlpha += (1f - entryAlpha) * dt * ENTRY_FADE_SPEED;
         if (entryAlpha > 0.99f) entryAlpha = 1f;
@@ -259,6 +275,11 @@ public class MainMenuScreen extends Screen {
 
         // ── 1. GLSL Background ─────────────────────────────
         renderBackground(gui, elapsed);
+
+        // ── 1.5. Particle System (only with custom background) ─────
+        if (particleSystem != null && backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
+            particleSystem.render(gui);
+        }
 
         // ── 2. Update hover animations ─────────────────────
         updateMenuHover(layout, mouseX, mouseY, dt);
