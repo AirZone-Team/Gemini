@@ -42,7 +42,6 @@ public class BackgroundConfig {
         try {
             if (!Files.exists(configDirectory)) {
                 Files.createDirectories(configDirectory);
-                LOGGER.info("Created config directory: " + configDirectory);
             }
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Failed to create config directory: " + configDirectory, e);
@@ -54,7 +53,6 @@ public class BackgroundConfig {
      */
     public void load() {
         if (!Files.exists(configFile)) {
-            LOGGER.info("Background config file does not exist, using defaults");
             save();
             return;
         }
@@ -62,7 +60,6 @@ public class BackgroundConfig {
         try (InputStream inputStream = Files.newInputStream(configFile)) {
             JSONObject json = new JSONObject(new JSONTokener(inputStream));
             customBackgroundEnabled = json.optBoolean("customBackgroundEnabled", false);
-            LOGGER.info("Loaded background config: customBackgroundEnabled=" + customBackgroundEnabled);
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Failed to load background config from: " + configFile, e);
             customBackgroundEnabled = false;
@@ -85,8 +82,6 @@ public class BackgroundConfig {
             } catch (IOException atomicMoveError) {
                 Files.move(tempFile, configFile, StandardCopyOption.REPLACE_EXISTING);
             }
-
-            LOGGER.info("Saved background config: customBackgroundEnabled=" + customBackgroundEnabled);
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Failed to save background config to: " + configFile, e);
         }
@@ -113,7 +108,6 @@ public class BackgroundConfig {
     public void toggle() {
         customBackgroundEnabled = !customBackgroundEnabled;
         save();
-        LOGGER.info("Toggled custom background: " + customBackgroundEnabled);
     }
 
     /**

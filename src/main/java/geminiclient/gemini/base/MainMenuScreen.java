@@ -948,31 +948,7 @@ public class MainMenuScreen extends Screen {
             if (backgroundConfig != null) {
                 if (backgroundConfig.customBackgroundFileExists()) {
                     backgroundConfig.toggle();
-
-                    // Reset failed flag and texture when toggling to allow retry
-                    customBackgroundLoadFailed = false;
-
-                    // Reset texture to reload on next render
-                    if (!backgroundConfig.isCustomBackgroundEnabled()) {
-                        if (customBackgroundTexture != null) {
-                            AbstractTexture texture = minecraft.getTextureManager().getTexture(customBackgroundTexture);
-                            if (texture != null) {
-                                texture.close();
-                            }
-                            minecraft.getTextureManager().release(customBackgroundTexture);
-                            customBackgroundTexture = null;
-                        }
-                    } else {
-                        // When enabling, also clear texture to force reload
-                        if (customBackgroundTexture != null) {
-                            AbstractTexture texture = minecraft.getTextureManager().getTexture(customBackgroundTexture);
-                            if (texture != null) {
-                                texture.close();
-                            }
-                            minecraft.getTextureManager().release(customBackgroundTexture);
-                            customBackgroundTexture = null;
-                        }
-                    }
+                    // No need to reload texture on every toggle - just switch rendering
                 }
             }
             return true;
