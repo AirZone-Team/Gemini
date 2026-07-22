@@ -162,26 +162,24 @@ public class ParticleSystem {
         }
     }
 
-    // Draw line as single rectangle
+    // Draw true diagonal line using optimized sampling
     private void drawSimpleLine(GuiGraphicsExtractor gui, int x1, int y1, int x2, int y2, int color) {
         int dx = x2 - x1;
         int dy = y2 - y1;
+        float length = (float) Math.sqrt(dx * dx + dy * dy);
 
-        // Determine dominant direction and draw a single rectangle
-        if (Math.abs(dx) > Math.abs(dy)) {
-            // Horizontal line
-            int startX = Math.min(x1, x2);
-            int width = Math.abs(dx);
-            int avgY = (y1 + y2) / 2;
+        if (length < 2) return;
 
-            CustomRoundedRectRenderer.drawRoundedRect(gui, startX, avgY, width, 1, 0, color);
-        } else {
-            // Vertical line
-            int startY = Math.min(y1, y2);
-            int height = Math.abs(dy);
-            int avgX = (x1 + x2) / 2;
+        // Sample every 3-4 pixels for balance between quality and performance
+        int samples = Math.max(2, (int) (length / 3.5f));
 
-            CustomRoundedRectRenderer.drawRoundedRect(gui, avgX, startY, 1, height, 0, color);
+        for (int i = 0; i <= samples; i++) {
+            float t = i / (float) samples;
+            int x = (int) (x1 + dx * t);
+            int y = (int) (y1 + dy * t);
+
+            // Draw 1px point
+            CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, 1, 1, 0, color);
         }
     }
 
