@@ -68,22 +68,23 @@ public class ParticleSystem {
     }
 
     public void update(float deltaTime) {
-        // Clamp deltaTime to prevent large jumps
-        deltaTime = Math.min(deltaTime, 0.05f); // Max 50ms per frame
-
         float elapsedTime = (System.currentTimeMillis() - startTime) / 1000f;
 
         for (Particle p : particles) {
+            // Save previous position for interpolation
+            p.prevX = p.x;
+            p.prevY = p.y;
+
             // Subtle wave motion
             float waveOffset = (float) Math.sin(elapsedTime * p.waveSpeed + p.wavePhase) * 5f;
 
-            // Calculate target position
-            float targetX = p.x + p.vx * deltaTime * 60f;
-            float targetY = p.y + p.vy * deltaTime * 60f + waveOffset * deltaTime * 0.2f;
+            // Direct position update
+            p.x += p.vx * deltaTime * 60f;
+            p.y += p.vy * deltaTime * 60f + waveOffset * deltaTime * 0.2f;
 
             // Very subtle mouse interaction
-            float dx = targetX - mouseX;
-            float dy = targetY - mouseY;
+            float dx = p.x - mouseX;
+            float dy = p.y - mouseY;
             float distSq = dx * dx + dy * dy;
 
             if (distSq < MOUSE_INFLUENCE_RADIUS * MOUSE_INFLUENCE_RADIUS && distSq > 0.1f) {
@@ -91,28 +92,20 @@ public class ParticleSystem {
                 float influence = 1f - (distToMouse / MOUSE_INFLUENCE_RADIUS);
                 float force = MOUSE_FORCE * influence;
 
-                // Apply force to target position
-                targetX += (dx / distToMouse) * force * deltaTime * 60f;
-                targetY += (dy / distToMouse) * force * deltaTime * 60f;
+                // Apply force directly
+                p.x += (dx / distToMouse) * force * deltaTime * 60f;
+                p.y += (dy / distToMouse) * force * deltaTime * 60f;
             }
 
-            // Smooth interpolation (lerp) for fluid movement
-            float lerpFactor = Math.min(1f, deltaTime * 10f); // Adaptive lerp
-            float newX = p.x + (targetX - p.x) * lerpFactor;
-            float newY = p.y + (targetY - p.y) * lerpFactor;
-
             // Wrap around screen edges
-            if (newX < 0) newX += screenWidth;
-            if (newX > screenWidth) newX -= screenWidth;
-            if (newY < 0) newY += screenHeight;
-            if (newY > screenHeight) newY -= screenHeight;
-
-            p.x = newX;
-            p.y = newY;
+            if (p.x < 0) p.x += screenWidth;
+            if (p.x > screenWidth) p.x -= screenWidth;
+            if (p.y < 0) p.y += screenHeight;
+            if (p.y > screenHeight) p.y -= screenHeight;
         }
     }
 
-    public void render(GuiGraphicsExtractor gui) {
+    public void render(GuiGraphicsExtractor gui, float partialTicks) {
         // Draw connection lines first (so particles render on top)
         // Use squared distance for performance
         float connDistSq = CONNECTION_DISTANCE * CONNECTION_DISTANCE;
@@ -125,6 +118,11 @@ public class ParticleSystem {
             if (connectionCounts[i] >= MAX_CONNECTIONS_PER_PARTICLE) continue;
 
             Particle p1 = particles.get(i);
+
+            // Interpolate position for smooth rendering
+            float p1x = p1.prevX + (p1.x - p1.prevX) * partialTicks;
+            float p1y = p1.prevY + (p1.y - p1.prevY) * partialTicks;
+
             for (int j = i + 1; j < particles.size(); j++) {
                 // Skip if either particle has max connections
                 if (connectionCounts[i] >= MAX_CONNECTIONS_PER_PARTICLE ||
@@ -132,8 +130,12 @@ public class ParticleSystem {
 
                 Particle p2 = particles.get(j);
 
-                float dx = p1.x - p2.x;
-                float dy = p1.y - p2.y;
+                // Interpolate p2 position
+                float p2x = p2.prevX + (p2.x - p2.prevX) * partialTicks;
+                float p2y = p2.prevY + (p2.y - p2.prevY) * partialTicks;
+
+                float dx = p1x - p2x;
+                float dy = p1y - p2y;
                 float distanceSq = dx * dx + dy * dy;
 
                 if (distanceSq < connDistSq) {
@@ -143,8 +145,8 @@ public class ParticleSystem {
                     int alpha = (int) (lineAlpha * 255);
                     int color = ARGB.color(alpha, 255, 255, 255);
 
-                    // Draw line
-                    drawSimpleLine(gui, (int) p1.x, (int) p1.y, (int) p2.x, (int) p2.y, color);
+                    // Draw line with interpolated positions
+                    drawSimpleLine(gui, (int) p1x, (int) p1y, (int) p2x, (int) p2y, color);
 
                     // Increment connection counts
                     connectionCounts[i]++;
@@ -153,8 +155,11 @@ public class ParticleSystem {
             }
         }
 
-        // Draw particles as circles
+        // Draw particles as circles with interpolated positions
         for (Particle p : particles) {
+            float renderX = p.prevX + (p.x - p.prevX) * partialTicks;
+            float renderY = p.prevY + (p.y - p.prevY) * partialTicks;
+
             int alpha = (int) (p.alpha * 255);
             int color = ARGB.color(alpha, 255, 255, 255);
 
@@ -163,7 +168,7 @@ public class ParticleSystem {
 
             // Draw as rounded rect with full rounding = circle
             CustomRoundedRectRenderer.drawRoundedRect(gui,
-                (int) (p.x - radius), (int) (p.y - radius),
+                (int) (renderX - radius), (int) (renderY - radius),
                 diameter, diameter,
                 radius, // corner radius = radius for perfect circle
                 color);
@@ -192,7 +197,8 @@ public class ParticleSystem {
     }
 
     private static class Particle {
-        float x, y;           // Position
+        float x, y;           // Current position
+        float prevX, prevY;   // Previous position for interpolation
         float size;           // Radius
         float alpha;          // Transparency
         float vx, vy;         // Base velocity
@@ -202,6 +208,8 @@ public class ParticleSystem {
         Particle(float x, float y, float size, float alpha, float vx, float vy, float wavePhase, float waveSpeed) {
             this.x = x;
             this.y = y;
+            this.prevX = x;
+            this.prevY = y;
             this.size = size;
             this.alpha = alpha;
             this.vx = vx;

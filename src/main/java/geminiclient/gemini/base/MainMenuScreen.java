@@ -278,7 +278,7 @@ public class MainMenuScreen extends Screen {
 
         // ── 1.5. Particle System (only with custom background) ─────
         if (particleSystem != null && backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
-            particleSystem.render(gui);
+            particleSystem.render(gui, partialTicks);
         }
 
         // ── 2. Update hover animations ─────────────────────
