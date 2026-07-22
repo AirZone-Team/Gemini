@@ -9,15 +9,15 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Particle animation system for custom background.
- * Creates floating particles with wave motion, mouse interaction, and connection lines.
+ * Sparse particle network animation for custom background.
+ * Low density, random distribution, subtle movement, minimal connections.
  */
 public class ParticleSystem {
-    private static final int PARTICLE_COUNT = 60;
-    private static final float CONNECTION_DISTANCE = 200f;
-    private static final int MAX_CONNECTIONS_PER_PARTICLE = 3; // Limit connections
-    private static final float MOUSE_INFLUENCE_RADIUS = 250f;
-    private static final float MOUSE_FORCE = -0.3f; // Reduced force for subtle effect
+    private static final int PARTICLE_COUNT = 35; // Low density
+    private static final float CONNECTION_DISTANCE = 120f; // Short distance only
+    private static final int MAX_CONNECTIONS_PER_PARTICLE = 2; // Maximum 2 connections
+    private static final float MOUSE_INFLUENCE_RADIUS = 180f;
+    private static final float MOUSE_FORCE = -0.15f; // Very subtle effect
 
     private final List<Particle> particles = new ArrayList<>();
     private final Random random = new Random();
@@ -33,17 +33,17 @@ public class ParticleSystem {
         this.screenHeight = screenHeight;
         this.startTime = System.currentTimeMillis();
 
-        // Initialize particles
+        // Initialize particles with random distribution (not uniform grid)
         for (int i = 0; i < PARTICLE_COUNT; i++) {
             particles.add(new Particle(
                 random.nextFloat() * screenWidth,
                 random.nextFloat() * screenHeight,
-                3f,  // size: fixed 3px for consistency
-                0.5f + random.nextFloat() * 0.2f,  // alpha: 0.5-0.7 (more visible)
-                (random.nextFloat() - 0.5f) * 0.3f,  // vx: slower movement
-                (random.nextFloat() - 0.5f) * 0.3f,  // vy: slower movement
+                2f,  // Small size: 2px
+                0.3f + random.nextFloat() * 0.2f,  // Low alpha: 0.3-0.5 (subtle)
+                (random.nextFloat() - 0.5f) * 0.15f,  // Very slow: ±0.075
+                (random.nextFloat() - 0.5f) * 0.15f,  // Very slow drift
                 random.nextFloat() * (float) Math.PI * 2,  // wave phase
-                0.5f + random.nextFloat() * 1f  // wave speed
+                0.3f + random.nextFloat() * 0.4f  // Slow wave: 0.3-0.7
             ));
         }
     }
@@ -71,17 +71,17 @@ public class ParticleSystem {
         float elapsedTime = (System.currentTimeMillis() - startTime) / 1000f;
 
         for (Particle p : particles) {
-            // Wave motion along sine wave (reduced amplitude)
-            float waveOffset = (float) Math.sin(elapsedTime * p.waveSpeed + p.wavePhase) * 10f;
+            // Subtle wave motion
+            float waveOffset = (float) Math.sin(elapsedTime * p.waveSpeed + p.wavePhase) * 5f;
 
-            // Base velocity
+            // Very slow base velocity
             float newX = p.x + p.vx * deltaTime * 60f;
-            float newY = p.y + p.vy * deltaTime * 60f + waveOffset * deltaTime * 0.3f; // Slower wave
+            float newY = p.y + p.vy * deltaTime * 60f + waveOffset * deltaTime * 0.2f;
 
-            // Mouse interaction
+            // Very subtle mouse interaction
             float dx = p.x - mouseX;
             float dy = p.y - mouseY;
-            float distSq = dx * dx + dy * dy; // Use squared distance to avoid sqrt
+            float distSq = dx * dx + dy * dy;
 
             if (distSq < MOUSE_INFLUENCE_RADIUS * MOUSE_INFLUENCE_RADIUS && distSq > 0.1f) {
                 float distToMouse = (float) Math.sqrt(distSq);
@@ -130,8 +130,8 @@ public class ParticleSystem {
 
                 if (distanceSq < connDistSq) {
                     float distance = (float) Math.sqrt(distanceSq);
-                    // Line alpha based on distance (closer = more opaque)
-                    float lineAlpha = (1f - distance / CONNECTION_DISTANCE) * 0.3f;
+                    // Very low alpha for subtle effect
+                    float lineAlpha = (1f - distance / CONNECTION_DISTANCE) * 0.15f;
                     int alpha = (int) (lineAlpha * 255);
                     int color = ARGB.color(alpha, 255, 255, 255);
 
