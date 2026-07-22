@@ -68,19 +68,22 @@ public class ParticleSystem {
     }
 
     public void update(float deltaTime) {
+        // Clamp deltaTime to prevent large jumps
+        deltaTime = Math.min(deltaTime, 0.05f); // Max 50ms per frame
+
         float elapsedTime = (System.currentTimeMillis() - startTime) / 1000f;
 
         for (Particle p : particles) {
             // Subtle wave motion
             float waveOffset = (float) Math.sin(elapsedTime * p.waveSpeed + p.wavePhase) * 5f;
 
-            // Very slow base velocity
-            float newX = p.x + p.vx * deltaTime * 60f;
-            float newY = p.y + p.vy * deltaTime * 60f + waveOffset * deltaTime * 0.2f;
+            // Calculate target position
+            float targetX = p.x + p.vx * deltaTime * 60f;
+            float targetY = p.y + p.vy * deltaTime * 60f + waveOffset * deltaTime * 0.2f;
 
             // Very subtle mouse interaction
-            float dx = p.x - mouseX;
-            float dy = p.y - mouseY;
+            float dx = targetX - mouseX;
+            float dy = targetY - mouseY;
             float distSq = dx * dx + dy * dy;
 
             if (distSq < MOUSE_INFLUENCE_RADIUS * MOUSE_INFLUENCE_RADIUS && distSq > 0.1f) {
@@ -88,10 +91,15 @@ public class ParticleSystem {
                 float influence = 1f - (distToMouse / MOUSE_INFLUENCE_RADIUS);
                 float force = MOUSE_FORCE * influence;
 
-                // Normalize and apply force
-                newX += (dx / distToMouse) * force * deltaTime * 60f;
-                newY += (dy / distToMouse) * force * deltaTime * 60f;
+                // Apply force to target position
+                targetX += (dx / distToMouse) * force * deltaTime * 60f;
+                targetY += (dy / distToMouse) * force * deltaTime * 60f;
             }
+
+            // Smooth interpolation (lerp) for fluid movement
+            float lerpFactor = Math.min(1f, deltaTime * 10f); // Adaptive lerp
+            float newX = p.x + (targetX - p.x) * lerpFactor;
+            float newY = p.y + (targetY - p.y) * lerpFactor;
 
             // Wrap around screen edges
             if (newX < 0) newX += screenWidth;
