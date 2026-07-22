@@ -25,13 +25,15 @@ public class ParticleSystem {
         this.screenWidth = screenWidth;
         this.screenHeight = screenHeight;
 
-        // Create particles with random positions
+        // Create particles with random positions, sizes, and alphas
         for (int i = 0; i < PARTICLE_COUNT; i++) {
             particles.add(new Particle(
                 random.nextFloat() * screenWidth,
                 random.nextFloat() * screenHeight,
                 (random.nextFloat() - 0.5f) * 0.5f, // vx: slower
-                (random.nextFloat() - 0.5f) * 0.5f  // vy: slower
+                (random.nextFloat() - 0.5f) * 0.5f, // vy: slower
+                2f + random.nextFloat() * 2f,       // size: 2-4px
+                0.3f + random.nextFloat() * 0.4f    // alpha: 0.3-0.7
             ));
         }
     }
@@ -114,14 +116,19 @@ public class ParticleSystem {
             }
         }
 
-        // Draw particles (use float positions for smooth rendering)
+        // Draw particles with random sizes and alphas
         for (Particle p : particles) {
-            int color = ARGB.color(128, 255, 255, 255);
+            int alpha = (int)(p.alpha * 255);
+            int color = ARGB.color(alpha, 255, 255, 255);
+
             // Round to nearest pixel instead of truncating
             int x = Math.round(p.x);
             int y = Math.round(p.y);
+            int radius = Math.round(p.size);
+            int diameter = radius * 2;
+
             CustomRoundedRectRenderer.drawRoundedRect(gui,
-                x - 2, y - 2, 4, 4, 2, color);
+                x - radius, y - radius, diameter, diameter, radius, color);
         }
     }
 
@@ -144,12 +151,16 @@ public class ParticleSystem {
     private static class Particle {
         float x, y;
         float vx, vy;
+        float size;  // Radius (2-4px)
+        float alpha; // Transparency (0.3-0.7)
 
-        Particle(float x, float y, float vx, float vy) {
+        Particle(float x, float y, float vx, float vy, float size, float alpha) {
             this.x = x;
             this.y = y;
             this.vx = vx;
             this.vy = vy;
+            this.size = size;
+            this.alpha = alpha;
         }
     }
 }
