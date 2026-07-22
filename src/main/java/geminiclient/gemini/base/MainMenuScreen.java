@@ -31,7 +31,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.logging.Logger;
 
 /**
  * Layered glass main menu built around the fullscreen perspective grid.
@@ -41,8 +40,6 @@ import java.util.logging.Logger;
  * All surfaces share the same cyan-tinted dark material and staggered motion.</p>
  */
 public class MainMenuScreen extends Screen {
-
-    private static final Logger LOGGER = Logger.getLogger(MainMenuScreen.class.getName());
 
     // ========================
     // Layout Constants
@@ -191,7 +188,6 @@ public class MainMenuScreen extends Screen {
     // Mouse parallax effect
     private float mouseX = 0;
     private float mouseY = 0;
-    private static final float PARALLAX_AMOUNT = 20f; // pixels of movement
 
     private long screenOpenTime;
     private long lastFrameMs;
@@ -755,34 +751,29 @@ public class MainMenuScreen extends Screen {
 
     private void renderBackground(GuiGraphicsExtractor gui, float elapsed) {
         if (backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
-            if (renderCustomBackground(gui)) {
-                return;
-            }
+            renderCustomBackground(gui);
         }
-        // Fallback to default grid background
+        // Always render grid background (will be behind custom background if enabled)
         InfiniteGridRenderer.render(elapsed);
     }
 
-    private boolean renderCustomBackground(GuiGraphicsExtractor gui) {
+    private void renderCustomBackground(GuiGraphicsExtractor gui) {
         if (!backgroundConfig.customBackgroundFileExists()) {
-            return false;
+            return;
         }
 
         if (customBackgroundLoadFailed) {
-            return false;
+            return;
         }
 
         // Load texture if not already loaded
         if (customBackgroundTexture == null) {
-            LOGGER.info("Attempting to load texture from file...");
             try {
                 Path bgFile = backgroundConfig.getCustomBackgroundFile();
                 if (!Files.exists(bgFile)) {
-                    LOGGER.warning("Background file does not exist at load time: " + bgFile);
-                    return false;
+                    customBackgroundLoadFailed = true;
+                    return;
                 }
-
-                LOGGER.info("Loading image from: " + bgFile.toAbsolutePath());
 
                 // Load image from file using NativeImage
                 // NativeImage.read() supports both PNG and JPEG formats
@@ -790,15 +781,12 @@ public class MainMenuScreen extends Screen {
                 try (FileInputStream fis = new FileInputStream(bgFile.toFile())) {
                     image = NativeImage.read(fis);
                 } catch (IOException readError) {
-                    // If NativeImage fails, it might be a JPEG with wrong extension
-                    // Try using Java's ImageIO as fallback
-                    LOGGER.warning("NativeImage.read failed: " + readError.getMessage() + ", trying ImageIO fallback...");
+                    // If NativeImage fails, try using ImageIO as fallback for JPEG
                     try {
                         java.awt.image.BufferedImage bufferedImage = ImageIO.read(bgFile.toFile());
                         if (bufferedImage == null) {
-                            LOGGER.warning("ImageIO also failed to load the image");
                             customBackgroundLoadFailed = true;
-                            return false;
+                            return;
                         }
 
                         // Convert BufferedImage to NativeImage
@@ -812,58 +800,48 @@ public class MainMenuScreen extends Screen {
                                 image.setPixel(x, y, argb);
                             }
                         }
-                        LOGGER.info("Successfully converted image using ImageIO fallback");
                     } catch (Exception fallbackError) {
-                        LOGGER.warning("ImageIO fallback also failed: " + fallbackError.getMessage());
-                        fallbackError.printStackTrace();
                         customBackgroundLoadFailed = true;
-                        return false;
+                        return;
                     }
                 }
 
                 if (image == null) {
-                    LOGGER.warning("Failed to load custom background image - image is null after loading");
                     customBackgroundLoadFailed = true;
-                    return false;
+                    return;
                 }
-
-                LOGGER.info("NativeImage loaded successfully: " + image.getWidth() + "x" + image.getHeight());
 
                 // Create dynamic texture from NativeImage
                 DynamicTexture texture = new DynamicTexture(() -> "custom_background", image);
                 customBackgroundTexture = Identifier.fromNamespaceAndPath("gemini", "custom_background");
                 minecraft.getTextureManager().register(customBackgroundTexture, texture);
 
-                LOGGER.info("Custom background texture loaded successfully: " + bgFile);
             } catch (Exception e) {
-                LOGGER.warning("Unexpected exception while loading custom background: " + e.getMessage());
-                e.printStackTrace();
                 customBackgroundLoadFailed = true;
-                return false;
+                return;
             }
         }
 
-        // Render the custom background using the project's rendering pipeline
+        // Render the custom background with parallax effect
         try {
             // Calculate parallax offset based on mouse position
-            // Center of screen is 0 offset, edges have maximum offset
-            float centerX = this.width / 2f;
-            float centerY = this.height / 2f;
-            float offsetX = ((mouseX - centerX) / centerX) * PARALLAX_AMOUNT;
-            float offsetY = ((mouseY - centerY) / centerY) * PARALLAX_AMOUNT;
+            float parallaxOffsetX = ((mouseX / (float) this.width) - 0.5f) * 40f;
+            float parallaxOffsetY = ((mouseY / (float) this.height) - 0.5f) * 40f;
 
-            // Render background slightly larger and offset based on mouse
-            int renderW = (int) (this.width + PARALLAX_AMOUNT * 2);
-            int renderH = (int) (this.height + PARALLAX_AMOUNT * 2);
-            int renderX = (int) (-PARALLAX_AMOUNT + offsetX);
-            int renderY = (int) (-PARALLAX_AMOUNT + offsetY);
+            // Scale image by 110% to cover parallax movement and avoid tiling
+            float scale = 1.1f;
+            int scaledWidth = (int) (this.width * scale);
+            int scaledHeight = (int) (this.height * scale);
 
+            // Center the scaled image and apply parallax offset
+            int renderX = (int) (-(scaledWidth - this.width) / 2f + parallaxOffsetX);
+            int renderY = (int) (-(scaledHeight - this.height) / 2f + parallaxOffsetY);
+
+            // Render: blit(pipeline, texture, screenX, screenY, texU, texV, screenW, screenH, texWidth, texHeight, color)
             gui.blit(RenderPipelines.GUI_TEXTURED, customBackgroundTexture,
-                    renderX, renderY, 0, 0, renderW, renderH, this.width, this.height, 0xFFFFFFFF);
-            return true;
+                    renderX, renderY, 0, 0, scaledWidth, scaledHeight, scaledWidth, scaledHeight, 0xFFFFFFFF);
         } catch (Exception e) {
-            LOGGER.warning("Failed to render custom background: " + e.getMessage());
-            return false;
+            // Silently fail
         }
     }
 
@@ -974,8 +952,6 @@ public class MainMenuScreen extends Screen {
                             customBackgroundTexture = null;
                         }
                     }
-                } else {
-                    LOGGER.info("Custom background file not found: " + backgroundConfig.getCustomBackgroundFile());
                 }
             }
             return true;
