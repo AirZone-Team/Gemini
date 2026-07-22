@@ -13,8 +13,8 @@ import java.util.Random;
  * Creates floating particles with wave motion, mouse interaction, and connection lines.
  */
 public class ParticleSystem {
-    private static final int PARTICLE_COUNT = 30; // Reduced for cleaner look
-    private static final float CONNECTION_DISTANCE = 200f; // Increased for more connections
+    private static final int PARTICLE_COUNT = 60;
+    private static final float CONNECTION_DISTANCE = 200f;
     private static final float MOUSE_INFLUENCE_RADIUS = 250f;
     private static final float MOUSE_FORCE = -0.8f; // Negative = repel (push away)
 
@@ -138,27 +138,32 @@ public class ParticleSystem {
         }
     }
 
-    // Optimized line drawing - just draw a thin rect between two points
+    // Draw proper line using Bresenham algorithm
     private void drawSimpleLine(GuiGraphicsExtractor gui, int x1, int y1, int x2, int y2, int color) {
-        // Calculate line length and angle
-        int dx = x2 - x1;
-        int dy = y2 - y1;
-        float length = (float) Math.sqrt(dx * dx + dy * dy);
+        int dx = Math.abs(x2 - x1);
+        int dy = Math.abs(y2 - y1);
+        int sx = x1 < x2 ? 1 : -1;
+        int sy = y1 < y2 ? 1 : -1;
+        int err = dx - dy;
 
-        if (length < 1) return; // Skip very short lines
+        int x = x1;
+        int y = y1;
 
-        // Draw as horizontal line rotated (approximation for performance)
-        // For now, just draw vertical or horizontal lines based on dominant axis
-        if (Math.abs(dx) > Math.abs(dy)) {
-            // Horizontal-ish line
-            int minX = Math.min(x1, x2);
-            int maxX = Math.max(x1, x2);
-            CustomRoundedRectRenderer.drawRoundedRect(gui, minX, y1, maxX - minX, 1, 0, color);
-        } else {
-            // Vertical-ish line
-            int minY = Math.min(y1, y2);
-            int maxY = Math.max(y1, y2);
-            CustomRoundedRectRenderer.drawRoundedRect(gui, x1, minY, 1, maxY - minY, 0, color);
+        while (true) {
+            // Draw pixel
+            CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, 1, 1, 0, color);
+
+            if (x == x2 && y == y2) break;
+
+            int e2 = 2 * err;
+            if (e2 > -dy) {
+                err -= dy;
+                x += sx;
+            }
+            if (e2 < dx) {
+                err += dx;
+                y += sy;
+            }
         }
     }
 
