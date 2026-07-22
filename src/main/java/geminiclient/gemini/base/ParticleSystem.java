@@ -15,8 +15,9 @@ import java.util.Random;
 public class ParticleSystem {
     private static final int PARTICLE_COUNT = 60;
     private static final float CONNECTION_DISTANCE = 200f;
+    private static final int MAX_CONNECTIONS_PER_PARTICLE = 3; // Limit connections
     private static final float MOUSE_INFLUENCE_RADIUS = 250f;
-    private static final float MOUSE_FORCE = -0.8f; // Negative = repel (push away)
+    private static final float MOUSE_FORCE = -0.3f; // Reduced force for subtle effect
 
     private final List<Particle> particles = new ArrayList<>();
     private final Random random = new Random();
@@ -53,8 +54,17 @@ public class ParticleSystem {
     }
 
     public void resize(int width, int height) {
+        float scaleX = width / (float) this.screenWidth;
+        float scaleY = height / (float) this.screenHeight;
+
         this.screenWidth = width;
         this.screenHeight = height;
+
+        // Redistribute particles proportionally to new screen size
+        for (Particle p : particles) {
+            p.x *= scaleX;
+            p.y *= scaleY;
+        }
     }
 
     public void update(float deltaTime) {
@@ -99,9 +109,19 @@ public class ParticleSystem {
         // Use squared distance for performance
         float connDistSq = CONNECTION_DISTANCE * CONNECTION_DISTANCE;
 
+        // Track connections per particle to limit them
+        int[] connectionCounts = new int[particles.size()];
+
         for (int i = 0; i < particles.size(); i++) {
+            // Skip if this particle already has max connections
+            if (connectionCounts[i] >= MAX_CONNECTIONS_PER_PARTICLE) continue;
+
             Particle p1 = particles.get(i);
             for (int j = i + 1; j < particles.size(); j++) {
+                // Skip if either particle has max connections
+                if (connectionCounts[i] >= MAX_CONNECTIONS_PER_PARTICLE ||
+                    connectionCounts[j] >= MAX_CONNECTIONS_PER_PARTICLE) continue;
+
                 Particle p2 = particles.get(j);
 
                 float dx = p1.x - p2.x;
@@ -111,12 +131,16 @@ public class ParticleSystem {
                 if (distanceSq < connDistSq) {
                     float distance = (float) Math.sqrt(distanceSq);
                     // Line alpha based on distance (closer = more opaque)
-                    float lineAlpha = (1f - distance / CONNECTION_DISTANCE) * 0.25f; // Slightly more visible
+                    float lineAlpha = (1f - distance / CONNECTION_DISTANCE) * 0.3f;
                     int alpha = (int) (lineAlpha * 255);
                     int color = ARGB.color(alpha, 255, 255, 255);
 
-                    // Draw line using simple rect between points
+                    // Draw line
                     drawSimpleLine(gui, (int) p1.x, (int) p1.y, (int) p2.x, (int) p2.y, color);
+
+                    // Increment connection counts
+                    connectionCounts[i]++;
+                    connectionCounts[j]++;
                 }
             }
         }
@@ -138,32 +162,26 @@ public class ParticleSystem {
         }
     }
 
-    // Draw proper line using Bresenham algorithm
+    // Draw line as single rectangle
     private void drawSimpleLine(GuiGraphicsExtractor gui, int x1, int y1, int x2, int y2, int color) {
-        int dx = Math.abs(x2 - x1);
-        int dy = Math.abs(y2 - y1);
-        int sx = x1 < x2 ? 1 : -1;
-        int sy = y1 < y2 ? 1 : -1;
-        int err = dx - dy;
+        int dx = x2 - x1;
+        int dy = y2 - y1;
 
-        int x = x1;
-        int y = y1;
+        // Determine dominant direction and draw a single rectangle
+        if (Math.abs(dx) > Math.abs(dy)) {
+            // Horizontal line
+            int startX = Math.min(x1, x2);
+            int width = Math.abs(dx);
+            int avgY = (y1 + y2) / 2;
 
-        while (true) {
-            // Draw pixel
-            CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, 1, 1, 0, color);
+            CustomRoundedRectRenderer.drawRoundedRect(gui, startX, avgY, width, 1, 0, color);
+        } else {
+            // Vertical line
+            int startY = Math.min(y1, y2);
+            int height = Math.abs(dy);
+            int avgX = (x1 + x2) / 2;
 
-            if (x == x2 && y == y2) break;
-
-            int e2 = 2 * err;
-            if (e2 > -dy) {
-                err -= dy;
-                x += sx;
-            }
-            if (e2 < dx) {
-                err += dx;
-                y += sy;
-            }
+            CustomRoundedRectRenderer.drawRoundedRect(gui, avgX, startY, 1, height, 0, color);
         }
     }
 
