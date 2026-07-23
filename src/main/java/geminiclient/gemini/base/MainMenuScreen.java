@@ -921,8 +921,8 @@ public class MainMenuScreen extends Screen {
         CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
         CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
 
-        // Icon: "BG" text or image icon
-        String iconText = "BG";
+        // Icon: Gear symbol for settings
+        String iconText = "⚙";
         float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
         float iconX = x + (w - iconW) / 2f;
         float iconY = y + (h - VERSION_FONT_SIZE) / 2f;
@@ -1024,13 +1024,11 @@ public class MainMenuScreen extends Screen {
     public boolean mouseClicked(@NotNull MouseButtonEvent mouse, boolean idk) {
         Layout layout = layout();
 
-        // Background toggle button
+        // Background settings button (opens selector)
         if (isBgToggleHover(layout, mouse.x(), mouse.y())) {
             if (backgroundConfig != null) {
-                if (backgroundConfig.customBackgroundFileExists()) {
-                    backgroundConfig.toggle();
-                    // No need to reload texture on every toggle - just switch rendering
-                }
+                // Open background selector screen
+                this.minecraft.gui.setScreen(new BackgroundSelectorScreen(this, backgroundConfig));
             }
             return true;
         }

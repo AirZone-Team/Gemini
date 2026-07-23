@@ -1,0 +1,311 @@
+---- Minecraft Crash Report ----
+// You're mean.
+
+Time: 2026-07-23 14:13:21
+Description: Render Frame
+
+java.lang.IllegalStateException: Pipeline contains invalid shader program
+	at TRANSFORMER/minecraft@26.2/com.mojang.blaze3d.opengl.GlCommandEncoder.trySetup(GlCommandEncoder.java:647) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/com.mojang.blaze3d.opengl.GlCommandEncoder.executeDraw(GlCommandEncoder.java:520) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/com.mojang.blaze3d.opengl.GlRenderPass.drawIndexed(GlRenderPass.java:153) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/com.mojang.blaze3d.systems.RenderPass.drawIndexed(RenderPass.java:179) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.gui.render.GuiRenderer.executeDraw(GuiRenderer.java:405) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.gui.render.GuiRenderer.executeDrawRange(GuiRenderer.java:212) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.gui.render.GuiRenderer.draw(GuiRenderer.java:184) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.gui.render.GuiRenderer.render(GuiRenderer.java:124) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.renderer.GameRenderer.render(GameRenderer.java:447) ~[neoforge-26.2.0.25-beta.jar:?] {neoforge:access_transformer,neoforge:access_transformer,neoforge:mixin[APP:gemini.mixins.json:MixinGameRenderer from mod gemini]}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.Minecraft.renderFrame(Minecraft.java:1328) [neoforge-26.2.0.25-beta.jar:?] {neoforge:mixin[APP:gemini.mixins.json:access.AccessMinecraft from mod gemini,APP:gemini.mixins.json:MixinMinecraft from mod gemini]}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.Minecraft.runTick(Minecraft.java:1230) [neoforge-26.2.0.25-beta.jar:?] {neoforge:mixin[APP:gemini.mixins.json:access.AccessMinecraft from mod gemini,APP:gemini.mixins.json:MixinMinecraft from mod gemini]}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.Minecraft.run(Minecraft.java:928) [neoforge-26.2.0.25-beta.jar:?] {neoforge:mixin[APP:gemini.mixins.json:access.AccessMinecraft from mod gemini,APP:gemini.mixins.json:MixinMinecraft from mod gemini]}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.main.Main.main(Main.java:294) [neoforge-26.2.0.25-beta.jar:?] {}
+	at net.neoforged.fml.startup.Client.main(Client.java:19) [loader-11.0.13.jar:11.0] {}
+
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Render thread
+Stacktrace:
+	at TRANSFORMER/minecraft@26.2/com.mojang.blaze3d.opengl.GlCommandEncoder.trySetup(GlCommandEncoder.java:647) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/com.mojang.blaze3d.opengl.GlCommandEncoder.executeDraw(GlCommandEncoder.java:520) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/com.mojang.blaze3d.opengl.GlRenderPass.drawIndexed(GlRenderPass.java:153) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/com.mojang.blaze3d.systems.RenderPass.drawIndexed(RenderPass.java:179) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.gui.render.GuiRenderer.executeDraw(GuiRenderer.java:405) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.gui.render.GuiRenderer.executeDrawRange(GuiRenderer.java:212) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.gui.render.GuiRenderer.draw(GuiRenderer.java:184) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.gui.render.GuiRenderer.render(GuiRenderer.java:124) ~[neoforge-26.2.0.25-beta.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.renderer.GameRenderer.render(GameRenderer.java:447) ~[neoforge-26.2.0.25-beta.jar:?] {neoforge:access_transformer,neoforge:access_transformer,neoforge:mixin[APP:gemini.mixins.json:MixinGameRenderer from mod gemini]}
+-- Render Frame Details --
+Details:
+	Modules: 
+		ADVAPI32.dll:高级 Windows 32 基本 API:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		AVRT.dll:多媒体实时运行时:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		COMCTL32.dll:用户体验控件库:6.10 (WinBuild.160101.0800):Microsoft Corporation
+		COMDLG32.dll:Common Dialogs DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		CRYPT32.dll:加密 API32:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		CRYPTBASE.DLL:Base cryptographic API DLL:10.0.22621.4746 (WinBuild.160101.0800):Microsoft Corporation
+		CRYPTSP.dll:Cryptographic Service Provider API:10.0.22621.6060 (WinBuild.160101.0800):Microsoft Corporation
+		CoreMessaging.dll:Microsoft CoreMessaging Dll:10.0.22621.5415 (WinBuild.160101.0800):Microsoft Corporation
+		CoreUIComponents.dll:Microsoft Core UI Components Dll:10.0.22621.5415:Microsoft Corporation
+		DBGHELP.DLL:Windows Image Helper:10.0.22621.5471 (WinBuild.160101.0800):Microsoft Corporation
+		DEVOBJ.dll:Device Information Set DLL:10.0.22621.2506 (WinBuild.160101.0800):Microsoft Corporation
+		DNSAPI.dll:DNS 客户端 API DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		DWrite.dll:Microsoft DirectX 版式服务:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		GDI32.dll:GDI Client DLL:10.0.22621.5697 (WinBuild.160101.0800):Microsoft Corporation
+		GLU32.dll:OpenGL 实用工具库 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		IMM32.DLL:Multi-User Windows IMM32 API Client DLL:10.0.22621.5697 (WinBuild.160101.0800):Microsoft Corporation
+		IPHLPAPI.DLL:IP 帮助程序 API:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		KERNEL32.DLL:Windows NT 基本 API 客户端 DLL:10.0.22621.6133 (WinBuild.160101.0800):Microsoft Corporation
+		KERNELBASE.dll:Windows NT 基本 API 客户端 DLL:10.0.22621.6133 (WinBuild.160101.0800):Microsoft Corporation
+		MMDevApi.dll:MMDevice API:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		MSCTF.dll:MSCTF 服务器 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		NSI.dll:NSI User-mode interface DLL:10.0.22621.4746 (WinBuild.160101.0800):Microsoft Corporation
+		NTASN1.dll:Microsoft ASN.1 API:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		OLEAUT32.dll:OLEAUT32.DLL:10.0.22621.5697 (WinBuild.160101.0800):Microsoft Corporation
+		OpenAL.dll:Main implementation library:1.25.1:
+		POWRPROF.dll:电源配置文件帮助程序 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		PSAPI.DLL:Process Status Helper:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		RPCRT4.dll:远程过程调用运行时:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		SETUPAPI.dll:Windows 安装程序 API:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		SHCORE.dll:SHCORE:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		SHELL32.dll:Windows Shell 公用 DLL:10.0.22621.6133 (WinBuild.160101.0800):Microsoft Corporation
+		UMPDC.dll:User Mode Power Dependency Coordinator:10.0.22621.5124 (WinBuild.160101.0800):Microsoft Corporation
+		USER32.dll:多用户 Windows 用户 API 客户端 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		USERENV.dll:Userenv:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		USP10.dll:Uniscribe Unicode script processor:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		VCRUNTIME140.dll:Microsoft® C Runtime Library:14.44.35208.0:Microsoft Corporation
+		VERSION.dll:Version Checking and File Installation Libraries:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		WINMM.dll:MCI API DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		WINSTA.dll:Winstation Library:10.0.22621.6060 (WinBuild.160101.0800):Microsoft Corporation
+		WINTRUST.dll:Microsoft Trust Verification APIs:10.0.22621.6060 (WinBuild.160101.0800):Microsoft Corporation
+		WS2_32.dll:Windows Socket 2.0 32 位 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		WTSAPI32.dll:Windows Remote Desktop Session Host Server SDK APIs:10.0.22621.5547 (WinBuild.160101.0800):Microsoft Corporation
+		amsi.dll:Anti-Malware Scan Interface:10.0.22621.3527 (WinBuild.160101.0800):Microsoft Corporation
+		apphelp.dll:应用程序兼容性客户端库:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		awt.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		bcrypt.dll:Windows 加密基元库:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		bcryptPrimitives.dll:Windows Cryptographic Primitives Library:10.0.22621.4317 (WinBuild.160101.0800):Microsoft Corporation
+		cfgmgr32.dll:Configuration Manager DLL:10.0.22621.2506 (WinBuild.160101.0800):Microsoft Corporation
+		clbcatq.dll:COM+ Configuration Catalog:2001.12.10941.16384 (WinBuild.160101.0800):Microsoft Corporation
+		combase.dll:用于 Windows 的 Microsoft COM:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		cryptnet.dll:Crypto Network Related API:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		dbgcore.DLL:Windows Core Debugging Helpers:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		dinput8.dll:Microsoft DirectInput:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		drvstore.dll:Driver Store API:10.0.22621.5413 (WinBuild.160101.0800):Microsoft Corporation
+		dwmapi.dll:Microsoft 桌面窗口管理器 API:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		dxcore.dll:DXCore:10.0.22621.5415 (WinBuild.160101.0800):Microsoft Corporation
+		extnet.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		fastprox.dll:WMI Custom Marshaller:10.0.22621.5415 (WinBuild.160101.0800):Microsoft Corporation
+		fontmanager.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		freetype.dll:Font Rendering Library:2.14.1:The FreeType Project
+		freetype.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		fwpuclnt.dll:FWP/IPsec 用户模式 API:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		gdi32full.dll:GDI Client DLL:10.0.22621.6133 (WinBuild.160101.0800):Microsoft Corporation
+		glfw.dll:GLFW 3.5.0 DLL:3.5.0:GLFW
+		icm32.dll:Microsoft Color Management Module (CMM):10.0.22621.4455 (WinBuild.160101.0800):Microsoft Corporation
+		imagehlp.dll:Windows NT Image Helper:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		inputhost.dll:InputHost:10.0.22621.5415 (WinBuild.160101.0800):Microsoft Corporation
+		java.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		java.exe:OpenJDK Platform binary:25.0.3.0:Microsoft
+		jemalloc.dll
+		jimage.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		jli.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		jna1091735738557398781.dll:JNA native library:7.0.2:Java(TM) Native Access (JNA)
+		jvm.dll:OpenJDK 64-Bit server VM:25.0.3.0:Microsoft
+		kernel.appcore.dll:AppModel API Host:10.0.22621.3958 (WinBuild.160101.0800):Microsoft Corporation
+		lwjgl.dll
+		lwjgl_opengl.dll
+		lwjgl_stb.dll
+		lwjgl_tinyfd.dll
+		lwjgl_vma.dll
+		management.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		management_ext.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		msasn1.dll:ASN.1 Runtime APIs:10.0.22621.2506 (WinBuild.160101.0800):Microsoft Corporation
+		mscms.dll:Microsoft 颜色匹配系统 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		msvcp140.dll:Microsoft® C Runtime Library:14.44.35208.0:Microsoft Corporation
+		msvcp_win.dll:Microsoft® C Runtime Library:10.0.22621.3374 (WinBuild.160101.0800):Microsoft Corporation
+		msvcrt.dll:Windows NT CRT DLL:7.0.22621.2506 (WinBuild.160101.0800):Microsoft Corporation
+		mswsock.dll:Microsoft Windows Sockets 2.0 服务提供程序:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		napinsp.dll:电子邮件命名填充提供程序:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		ncrypt.dll:Windows NCrypt 路由器:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		net.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		nio.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		nlansp_c.dll:NLA Namespace Service Provider DLL:10.0.22621.5331 (WinBuild.160101.0800):Microsoft Corporation
+		ntdll.dll:NT 层 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		ntmarta.dll:Windows NT MARTA 提供程序:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		nvgpucomp64.dll:NVIDIA GPU Compiler Driver, Version 610.62 :32.0.16.1062:NVIDIA Corporation
+		nvoglv64.dll:NVIDIA Compatible OpenGL ICD:32.0.16.1062:NVIDIA Corporation
+		nvspcap64.dll:NVIDIA Game Proxy\x008\x16\x01FileVersion\x00\x001:11.0.7.247\x00\x008\x16\x01Produc:NVIDIA Corporation\x00\x00L$\x01FileDescriptio
+		ole32.dll:用于 Windows 的 Microsoft OLE:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		opengl32.dll:OpenGL Client DLL:10.0.22621.5415 (WinBuild.160101.0800):Microsoft Corporation
+		pdh.dll:Windows 性能数据助手 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		perfos.dll:Windows 系统性能对象 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		perfproc.dll:Windows 系统进程性能对象 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		pfclient.dll:SysMain Client:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		pnrpnsp.dll:PNRP 命名空间提供程序:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		profapi.dll:User Profile Basic API:10.0.22621.5840 (WinBuild.160101.0800):Microsoft Corporation
+		rasadhlp.dll:Remote Access AutoDial Helper:10.0.22621.6199 (WinBuild.160101.0800):Microsoft Corporation
+		rsaenh.dll:Microsoft Enhanced Cryptographic Provider:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		sapi.dll:语音 API:5.3.30018.00 (WinBuild.160101.0800):Microsoft Corporation
+		sechost.dll:Host for SCM/SDDL/LSA Lookup APIs:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		shaderc.dll
+		shlwapi.dll:外壳简易实用工具库:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		spirv-cross.dll
+		sunmscapi.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		syslookup.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		textinputframework.dll:"TextInputFramework.DYNLINK":10.0.22621.5983 (WinBuild.160101.0800):Microsoft Corporation
+		ucrtbase.dll:Microsoft® C Runtime Library:10.0.22621.3593 (WinBuild.160101.0800):Microsoft Corporation
+		uxtheme.dll:Microsoft UxTheme 库:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		vcruntime140_1.dll:Microsoft® C Runtime Library:14.44.35208.0:Microsoft Corporation
+		verify.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+		vulkan-1.dll:Vulkan Loader:1.4.341.0:
+		wbemcomn.dll:WMI:10.0.22621.2506 (WinBuild.160101.0800):Microsoft Corporation
+		wbemprox.dll:WMI:10.0.22621.3672 (WinBuild.160101.0800):Microsoft Corporation
+		wbemsvc.dll:WMI:10.0.22621.3672 (WinBuild.160101.0800):Microsoft Corporation
+		win32u.dll:Win32u:10.0.22621.6199 (WinBuild.160101.0800):Microsoft Corporation
+		windows.storage.dll:Microsoft WinRT Storage API:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		winrnr.dll:LDAP RnR Provider DLL:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		wintypes.dll:Windows 基本类型 DLL:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		wldp.dll:Windows 锁定策略:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		wshbth.dll:Windows Sockets Helper DLL:10.0.22621.5840 (WinBuild.160101.0800):Microsoft Corporation
+		wshunix.dll:AF_UNIX Winsock2 Helper DLL:10.0.22621.1 (WinBuild.160101.0800):Microsoft Corporation
+		xinput1_4.dll:Microsoft 公共控制器 API:10.0.22621.4745 (WinBuild.160101.0800):Microsoft Corporation
+		zip.dll:OpenJDK Platform binary:25.0.3.0:Microsoft
+Stacktrace:
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.Minecraft.runTick(Minecraft.java:1230) [neoforge-26.2.0.25-beta.jar:?] {neoforge:mixin[APP:gemini.mixins.json:access.AccessMinecraft from mod gemini,APP:gemini.mixins.json:MixinMinecraft from mod gemini]}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.Minecraft.run(Minecraft.java:928) [neoforge-26.2.0.25-beta.jar:?] {neoforge:mixin[APP:gemini.mixins.json:access.AccessMinecraft from mod gemini,APP:gemini.mixins.json:MixinMinecraft from mod gemini]}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.main.Main.main(Main.java:294) [neoforge-26.2.0.25-beta.jar:?] {}
+	at net.neoforged.fml.startup.Client.main(Client.java:19) [loader-11.0.13.jar:11.0] {}
+
+
+-- Uptime --
+Details:
+	JVM uptime: 10.223s
+	Wall uptime: 2.541s
+	High-res time: 9.306s
+	Client ticks: 10 ticks / 0.500s
+Stacktrace:
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.Minecraft.fillReport(Minecraft.java:2446) [neoforge-26.2.0.25-beta.jar:?] {neoforge:mixin[APP:gemini.mixins.json:access.AccessMinecraft from mod gemini,APP:gemini.mixins.json:MixinMinecraft from mod gemini]}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.Minecraft.emergencySaveAndCrash(Minecraft.java:975) [neoforge-26.2.0.25-beta.jar:?] {neoforge:mixin[APP:gemini.mixins.json:access.AccessMinecraft from mod gemini,APP:gemini.mixins.json:MixinMinecraft from mod gemini]}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.Minecraft.run(Minecraft.java:948) [neoforge-26.2.0.25-beta.jar:?] {neoforge:mixin[APP:gemini.mixins.json:access.AccessMinecraft from mod gemini,APP:gemini.mixins.json:MixinMinecraft from mod gemini]}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.client.main.Main.main(Main.java:294) [neoforge-26.2.0.25-beta.jar:?] {}
+	at net.neoforged.fml.startup.Client.main(Client.java:19) [loader-11.0.13.jar:11.0] {}
+
+
+-- Last reload --
+Details:
+	Reload number: 1
+	Reload reason: initial
+	Finished: No
+	Packs: vanilla, mod_resources, mod/gemini, mod/neoforge
+
+-- System Details --
+Details:
+	Minecraft Version: 26.2
+	Minecraft Version ID: 26.2
+	Operating System: Windows 11 (amd64) version 10.0
+	Java Version: 25.0.3, Microsoft
+	Java VM Version: OpenJDK 64-Bit Server VM (mixed mode, sharing), Microsoft
+	Memory: 246023512 bytes (234 MiB) / 486539264 bytes (464 MiB) up to 8577351680 bytes (8180 MiB)
+	Memory (heap): init: 512MiB, used: 227MiB, committed: 464MiB, max: 8180MiB
+	Memory (non-head): init: 007MiB, used: 164MiB, committed: 167MiB, max: 000MiB
+	CPUs: 12
+	Processor Vendor: AuthenticAMD
+	Processor Name: AMD Ryzen 5 5600X 6-Core Processor             
+	Identifier: AuthenticAMD Family 25 Model 33 Stepping 2
+	Microarchitecture: Zen 3
+	Frequency (GHz): 3.69
+	Number of physical packages: 1
+	Number of physical CPUs: 6
+	Number of logical CPUs: 12
+	Graphics card #0 name: NVIDIA GeForce RTX 5060 Ti
+	Graphics card #0 vendor: NVIDIA
+	Graphics card #0 VRAM (MiB): 16311.00
+	Graphics card #0 deviceId: VideoController1
+	Graphics card #0 versionInfo: 32.0.16.1062
+	Memory slot #0 capacity (MiB): 16384.00
+	Memory slot #0 clockSpeed (GHz): 2.40
+	Memory slot #0 type: DDR4
+	Memory slot #1 capacity (MiB): 16384.00
+	Memory slot #1 clockSpeed (GHz): 2.40
+	Memory slot #1 type: DDR4
+	Virtual memory max (MiB): 45511.93
+	Virtual memory used (MiB): 17265.02
+	Swap memory total (MiB): 12800.00
+	Swap memory used (MiB): 106.39
+	Space in storage for jna.tmpdir (MiB): <path not set>
+	Space in storage for org.lwjgl.system.SharedLibraryExtractPath (MiB): <path not set>
+	Space in storage for io.netty.native.workdir (MiB): <path not set>
+	Space in storage for java.io.tmpdir (MiB): available: 45274.08, total: 237479.17
+	Space in storage for workdir (MiB): available: 45274.08, total: 237479.17
+	Operating System Version: Microsoft Windows 11 build 22631
+	Process Elevated: false
+	Process Loads: Uptime: 10s, user: 20s (198.36%), kernel: 2s (15.33%), total: 21s (213.69%)
+	Process Virtual Size (MiB): 3970.05
+	Process Resident Size (MiB): 1156.78
+	JVM Flags: 1 total; -XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump
+	Debug Flags: 0 total; 
+	Launched Version: 26.2.0.25-beta
+	Backend library: LWJGL version 3.4.1+2
+	Window size: 854x480
+	Surface Info: acquired, IMMEDIATE, 854 x 480
+	GFLW Platform: win32
+	Graphics Device: NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2
+	Graphics Backend: OpenGL
+	Graphics Vendor: NVIDIA Corporation
+	Graphics Drivers: 3.3.0 NVIDIA 610.62
+	Graphics Device Extensions: GL_ARB_multi_draw_indirect, GL_ARB_buffer_storage, GL_ARB_shader_draw_parameters, GL_ARB_base_instance, GL_KHR_debug, GL_ARB_draw_indirect, GL_ARB_clip_control, GL_ARB_vertex_attrib_binding, GL_ARB_direct_state_access, GL_EXT_texture_filter_anisotropic
+	Graphics Device Type: OTHER
+	Graphics Device Features: DeviceFeatures[shaderDrawParameters=true, multiDrawDirectInterleaved=false, multiDrawDirectSeparate=true, multiDrawIndirect=true, drawIndirect=true, nonZeroFirstInstance=true, persistentMapping=true]
+	GL debug messages: 
+	Is Modded: Definitely; Client brand changed to 'neoforge'
+	Universe: 400921fb54442d18
+	Type: Client
+	Transparency: regular
+	Render Distance: 16/16 chunks
+	Narrator config: OFF
+	Narrator status: true
+	Resource Packs: vanilla, mod_resources, mod/gemini, mod/neoforge (incompatible)
+	Sound Cache: 0 bytes in 0 buffers
+	Current Language: zh_cn
+	Locale: zh_CN
+	System encoding: GBK
+	File encoding: UTF-8
+	CPU: 12x AMD Ryzen 5 5600X 6-Core Processor 
+	Class Processors: 
+		00.00%: neoforge:neoforge_dev_dist_cleaner
+		00.00%: neoforge:computing_frames (marker)
+		00.00%: neoforge:runtime_enum_extender
+		05.10%: neoforge:access_transformer
+		00.31%: neoforge:mixin
+		00.00%: neoforge:simple_processors_default (marker)
+		00.01%: neoforge.coremods:field_to_getter.net.minecraft.world.level.biome.biome
+		00.01%: neoforge.coremods:field_to_getter.net.minecraft.world.level.block.flowerpotblock
+		00.01%: neoforge.coremods:field_to_getter.net.minecraft.world.level.levelgen.structure.structure
+		00.26%: neoforge.coremods:method_redirector
+	Mod List: 
+		main                                              |Gemini                        |gemini                        |1.0-SNAPSHOT        |Manifest: NOSIGNATURE
+		neoforge-26.2.0.25-beta.jar                       |Minecraft                     |minecraft                     |26.2                |Manifest: NOSIGNATURE
+		neoforge-26.2.0.25-beta-universal.jar             |NeoForge                      |neoforge                      |26.2.0.25-beta      |Manifest: NOSIGNATURE
+	Crash Report UUID: 76fbec7b-c40c-4ed9-ad29-e6b0bf8c2224
+	FML: 11.0.13
+	NeoForge: 26.2.0.25-beta
+	Class Processors: 
+		00.00%: neoforge:neoforge_dev_dist_cleaner
+		00.00%: neoforge:computing_frames (marker)
+		00.00%: neoforge:runtime_enum_extender
+		05.10%: neoforge:access_transformer
+		00.31%: neoforge:mixin
+		00.00%: neoforge:simple_processors_default (marker)
+		00.01%: neoforge.coremods:field_to_getter.net.minecraft.world.level.biome.biome
+		00.01%: neoforge.coremods:field_to_getter.net.minecraft.world.level.block.flowerpotblock
+		00.01%: neoforge.coremods:field_to_getter.net.minecraft.world.level.levelgen.structure.structure
+		00.26%: neoforge.coremods:method_redirector
+	Mod List: 
+		main                                              |Gemini                        |gemini                        |1.0-SNAPSHOT        |Manifest: NOSIGNATURE
+		neoforge-26.2.0.25-beta.jar                       |Minecraft                     |minecraft                     |26.2                |Manifest: NOSIGNATURE
+		neoforge-26.2.0.25-beta-universal.jar             |NeoForge                      |neoforge                      |26.2.0.25-beta      |Manifest: NOSIGNATURE
+	Crash Report UUID: 6fc55c42-a1f4-4684-a050-ab9b1fe6d4d1
+	FML: 11.0.13
+	NeoForge: 26.2.0.25-beta

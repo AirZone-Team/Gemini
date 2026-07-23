@@ -1,0 +1,40 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "geminiclient.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "MixinConnection",
+    "MixinEntity",
+    "MixinItem",
+    "MixinKeyMapping",
+    "MixinLivingEntity",
+    "MixinPlayer",
+    "access.AccessEntity",
+    "access.AccessLivingEntity",
+    "access.AccessMinecraft",
+    "access.AccessServerboundMovePlayerPacket"
+  ],
+  "client": [
+    "MixinCamera",
+    "MixinEntityRenderer",
+    "MixinGameRenderer",
+    "MixinGui",
+    "MixinItemEntityRenderer",
+    "MixinItemEntityRenderState",
+    "MixinKeyboardHandler",
+    "MixinKeyboardInput",
+    "MixinLevelRenderer",
+    "MixinLivingEntityRenderer",
+    "MixinLocalPlayer",
+    "MixinMinecraft",
+    "MixinMultiPlayerGameMode",
+    "MixinTitleScreen"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

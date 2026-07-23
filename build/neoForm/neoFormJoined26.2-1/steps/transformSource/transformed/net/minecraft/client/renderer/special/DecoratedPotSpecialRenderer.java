@@ -1,0 +1,59 @@
+package net.minecraft.client.renderer.special;
+
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.serialization.MapCodec;
+import java.util.Objects;
+import java.util.function.Consumer;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.blockentity.DecoratedPotRenderer;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.entity.PotDecorations;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+import org.joml.Vector3fc;
+import org.jspecify.annotations.Nullable;
+
+@OnlyIn(Dist.CLIENT)
+public class DecoratedPotSpecialRenderer implements SpecialModelRenderer<PotDecorations> {
+    private final DecoratedPotRenderer decoratedPotRenderer;
+
+    public DecoratedPotSpecialRenderer(DecoratedPotRenderer decoratedPotRenderer) {
+        this.decoratedPotRenderer = decoratedPotRenderer;
+    }
+
+    public @Nullable PotDecorations extractArgument(ItemStack stack) {
+        return stack.get(DataComponents.POT_DECORATIONS);
+    }
+
+    public void submit(
+        @Nullable PotDecorations decorations,
+        PoseStack poseStack,
+        SubmitNodeCollector submitNodeCollector,
+        int lightCoords,
+        int overlayCoords,
+        boolean hasFoil,
+        int outlineColor
+    ) {
+        this.decoratedPotRenderer
+            .submit(poseStack, submitNodeCollector, lightCoords, overlayCoords, Objects.requireNonNullElse(decorations, PotDecorations.EMPTY), outlineColor);
+    }
+
+    @Override
+    public void getExtents(Consumer<Vector3fc> output) {
+        this.decoratedPotRenderer.getExtents(output);
+    }
+
+    public record Unbaked() implements SpecialModelRenderer.Unbaked<PotDecorations> {
+        public static final MapCodec<DecoratedPotSpecialRenderer.Unbaked> MAP_CODEC = MapCodec.unit(new DecoratedPotSpecialRenderer.Unbaked());
+
+        @Override
+        public MapCodec<DecoratedPotSpecialRenderer.Unbaked> type() {
+            return MAP_CODEC;
+        }
+
+        public DecoratedPotSpecialRenderer bake(SpecialModelRenderer.BakingContext context) {
+            return new DecoratedPotSpecialRenderer(new DecoratedPotRenderer(context));
+        }
+    }
+}

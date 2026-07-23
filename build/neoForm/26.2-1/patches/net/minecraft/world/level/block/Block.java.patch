@@ -1,0 +1,19 @@
+--- a/net/minecraft/world/level/block/Block.java
++++ b/net/minecraft/world/level/block/Block.java
+@@ -574,7 +_,7 @@
+     }
+ 
+     private static <S extends StateHolder<?, S>, T extends Comparable<T>> S setValueHelper(S state, Property<T> property, Object value) {
+-        return state.setValue(property, (Comparable)value);
++        return state.setValue(property, (T)value);
+     }
+ 
+     @Deprecated
+@@ -603,6 +_,7 @@
+ 
+     @Retention(RetentionPolicy.CLASS)
+     @Target(ElementType.TYPE_USE)
++    @org.intellij.lang.annotations.MagicConstant(flags = {UPDATE_NEIGHBORS, UPDATE_CLIENTS, UPDATE_INVISIBLE, UPDATE_IMMEDIATE, UPDATE_KNOWN_SHAPE, UPDATE_SUPPRESS_DROPS, UPDATE_MOVE_BY_PISTON, UPDATE_SKIP_SHAPE_UPDATE_ON_WIRE, UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS, UPDATE_SKIP_ON_PLACE})
+     public @interface UpdateFlags {
+     }
+ }

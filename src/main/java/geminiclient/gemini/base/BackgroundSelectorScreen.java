@@ -1,0 +1,421 @@
+package geminiclient.gemini.base;
+
+import com.mojang.blaze3d.platform.NativeImage;
+import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
+import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer.GlyphFont;
+import geminiclient.gemini.customRenderer.glsl.SdfUIRenderer;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
+
+/**
+ * Background selector popup screen.
+ * Displays a scrollable list of available wallpapers with thumbnails.
+ */
+public class BackgroundSelectorScreen extends Screen {
+
+    // ========================
+    // Constants
+    // ========================
+
+    private static final int PANEL_WIDTH = 480;
+    private static final int PANEL_HEIGHT = 400;
+    private static final int TITLE_HEIGHT = 50;
+    private static final int ITEM_HEIGHT = 80;
+    private static final int ITEM_PADDING = 12;
+    private static final int THUMBNAIL_SIZE = 64;
+    private static final int SCROLL_SPEED = 20;
+
+    // Fonts
+    private static final Identifier FONT_MEDIUM =
+            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-medium.ttf");
+    private static final Identifier FONT_LIGHT =
+            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-light.ttf");
+
+    // Colors (matching MainMenuScreen style)
+    private static final int PANEL_BG = 0xE8161D28;
+    private static final int PANEL_OUTLINE = 0x4089DDFF;
+    private static final int TITLE_COLOR = 0xFFFFFFFF;
+    private static final int ITEM_BG = 0x40000000;
+    private static final int ITEM_HOVER_BG = 0x6089DDFF;
+    private static final int ITEM_SELECTED_BG = 0x8089DDFF;
+    private static final int TEXT_COLOR = 0xFFFFFFFF;
+    private static final int SUBTITLE_COLOR = 0xFF89DDFF;
+    private static final int ACCENT = 0xFF89DDFF;
+
+    private static final float TITLE_FONT_SIZE = 20f;
+    private static final float ITEM_FONT_SIZE = 14f;
+    private static final float SUBTITLE_FONT_SIZE = 11f;
+
+    // ========================
+    // State
+    // ========================
+
+    private final Screen parent;
+    private final BackgroundConfig backgroundConfig;
+    private final List<WallpaperEntry> wallpapers = new ArrayList<>();
+    private final Map<Path, Identifier> thumbnailCache = new HashMap<>();
+
+    private GlyphFont titleFont;
+    private GlyphFont itemFont;
+    private GlyphFont subtitleFont;
+
+    private float scrollOffset = 0f;
+    private float targetScrollOffset = 0f;
+    private int hoveredIndex = -1;
+    private int selectedIndex = -1;
+
+    private int panelX, panelY;
+    private int listY, listHeight;
+
+    // ========================
+    // Constructor
+    // ========================
+
+    public BackgroundSelectorScreen(Screen parent, BackgroundConfig backgroundConfig) {
+        super(Component.literal("Background Selector"));
+        this.parent = parent;
+        this.backgroundConfig = backgroundConfig;
+    }
+
+    @Override
+    protected void init() {
+        super.init();
+
+        // Calculate panel position (centered)
+        panelX = (this.width - PANEL_WIDTH) / 2;
+        panelY = (this.height - PANEL_HEIGHT) / 2;
+        listY = panelY + TITLE_HEIGHT;
+        listHeight = PANEL_HEIGHT - TITLE_HEIGHT;
+
+        // Load fonts
+        loadFonts();
+
+        // Scan wallpapers
+        scanWallpapers();
+
+        // Find currently selected wallpaper
+        Path currentBg = backgroundConfig.getCustomBackgroundFile();
+        for (int i = 0; i < wallpapers.size(); i++) {
+            if (wallpapers.get(i).filePath().equals(currentBg)) {
+                selectedIndex = i;
+                break;
+            }
+        }
+    }
+
+    private void loadFonts() {
+        try {
+            titleFont = CustomFontRenderer.loadFont(FONT_MEDIUM, TITLE_FONT_SIZE);
+            itemFont = CustomFontRenderer.loadFont(FONT_MEDIUM, ITEM_FONT_SIZE);
+            subtitleFont = CustomFontRenderer.loadFont(FONT_LIGHT, SUBTITLE_FONT_SIZE);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ========================
+    // Wallpaper Scanning
+    // ========================
+
+    private void scanWallpapers() {
+        wallpapers.clear();
+        Path dir = backgroundConfig.getConfigDirectory();
+
+        try (Stream<Path> files = Files.list(dir)) {
+            files.filter(Files::isRegularFile)
+                    .filter(this::isSupportedFile)
+                    .sorted()
+                    .forEach(path -> {
+                        try {
+                            long size = Files.size(path);
+                            WallpaperEntry.WallpaperType type = WallpaperEntry.getTypeFromPath(path);
+                            wallpapers.add(new WallpaperEntry(path, path.getFileName().toString(), type, size));
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    });
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private boolean isSupportedFile(Path path) {
+        String name = path.getFileName().toString().toLowerCase();
+        return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg")
+                || name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".gif");
+    }
+
+    // ========================
+    // Thumbnail Generation
+    // ========================
+
+    private Identifier getThumbnail(WallpaperEntry entry) {
+        if (thumbnailCache.containsKey(entry.filePath())) {
+            return thumbnailCache.get(entry.filePath());
+        }
+
+        // Only generate thumbnails for static images
+        if (entry.isAnimated()) {
+            return null; // Will show placeholder for animated
+        }
+
+        try {
+            BufferedImage img = ImageIO.read(entry.filePath().toFile());
+            if (img == null) return null;
+
+            // Scale to thumbnail size
+            int thumbSize = THUMBNAIL_SIZE;
+            BufferedImage scaled = new BufferedImage(thumbSize, thumbSize, BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D g2d = scaled.createGraphics();
+            g2d.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                    java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+            // Calculate aspect-fit scaling
+            float scale = Math.min((float) thumbSize / img.getWidth(), (float) thumbSize / img.getHeight());
+            int scaledW = (int) (img.getWidth() * scale);
+            int scaledH = (int) (img.getHeight() * scale);
+            int offsetX = (thumbSize - scaledW) / 2;
+            int offsetY = (thumbSize - scaledH) / 2;
+
+            g2d.drawImage(img, offsetX, offsetY, scaledW, scaledH, null);
+            g2d.dispose();
+
+            // Convert to NativeImage
+            NativeImage nativeImg = new NativeImage(thumbSize, thumbSize, true);
+            for (int y = 0; y < thumbSize; y++) {
+                for (int x = 0; x < thumbSize; x++) {
+                    int argb = scaled.getRGB(x, y);
+                    nativeImg.setPixel(x, y, argb);
+                }
+            }
+
+            // Register texture
+            DynamicTexture texture = new DynamicTexture(() -> "thumbnail_" +
+                    entry.filePath().getFileName().toString().hashCode(), nativeImg);
+            Identifier id = Identifier.fromNamespaceAndPath("gemini", "thumbnail_" +
+                    entry.filePath().getFileName().toString().hashCode());
+            this.minecraft.getTextureManager().register(id, texture);
+            thumbnailCache.put(entry.filePath(), id);
+
+            return id;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ========================
+    // Rendering
+    // ========================
+
+    @Override
+    public void extractRenderState(GuiGraphicsExtractor gui, int mouseX, int mouseY, float delta) {
+        // Smooth scroll
+        scrollOffset += (targetScrollOffset - scrollOffset) * delta * 10f;
+
+        // Background dim
+        gui.fill(0, 0, this.width, this.height, 0x80000000);
+
+        // Panel
+        drawPanel(gui);
+        drawTitle(gui);
+        drawList(gui, mouseX, mouseY);
+
+        super.extractRenderState(gui, mouseX, mouseY, delta);
+    }
+
+    private void drawPanel(GuiGraphicsExtractor gui) {
+        // Shadow
+        SdfUIRenderer.drawShadow(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0, 4, 16, 0x80000000);
+
+        // Background
+        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, PANEL_BG);
+
+        // Outline
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, PANEL_OUTLINE, 1);
+    }
+
+    private void drawTitle(GuiGraphicsExtractor gui) {
+        if (titleFont == null) return;
+
+        String title = "Background";
+        float titleW = CustomFontRenderer.stringWidth(titleFont, title);
+        float titleX = panelX + (PANEL_WIDTH - titleW) / 2f;
+        float titleY = panelY + (TITLE_HEIGHT - TITLE_FONT_SIZE) / 2f;
+
+        CustomFontRenderer.drawString(gui, titleFont, title, titleX, titleY, TITLE_COLOR);
+
+        // Divider line
+        int lineY = panelY + TITLE_HEIGHT - 1;
+        CustomRectRenderer.drawRect(gui, panelX, lineY, PANEL_WIDTH, 1, 0x4089DDFF);
+    }
+
+    private void drawList(GuiGraphicsExtractor gui, int mouseX, int mouseY) {
+        if (itemFont == null) return;
+
+        // Scissor to panel area
+        gui.enableScissor(panelX, listY, panelX + PANEL_WIDTH, listY + listHeight);
+
+        hoveredIndex = -1;
+        int yOffset = (int) scrollOffset;
+
+        for (int i = 0; i < wallpapers.size(); i++) {
+            WallpaperEntry entry = wallpapers.get(i);
+            int itemY = listY + yOffset + i * (ITEM_HEIGHT + ITEM_PADDING);
+
+            // Skip if not visible
+            if (itemY + ITEM_HEIGHT < listY || itemY > listY + listHeight) {
+                continue;
+            }
+
+            boolean hovered = isMouseOverItem(mouseX, mouseY, itemY);
+            if (hovered) hoveredIndex = i;
+            boolean selected = i == selectedIndex;
+
+            drawListItem(gui, entry, panelX + ITEM_PADDING, itemY,
+                    PANEL_WIDTH - ITEM_PADDING * 2, ITEM_HEIGHT, hovered, selected);
+        }
+
+        gui.disableScissor();
+    }
+
+    private void drawListItem(GuiGraphicsExtractor gui, WallpaperEntry entry,
+                              int x, int y, int w, int h, boolean hovered, boolean selected) {
+        // Background
+        int bgColor = selected ? ITEM_SELECTED_BG : (hovered ? ITEM_HOVER_BG : ITEM_BG);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, w, h, 8, bgColor);
+
+        if (hovered || selected) {
+            CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, 8, ACCENT, 1);
+        }
+
+        // Thumbnail (left side)
+        int thumbX = x + 8;
+        int thumbY = y + (h - THUMBNAIL_SIZE) / 2;
+
+        Identifier thumbnail = getThumbnail(entry);
+        if (thumbnail != null) {
+            // Draw thumbnail
+            gui.blit(RenderPipelines.GUI_TEXTURED, thumbnail,
+                    thumbX, thumbY, 0, 0, THUMBNAIL_SIZE, THUMBNAIL_SIZE,
+                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 0xFFFFFFFF);
+        } else {
+            // Placeholder for thumbnails (animated or failed to load)
+            CustomRoundedRectRenderer.drawRoundedRect(gui, thumbX, thumbY,
+                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 4, 0x40FFFFFF);
+
+            // Show play icon for animated
+            if (entry.isAnimated() && itemFont != null) {
+                String icon = "▶";
+                float iconW = CustomFontRenderer.stringWidth(itemFont, icon);
+                float iconX = thumbX + (THUMBNAIL_SIZE - iconW) / 2f;
+                float iconY = thumbY + (THUMBNAIL_SIZE - ITEM_FONT_SIZE) / 2f;
+                CustomFontRenderer.drawString(gui, itemFont, icon, iconX, iconY, 0xFFFFFFFF);
+            }
+        }
+
+        // Text (right side)
+        int textX = thumbX + THUMBNAIL_SIZE + 12;
+        int textY = y + (int)((h - ITEM_FONT_SIZE - 4) / 2);
+
+        if (itemFont != null && subtitleFont != null) {
+            // File name
+            String fileName = entry.fileName();
+            if (fileName.length() > 35) {
+                fileName = fileName.substring(0, 32) + "...";
+            }
+            CustomFontRenderer.drawString(gui, itemFont, fileName, textX, textY, TEXT_COLOR);
+
+            // Animated label
+            if (entry.isAnimated()) {
+                float subtitleY = textY + ITEM_FONT_SIZE + 4;
+                CustomFontRenderer.drawString(gui, subtitleFont, "Animated", textX, subtitleY, SUBTITLE_COLOR);
+            }
+        }
+    }
+
+    private boolean isMouseOverItem(int mouseX, int mouseY, int itemY) {
+        return mouseX >= panelX + ITEM_PADDING
+                && mouseX <= panelX + PANEL_WIDTH - ITEM_PADDING
+                && mouseY >= itemY
+                && mouseY <= itemY + ITEM_HEIGHT;
+    }
+
+    // ========================
+    // Input Handling
+    // ========================
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent mouse, boolean idk) {
+        // Click outside panel to close
+        if (mouse.x() < panelX || mouse.x() > panelX + PANEL_WIDTH
+                || mouse.y() < panelY || mouse.y() > panelY + PANEL_HEIGHT) {
+            onClose();
+            return true;
+        }
+
+        // Click on item
+        if (hoveredIndex >= 0 && hoveredIndex < wallpapers.size()) {
+            selectWallpaper(hoveredIndex);
+            return true;
+        }
+
+        return super.mouseClicked(mouse, idk);
+    }
+
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        // Scroll list
+        float maxScroll = Math.max(0, wallpapers.size() * (ITEM_HEIGHT + ITEM_PADDING) - listHeight);
+        targetScrollOffset = Math.max(-maxScroll, Math.min(0, targetScrollOffset + (float) scrollY * SCROLL_SPEED));
+        return true;
+    }
+
+    private void selectWallpaper(int index) {
+        selectedIndex = index;
+        WallpaperEntry entry = wallpapers.get(index);
+
+        // Update BackgroundConfig
+        backgroundConfig.setSelectedWallpaper(entry.filePath());
+        backgroundConfig.setCustomBackgroundEnabled(true);
+
+        // Close and refresh parent
+        onClose();
+    }
+
+    @Override
+    public void onClose() {
+        this.minecraft.gui.setScreen(parent);
+    }
+
+    @Override
+    public void removed() {
+        super.removed();
+        // Clean up thumbnails
+        for (Identifier id : thumbnailCache.values()) {
+            AbstractTexture texture = this.minecraft.getTextureManager().getTexture(id);
+            if (texture != null) {
+                texture.close();
+            }
+            this.minecraft.getTextureManager().release(id);
+        }
+        thumbnailCache.clear();
+    }
+}

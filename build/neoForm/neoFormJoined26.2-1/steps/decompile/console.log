@@ -1,0 +1,8 @@
+JVM Args:          "-Xmx4g"
+Run Args:          "-log=error", "--decompile-inner", "--remove-bridge", "--decompile-generics", "--ascii-strings", "--remove-synthetic", "--include-classpath", "--ignore-invalid-bytecode", "--bytecode-source-mapping", "--dump-code-lines", "--indent-string=    ", "-cfg=C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\listLibraries\libraries.txt", "C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\setup\outputs.jar", "C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\decompile\outputs.jar"
+JVM:               C:\Users\25526\.jdks\ms-25.0.3\bin\java.exe
+Classpath:         C:\Users\25526\.gradle\caches\modules-2\files-2.1\org.vineflower\vineflower\1.12.0\85570609a0a5941a7d2918b6260b209de810f66f\vineflower-1.12.0.jar, C:\Users\25526\.gradle\caches\modules-2\files-2.1\net.neoforged\vineflower-plugins\0.1.6\84857083964b98ac94f8d124f401c2b2d86839ab\vineflower-plugins-0.1.6.jar
+Working Dir:       C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\decompile
+Main Class:        org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler
+Program log file:  C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\decompile\log.log
+Output file:       C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\decompile\outputs.jar

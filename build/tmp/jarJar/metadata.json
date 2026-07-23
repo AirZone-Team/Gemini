@@ -1,0 +1,16 @@
+{
+  "jars": [
+    {
+      "identifier": {
+        "group": "org.json",
+        "artifact": "json"
+      },
+      "version": {
+        "range": "[20251224,)",
+        "artifactVersion": "20251224"
+      },
+      "path": "META-INF/jarjar/json-20251224.jar",
+      "isObfuscated": false
+    }
+  ]
+}

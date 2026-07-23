@@ -170,6 +170,24 @@ public class BackgroundConfig {
     }
 
     /**
+     * Sets the selected wallpaper by file path.
+     * Rescans and updates the current index.
+     */
+    public void setSelectedWallpaper(Path wallpaperPath) {
+        scanBackgrounds();
+        for (int i = 0; i < availableBackgrounds.size(); i++) {
+            if (availableBackgrounds.get(i).equals(wallpaperPath)) {
+                currentBackgroundIndex = i;
+                save();
+                return;
+            }
+        }
+        // If not found, default to first
+        currentBackgroundIndex = 0;
+        save();
+    }
+
+    /**
      * Gets the number of available backgrounds.
      */
     public int getBackgroundCount() {

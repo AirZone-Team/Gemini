@@ -1,0 +1,44 @@
+package net.minecraft.client.gui.components.debug;
+
+import java.util.List;
+import net.minecraft.SharedConstants;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+import org.jspecify.annotations.Nullable;
+
+@OnlyIn(Dist.CLIENT)
+public class DebugEntryBiome implements DebugScreenEntry {
+    public static final Identifier GROUP = Identifier.withDefaultNamespace("biome");
+
+    @Override
+    public void display(DebugScreenDisplayer displayer, @Nullable Level serverOrClientLevel, @Nullable LevelChunk clientChunk, @Nullable LevelChunk serverChunk) {
+        Minecraft minecraft = Minecraft.getInstance();
+        Entity entity = minecraft.getCameraEntity();
+        if (entity != null && minecraft.level != null) {
+            BlockPos feetPos = entity.blockPosition();
+            if (minecraft.level.isInsideBuildHeight(feetPos.getY())) {
+                if (SharedConstants.DEBUG_SHOW_SERVER_DEBUG_VALUES && serverOrClientLevel instanceof ServerLevel) {
+                    displayer.addToGroup(
+                        GROUP,
+                        List.of("Biome: " + printBiome(minecraft.level.getBiome(feetPos)), "Server Biome: " + printBiome(serverOrClientLevel.getBiome(feetPos)))
+                    );
+                } else {
+                    displayer.addLine("Biome: " + printBiome(minecraft.level.getBiome(feetPos)));
+                }
+            }
+        }
+    }
+
+    private static String printBiome(Holder<Biome> biome) {
+        return biome.unwrap().map(key -> key.identifier().toString(), l -> "[unregistered " + l + "]");
+    }
+}

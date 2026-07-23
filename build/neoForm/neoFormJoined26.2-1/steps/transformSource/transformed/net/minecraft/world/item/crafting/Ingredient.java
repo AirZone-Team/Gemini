@@ -1,0 +1,183 @@
+package net.minecraft.world.item.crafting;
+
+import com.mojang.serialization.Codec;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderSet;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.resources.HolderSetCodec;
+import net.minecraft.util.ExtraCodecs;
+import net.minecraft.world.entity.player.StackedContents;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemStackTemplate;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.display.SlotDisplay;
+import net.minecraft.world.level.ItemLike;
+
+public final class Ingredient implements Predicate<ItemStack>, StackedContents.IngredientInfo<Holder<Item>> {
+    public static final StreamCodec<RegistryFriendlyByteBuf, Ingredient> CONTENTS_STREAM_CODEC = net.neoforged.neoforge.common.crafting.IngredientCodecs.streamCodec(ByteBufCodecs.holderSet(Registries.ITEM)
+        .map(Ingredient::new, i -> i.getValuesForSync()));
+    public static final StreamCodec<RegistryFriendlyByteBuf, Optional<Ingredient>> OPTIONAL_CONTENTS_STREAM_CODEC = net.neoforged.neoforge.common.crafting.IngredientCodecs.optionalStreamCodec(ByteBufCodecs.holderSet(Registries.ITEM)
+        .map(
+            ingredient -> ingredient.size() == 0 ? Optional.empty() : Optional.of(new Ingredient((HolderSet<Item>)ingredient)),
+            ingredient -> ingredient.map(i -> i.getValuesForSync()).orElse(HolderSet.direct())
+        ));
+    public static final Codec<HolderSet<Item>> NON_AIR_HOLDER_SET_CODEC = HolderSetCodec.create(Registries.ITEM, Item.CODEC, false);
+    public static final Codec<Ingredient> CODEC = net.neoforged.neoforge.common.crafting.IngredientCodecs.codec(ExtraCodecs.nonEmptyHolderSet(NON_AIR_HOLDER_SET_CODEC).xmap(Ingredient::new, i -> i.values));
+    private final HolderSet<Item> values;
+    private net.neoforged.neoforge.common.crafting.@org.jspecify.annotations.Nullable ICustomIngredient customIngredient = null;
+    private java.util.@org.jspecify.annotations.Nullable List<Holder<Item>> customIngredientValues;
+
+    private Ingredient(HolderSet<Item> values) {
+        if (values.isImmediatelyResolvable())//Neo: Skip validating holderset contents for holdersets if they are not immediately resolvable
+        values.unwrap().ifRight(directValues -> {
+            if (directValues.isEmpty()) {
+                throw new UnsupportedOperationException("Ingredients can't be empty");
+            }
+
+            if (directValues.contains(Items.AIR.builtInRegistryHolder())) {
+                throw new UnsupportedOperationException("Ingredient can't contain air");
+            }
+        });
+        this.values = values;
+    }
+
+    public Ingredient(net.neoforged.neoforge.common.crafting.ICustomIngredient customIngredient) {
+        this.values = HolderSet.empty();
+        this.customIngredient = customIngredient;
+    }
+
+    public static boolean testOptionalIngredient(Optional<Ingredient> ingredient, ItemStack stack) {
+        return ingredient.<Boolean>map(value -> value.test(stack)).orElseGet(stack::isEmpty);
+    }
+
+    @Deprecated
+    public Stream<Holder<Item>> items() {
+        if (this.customIngredient != null) {
+            return updateCustomIngredientValues().stream();
+        }
+        return this.values.stream();
+    }
+
+    public boolean isEmpty() {
+        if (this.customIngredient != null) {
+            return updateCustomIngredientValues().isEmpty();
+        }
+        return this.values.size() == 0;
+    }
+
+    public boolean test(ItemStack input) {
+        if (this.customIngredient != null) {
+            return this.customIngredient.test(input);
+        }
+        return input.is(this.values);
+    }
+
+    public boolean acceptsItem(Holder<Item> item) {
+        if (this.customIngredient != null) {
+            return updateCustomIngredientValues().contains(item);
+        }
+        return this.values.contains(item);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof Ingredient ingredient ? java.util.Objects.equals(this.customIngredient, ingredient.customIngredient) && Objects.equals(this.values, ingredient.values) : false;
+    }
+
+    @Override
+    public int hashCode() {
+        if (this.customIngredient != null) {
+            return this.customIngredient.hashCode();
+        }
+        return this.values.hashCode();
+    }
+
+    /**
+      * Retrieves the underlying values of this ingredient.
+      * If this is a {@linkplain #isCustom custom ingredient}, an exception is thrown.
+      */
+    public HolderSet<Item> getValues() {
+        if (isCustom()) {
+            throw new IllegalStateException("Cannot retrieve values from custom ingredient!");
+        }
+        return this.values;
+    }
+
+    /**
+     * Retrieves the holder set to use for syncing {@linkplain #isSimple() simple} ingredients
+     */
+    private HolderSet<Item> getValuesForSync() {
+        if (isCustom()) {
+            return HolderSet.direct(this.items().toList());
+        }
+        return this.values;
+    }
+
+    public boolean isSimple() {
+        return this.customIngredient == null || this.customIngredient.isSimple();
+    }
+
+    public net.neoforged.neoforge.common.crafting.@org.jspecify.annotations.Nullable ICustomIngredient getCustomIngredient() {
+        return this.customIngredient;
+    }
+
+    public boolean isCustom() {
+        return this.customIngredient != null;
+    }
+
+    private java.util.List<Holder<Item>> updateCustomIngredientValues() {
+        if (this.customIngredientValues == null) {
+            this.customIngredientValues = this.customIngredient.items().toList();
+        }
+        return this.customIngredientValues;
+    }
+
+    public static Ingredient of(ItemLike itemLike) {
+        return new Ingredient(HolderSet.direct(itemLike.asItem().builtInRegistryHolder()));
+    }
+
+    public static Ingredient of(ItemLike... items) {
+        return of(Arrays.stream(items));
+    }
+
+    public static Ingredient of(Stream<? extends ItemLike> stream) {
+        return new Ingredient(HolderSet.direct(stream.map(e -> e.asItem().builtInRegistryHolder()).toList()));
+    }
+
+    public static Ingredient of(HolderSet<Item> tag) {
+        return new Ingredient(tag);
+    }
+
+    public SlotDisplay display() {
+        if (this.customIngredient != null) {
+            return this.customIngredient.display();
+        }
+        return (SlotDisplay)this.values
+            .unwrap()
+            .map(SlotDisplay.TagSlotDisplay::new, l -> new SlotDisplay.Composite(l.stream().map(Ingredient::displayForSingleItem).toList()));
+    }
+
+    public static SlotDisplay optionalIngredientToDisplay(Optional<Ingredient> ingredient) {
+        return ingredient.map(Ingredient::display).orElse(SlotDisplay.Empty.INSTANCE);
+    }
+
+    public static SlotDisplay displayForSingleItem(Holder<Item> item) {
+        SlotDisplay inputDisplay = new SlotDisplay.ItemSlotDisplay(item);
+        ItemStackTemplate remainderStack = item.value().getCraftingRemainder();
+        if (remainderStack != null) {
+            SlotDisplay remainderDisplay = new SlotDisplay.ItemStackSlotDisplay(remainderStack);
+            return new SlotDisplay.WithRemainder(inputDisplay, remainderDisplay);
+        } else {
+            return inputDisplay;
+        }
+    }
+}

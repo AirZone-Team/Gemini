@@ -1,0 +1,46 @@
+{
+  "stats": {
+    "minecraft:killed": {
+      "minecraft:zombie": 1,
+      "minecraft:skeleton": 1,
+      "minecraft:sheep": 14,
+      "minecraft:spider": 3
+    },
+    "minecraft:dropped": {
+      "minecraft:ender_pearl": 1
+    },
+    "minecraft:custom": {
+      "minecraft:time_since_rest": 40768,
+      "minecraft:walk_one_cm": 30460,
+      "minecraft:leave_game": 2,
+      "minecraft:mob_kills": 19,
+      "minecraft:damage_dealt": 2070,
+      "minecraft:play_time": 20384,
+      "minecraft:jump": 449,
+      "minecraft:time_since_death": 20384,
+      "minecraft:drop": 1,
+      "minecraft:sprint_one_cm": 23974,
+      "minecraft:total_world_time": 20434,
+      "minecraft:fly_one_cm": 91855,
+      "minecraft:crouch_one_cm": 679,
+      "minecraft:sneak_time": 81
+    },
+    "minecraft:used": {
+      "minecraft:white_terracotta": 122,
+      "minecraft:splash_potion": 4,
+      "minecraft:sheep_spawn_egg": 13,
+      "minecraft:brown_wool": 99,
+      "minecraft:diamond_sword": 38,
+      "minecraft:ender_pearl": 15,
+      "minecraft:bow": 35
+    },
+    "minecraft:picked_up": {
+      "minecraft:string": 2,
+      "minecraft:brown_wool": 8,
+      "minecraft:mutton": 10,
+      "minecraft:light_gray_wool": 1,
+      "minecraft:spider_eye": 1
+    }
+  },
+  "DataVersion": 4903
+}

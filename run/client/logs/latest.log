@@ -1,0 +1,120 @@
+[237月2026 14:52:08.405] [main/INFO] [net.neoforged.fml.startup.Entrypoint/]: JVM Uptime at startup: 187ms
+[237月2026 14:52:08.418] [main/INFO] [net.neoforged.fml.loading.FMLLoader/]: Starting FancyModLoader version 11.0.13 (CLIENT in DEV)
+[237月2026 14:52:08.418] [main/INFO] [net.neoforged.fml.loading.FMLLoader/]: Game directory: C:\Users\25526\IdeaProjects\Gemini\run\client
+[237月2026 14:52:08.470] [main/INFO] [net.neoforged.fml.loading.EarlyServiceDiscovery/]: Found 2 early service jars (out of 126) in 19ms
+[237月2026 14:52:08.471] [main/INFO] [net.neoforged.fml.loading.FMLLoader/]: Loading FML Early Services:
+[237月2026 14:52:08.471] [main/INFO] [net.neoforged.fml.loading.FMLLoader/]:  - C:/Users/25526/.gradle/caches/modules-2/files-2.1/net.neoforged.fancymodloader/loader/11.0.13/c9c89eaf35535990110088224d188748d81eaecf/loader-11.0.13.jar
+[237月2026 14:52:08.472] [main/INFO] [net.neoforged.fml.loading.FMLLoader/]:  - C:/Users/25526/.gradle/caches/modules-2/files-2.1/net.neoforged.fancymodloader/earlydisplay/11.0.13/491a1bedecb33802fa118cae384b60f91f6f0241/earlydisplay-11.0.13.jar
+[237月2026 14:52:08.475] [main/INFO] [net.neoforged.fml.loading.ImmediateWindowHandler/]: Loading ImmediateWindowProvider fmlearlywindow
+[237月2026 14:52:08.860] [ForkJoinPool.commonPool-worker-1/INFO] [net.neoforged.fml.loading.moddiscovery.locators.GameLocator/]: Detected a joined NeoForge and Minecraft configuration. Applying filtering...
+[237月2026 14:52:08.887] [fml-loadingscreen/INFO] [net.neoforged.fml.earlydisplay.render.LoadingScreenRenderer/]: GL info: NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2 GL version 3.3.0 NVIDIA 610.62, NVIDIA Corporation
+[237月2026 14:52:08.928] [ForkJoinPool.commonPool-worker-1/INFO] [net.neoforged.fml.loading.moddiscovery.locators.InDevFolderLocator/CORE]: Got mod coordinates Gemini%%C:\Users\25526\IdeaProjects\Gemini\build\resources\main;Gemini%%C:\Users\25526\IdeaProjects\Gemini\build\classes\java\main from env
+[237月2026 14:52:09.050] [ForkJoinPool.commonPool-worker-1/WARN] [net.neoforged.jarjar.selection.JarSelector/]: Attempted to select a dependency jar for JarJar which was passed in as source: library:mixinextras.neoforge. Using jar(C:/Users/25526/.gradle/caches/modules-2/files-2.1/io.github.llamalad7/mixinextras-neoforge/0.5.4/3cb0fec08c25e18fddf797fbdc1b9db83dc4e92f/mixinextras-neoforge-0.5.4.jar)
+[237月2026 14:52:09.050] [ForkJoinPool.commonPool-worker-1/INFO] [net.neoforged.fml.loading.moddiscovery.locators.JarInJarDependencyLocator/]: Found 1 dependencies adding them to mods collection
+[237月2026 14:52:09.052] [ForkJoinPool.commonPool-worker-1/INFO] [net.neoforged.fml.loading.moddiscovery.ModDiscoverer/]: 
+     Mod List:
+		Name Version (Mod Id)
+
+		Gemini 1.0-SNAPSHOT (gemini)
+		Minecraft 26.2 (minecraft)
+		NeoForge 26.2.0.25-beta (neoforge)
+[237月2026 14:52:09.290] [main/INFO] [mixin/]: SpongePowered MIXIN Subsystem Version=0.8.7 Source=file:/C:/Users/25526/.gradle/caches/modules-2/files-2.1/net.fabricmc/sponge-mixin/0.17.3+mixin.0.8.7/41c4a3984a80f4679e759fb9f495587acc5cdac7/sponge-mixin-0.17.3+mixin.0.8.7.jar Service=FML Env=CLIENT
+[237月2026 14:52:09.311] [main/INFO] [net.neoforged.fml.loading.FMLLoader/]: Loading FML Plugins:
+[237月2026 14:52:09.311] [main/INFO] [net.neoforged.fml.loading.FMLLoader/]:  - C:/Users/25526/.gradle/caches/modules-2/files-2.1/net.neoforged/neoforge/26.2.0.25-beta/9444772854a0bca6d510b36067083af5df98a79a/neoforge-26.2.0.25-beta-universal.jar > net.neoforged.neoforge-coremods-26.2.0.25-beta.jar
+[237月2026 14:52:09.370] [main/INFO] [net.neoforged.fml.loading.FMLLoader/]: Building game content classloader:
+ - gemini (composite(folder(C:/Users/25526/IdeaProjects/Gemini/build/resources/main), folder(C:/Users/25526/IdeaProjects/Gemini/build/classes/java/main)))
+ - minecraft (composite(filtered(jar(C:/Users/25526/IdeaProjects/Gemini/.gradle/repositories/ng_dummy_ng/net/neoforged/neoforge/26.2.0.25-beta/neoforge-26.2.0.25-beta.jar)), filtered(jar(C:/Users/25526/IdeaProjects/Gemini/.gradle/repositories/ng_dummy_ng/net/neoforged/neoforge/26.2.0.25-beta/neoforge-26.2.0.25-beta.jar))))
+ - mixinextras.neoforge (jar(C:/Users/25526/.gradle/caches/modules-2/files-2.1/io.github.llamalad7/mixinextras-neoforge/0.5.4/3cb0fec08c25e18fddf797fbdc1b9db83dc4e92f/mixinextras-neoforge-0.5.4.jar))
+ - neoforge (composite(filtered(jar(C:/Users/25526/.gradle/caches/modules-2/files-2.1/net.neoforged/neoforge/26.2.0.25-beta/9444772854a0bca6d510b36067083af5df98a79a/neoforge-26.2.0.25-beta-universal.jar))))
+ - net.neoforged.fml.generated (empty(VirtualJar/net.neoforged.fml.generated))
+[237月2026 14:52:09.378] [main/INFO] [net.neoforged.fml.loading.FMLLoader/]: Built game content classloader in 15ms
+[237月2026 14:52:10.601] [Datafixer Bootstrap #0/INFO] [com.mojang.datafixers.DataFixerBuilder/]: 298 Datafixer optimizations took 246 milliseconds
+[237月2026 14:52:10.866] [pool-8-thread-1/INFO] [MixinExtras|Service/]: Initializing MixinExtras via com.llamalad7.mixinextras.service.MixinExtrasServiceImpl(version=0.5.4).
+[237月2026 14:52:14.280] [main/WARN] [net.minecraft.commands.Commands/]: Ambiguity between arguments [teleport, location] and [teleport, destination] with inputs: [0.1 -0.5 .9, 0 0 0]
+[237月2026 14:52:14.281] [main/WARN] [net.minecraft.commands.Commands/]: Ambiguity between arguments [teleport, location] and [teleport, targets] with inputs: [0.1 -0.5 .9, 0 0 0]
+[237月2026 14:52:14.283] [main/WARN] [net.minecraft.commands.Commands/]: Ambiguity between arguments [teleport, destination] and [teleport, targets] with inputs: [Player, 0123, @e, dd12be42-52a9-4a91-a8a1-11c01849e498]
+[237月2026 14:52:14.283] [main/WARN] [net.minecraft.commands.Commands/]: Ambiguity between arguments [teleport, targets] and [teleport, destination] with inputs: [Player, 0123, dd12be42-52a9-4a91-a8a1-11c01849e498]
+[237月2026 14:52:14.285] [main/WARN] [net.minecraft.commands.Commands/]: Ambiguity between arguments [teleport, targets, location] and [teleport, targets, destination] with inputs: [0.1 -0.5 .9, 0 0 0]
+[237月2026 14:52:14.286] [main/WARN] [net.minecraft.commands.Commands/]: Ambiguity between arguments [time, set, time] and [time, set, timemarker] with inputs: [0, 0s, 0d, 0t]
+[237月2026 14:52:14.286] [main/WARN] [net.minecraft.commands.Commands/]: Ambiguity between arguments [time, set, timemarker] and [time, set, time] with inputs: [012]
+[237月2026 14:52:14.288] [main/WARN] [net.minecraft.commands.Commands/]: Ambiguity between arguments [time, of, clock, set, time] and [time, of, clock, set, timemarker] with inputs: [0, 0s, 0d, 0t]
+[237月2026 14:52:14.288] [main/WARN] [net.minecraft.commands.Commands/]: Ambiguity between arguments [time, of, clock, set, timemarker] and [time, of, clock, set, time] with inputs: [012]
+[237月2026 14:52:14.343] [modloading-worker-0/INFO] [net.neoforged.neoforge.common.NeoForgeMod/NEOFORGE-MOD]: NeoForge mod loading, version 26.2.0.25-beta, for MC 26.2
+[237月2026 14:52:14.802] [Render thread/INFO] [com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService/]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, profilesHost=https://api.mojang.com, name=PROD]
+[237月2026 14:52:14.820] [Render thread/INFO] [net.minecraft.client.Minecraft/]: Setting user: Dev
+[237月2026 14:52:14.921] [Render thread/INFO] [net.minecraft.client.Minecraft/]: Backend library: LWJGL version 3.4.1+2
+[237月2026 14:52:15.006] [Render thread/INFO] [net.minecraft.client.Minecraft/]: Using graphics backend OpenGL, using drivers: 3.3.0 NVIDIA 610.62
+[237月2026 14:52:15.006] [Render thread/INFO] [net.minecraft.client.Minecraft/]: Using graphics device: NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2 (NVIDIA Corporation)
+[237月2026 14:52:15.006] [Render thread/INFO] [net.minecraft.client.Minecraft/]: Using graphics device extensions: GL_ARB_multi_draw_indirect, GL_ARB_buffer_storage, GL_ARB_shader_draw_parameters, GL_ARB_base_instance, GL_KHR_debug, GL_ARB_draw_indirect, GL_ARB_clip_control, GL_ARB_vertex_attrib_binding, GL_ARB_direct_state_access, GL_EXT_texture_filter_anisotropic
+[237月2026 14:52:15.701] [Render thread/WARN] [mixin/]: @Final field gameRenderState:Lnet/minecraft/client/renderer/state/GameRenderState; in gemini.mixins.json:MixinGameRenderer from mod gemini should be final
+[237月2026 14:52:16.200] [Render thread/INFO] [net.minecraft.server.packs.resources.ReloadableResourceManager/]: Reloading ResourceManager: vanilla, mod_resources, mod/gemini, mod/neoforge
+[237月2026 14:52:16.235] [Render thread/WARN] [net.neoforged.neoforge.resource.JarContentsPackResources/]: Invalid path in datapack: gemini:font/GoogleSans-Regular.ttf, ignoring
+[237月2026 14:52:16.236] [Render thread/WARN] [net.neoforged.neoforge.resource.JarContentsPackResources/]: Invalid path in datapack: gemini:font/SourceHanSansSC-Bold.ttf, ignoring
+[237月2026 14:52:16.408] [resourceLoad/INFO] [net.minecraft.client.gui.font.providers.UnihexProvider/]: Found unifont_pua-17.0.01.hex, loading
+[237月2026 14:52:16.408] [resourceLoad/INFO] [net.minecraft.client.gui.font.providers.UnihexProvider/]: Found unifont_all_no_pua-17.0.01.hex, loading
+[237月2026 14:52:16.642] [resourceLoad/INFO] [net.minecraft.client.gui.font.providers.UnihexProvider/]: Found unifont_jp_patch-17.0.01.hex, loading
+[237月2026 14:52:17.180] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/mip_bloom_bright shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.185] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: neoforge:pipeline/item_translucent_unlit shader program does not use sampler Sampler2 defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.187] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/mip_bloom_blur_v shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.189] [Render thread/INFO] [com.mojang.blaze3d.opengl.GlProgram/]: Info log when linking program containing VS gemini:core/kill_effect_nova and FS gemini:core/kill_effect_nova. Log output: Fragment info
+-------------
+0(28) : warning C7050: "_S1" might be used before being initialized
+
+[237月2026 14:52:17.190] [Render thread/INFO] [com.mojang.blaze3d.opengl.GlProgram/]: Info log when linking program containing VS gemini:core/kill_effect_orb and FS gemini:core/kill_effect_orb. Log output: Fragment info
+-------------
+0(39) : warning C7050: "_S1" might be used before being initialized
+
+[237月2026 14:52:17.197] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_bh shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.197] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_chromatic shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.198] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_distort shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.199] [Render thread/INFO] [com.mojang.blaze3d.opengl.GlProgram/]: Info log when linking program containing VS gemini:core/kill_effect_ray and FS gemini:core/kill_effect_ray. Log output: Fragment info
+-------------
+0(31) : warning C7050: "_S1" might be used before being initialized
+
+[237月2026 14:52:17.200] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/vfx_godray shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.202] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_fscreen shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.203] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_vgodray shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.203] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_blur_v shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.205] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_aces shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.209] [Render thread/INFO] [com.mojang.blaze3d.opengl.GlProgram/]: Info log when linking program containing VS gemini:core/magic_halo and FS gemini:core/magic_halo. Log output: Fragment info
+-------------
+0(22) : warning C7050: "_S19" might be used before being initialized
+
+[237月2026 14:52:17.210] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_bright_edge shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.212] [Render thread/INFO] [com.mojang.blaze3d.opengl.GlProgram/]: Info log when linking program containing VS gemini:core/kill_effect_post and FS gemini:core/kill_effect_post__ssrt. Log output: Fragment info
+-------------
+0(809) : warning C7050: "hitColor_0" might be used before being initialized
+
+[237月2026 14:52:17.212] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_ssrt shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.213] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_flash shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.213] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/vfx_vignette shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.215] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_sclight shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.217] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/vfx_chromatic shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.218] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/mip_bloom_down shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.220] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_godray shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.221] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_shock shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.222] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/mip_bloom_blur_h shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.227] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/vfx_distort shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.227] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_blur_h shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.229] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: gemini:pipeline/kill_effect_bright shader program does not use sampler BloomSampler defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.229] [Render thread/WARN] [com.mojang.blaze3d.opengl.GlProgram/]: neoforge:pipeline/item_cutout_unlit shader program does not use sampler Sampler2 defined in the pipeline. This might be a bug.
+[237月2026 14:52:17.259] [Render thread/INFO] [com.mojang.blaze3d.audio.Library/]: OpenAL initialized on device OpenAL Soft on 扬声器 (2- USB Audio Device)
+[237月2026 14:52:17.260] [Render thread/INFO] [net.minecraft.client.sounds.SoundEngine/SOUNDS]: Sound engine started
+[237月2026 14:52:17.260] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 512x256x0 minecraft:textures/atlas/particles.png-atlas
+[237月2026 14:52:17.276] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 128x128x0 minecraft:textures/atlas/decorated_pot.png-atlas
+[237月2026 14:52:17.277] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 2048x1024x0 minecraft:textures/atlas/armor_trims.png-atlas
+[237月2026 14:52:17.294] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 512x256x0 minecraft:textures/atlas/paintings.png-atlas
+[237月2026 14:52:17.296] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 1024x512x0 minecraft:textures/atlas/shield_patterns.png-atlas
+[237月2026 14:52:17.298] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 2048x2048x4 minecraft:textures/atlas/blocks.png-atlas
+[237月2026 14:52:17.367] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 512x512x0 minecraft:textures/atlas/chest.png-atlas
+[237月2026 14:52:17.368] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 256x128x0 minecraft:textures/atlas/celestials.png-atlas
+[237月2026 14:52:17.369] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 1024x512x0 minecraft:textures/atlas/banner_patterns.png-atlas
+[237月2026 14:52:17.370] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 1024x512x0 minecraft:textures/atlas/items.png-atlas
+[237月2026 14:52:17.381] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 1024x1024x0 minecraft:textures/atlas/gui.png-atlas
+[237月2026 14:52:17.393] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 128x64x0 minecraft:textures/atlas/map_decorations.png-atlas
+[237月2026 14:52:17.397] [Render thread/INFO] [net.minecraft.client.renderer.texture.TextureAtlas/]: Created: 512x512x0 minecraft:textures/atlas/shulker_boxes.png-atlas
+[237月2026 14:52:17.506] [Render thread/INFO] [net.neoforged.neoforge.client.entity.animation.json.AnimationLoader/]: Loaded 0 entity animations
+[237月2026 14:52:20.117] [Render thread/INFO] [geminiclient.gemini.customRenderer.glsl.UiShaderWarmup/]: [UiWarmup] ClickGui shader/font warmup finished in 2492 ms
+[237月2026 14:53:08.753] [Render thread/INFO] [net.minecraft.client.Minecraft/]: Stopping!
+[237月2026 14:53:08.869] [Render thread/INFO] [net.neoforged.fml.loading.FMLLoader/]: Closing FML Loader 5b9ed77b
+[237月2026 14:53:08.869] [Render thread/INFO] [net.neoforged.fml.ModLoader/]: Clearing ModLoader
