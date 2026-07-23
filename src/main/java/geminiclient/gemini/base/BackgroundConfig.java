@@ -32,6 +32,7 @@ public class BackgroundConfig {
     private final Path configFile;
 
     private boolean customBackgroundEnabled = false;
+    private boolean particlesEnabled = true; // Particles enabled by default
     private int currentBackgroundIndex = 0;
     private List<Path> availableBackgrounds = new ArrayList<>();
 
@@ -96,6 +97,7 @@ public class BackgroundConfig {
         try (InputStream inputStream = Files.newInputStream(configFile)) {
             JSONObject json = new JSONObject(new JSONTokener(inputStream));
             customBackgroundEnabled = json.optBoolean("customBackgroundEnabled", false);
+            particlesEnabled = json.optBoolean("particlesEnabled", true);
             currentBackgroundIndex = json.optInt("currentBackgroundIndex", 0);
 
             // Validate index
@@ -105,6 +107,7 @@ public class BackgroundConfig {
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Failed to load background config from: " + configFile, e);
             customBackgroundEnabled = false;
+            particlesEnabled = true;
             currentBackgroundIndex = 0;
         }
     }
@@ -116,6 +119,7 @@ public class BackgroundConfig {
         try {
             JSONObject json = new JSONObject();
             json.put("customBackgroundEnabled", customBackgroundEnabled);
+            json.put("particlesEnabled", particlesEnabled);
             json.put("currentBackgroundIndex", currentBackgroundIndex);
 
             Path tempFile = configFile.resolveSibling(configFile.getFileName() + ".tmp");
@@ -151,6 +155,29 @@ public class BackgroundConfig {
      */
     public void toggle() {
         customBackgroundEnabled = !customBackgroundEnabled;
+        save();
+    }
+
+    /**
+     * Checks if particles are enabled.
+     */
+    public boolean isParticlesEnabled() {
+        return particlesEnabled;
+    }
+
+    /**
+     * Sets whether particles are enabled.
+     */
+    public void setParticlesEnabled(boolean enabled) {
+        this.particlesEnabled = enabled;
+        save();
+    }
+
+    /**
+     * Toggles particles on/off.
+     */
+    public void toggleParticles() {
+        particlesEnabled = !particlesEnabled;
         save();
     }
 

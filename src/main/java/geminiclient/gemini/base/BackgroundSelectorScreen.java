@@ -234,8 +234,8 @@ public class BackgroundSelectorScreen extends Screen {
         // Smooth scroll
         scrollOffset += (targetScrollOffset - scrollOffset) * delta * 10f;
 
-        // Dark overlay with transparency
-        gui.fill(0, 0, this.width, this.height, 0x60000000);
+        // Dark overlay with transparency (lighter to see background blur)
+        gui.fill(0, 0, this.width, this.height, 0x40000000);
 
         // Panel with blur effect
         drawPanel(gui);
@@ -246,15 +246,15 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void drawPanel(GuiGraphicsExtractor gui) {
-        // Background blur behind panel
+        // Background blur behind panel (very transparent to show blur effect)
         CustomBlurRenderer.render(panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT,
-                12, 0xB0161D28, 10f);
+                12, 0x30161D28, 12f);
 
         // Shadow
         SdfUIRenderer.drawShadow(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0, 4, 20, 0xA0000000);
 
         // Semi-transparent background
-        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x40161D28);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x50161D28);
 
         // Brighter outline
         CustomRoundedRectRenderer.drawRoundedOutline(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x8089DDFF, 2);
@@ -286,8 +286,8 @@ public class BackgroundSelectorScreen extends Screen {
         // Draw label
         CustomFontRenderer.drawString(gui, itemFont, particleLabel, labelX, labelY, TEXT_COLOR);
 
-        // Draw toggle switch (placeholder for now - will implement actual toggle)
-        boolean particlesEnabled = true; // TODO: get from config
+        // Get particle state from config
+        boolean particlesEnabled = backgroundConfig.isParticlesEnabled();
         int toggleBg = particlesEnabled ? 0x8089DDFF : 0x40FFFFFF;
         CustomRoundedRectRenderer.drawRoundedRect(gui, toggleX, toggleY, toggleW, toggleH, 10, toggleBg);
 
@@ -393,12 +393,28 @@ public class BackgroundSelectorScreen extends Screen {
                 && mouseY <= itemY + ITEM_HEIGHT;
     }
 
+    private boolean isMouseOverParticleToggle(int mouseX, int mouseY) {
+        int toggleW = 40;
+        int toggleH = 20;
+        int toggleX = panelX + PANEL_WIDTH - toggleW - 20;
+        int toggleY = panelY + (TITLE_HEIGHT - toggleH) / 2;
+
+        return mouseX >= toggleX && mouseX <= toggleX + toggleW
+                && mouseY >= toggleY && mouseY <= toggleY + toggleH;
+    }
+
     // ========================
     // Input Handling
     // ========================
 
     @Override
     public boolean mouseClicked(MouseButtonEvent mouse, boolean idk) {
+        // Click on particle toggle
+        if (isMouseOverParticleToggle((int) mouse.x(), (int) mouse.y())) {
+            backgroundConfig.toggleParticles();
+            return true;
+        }
+
         // Click outside panel to close
         if (mouse.x() < panelX || mouse.x() > panelX + PANEL_WIDTH
                 || mouse.y() < panelY || mouse.y() > panelY + PANEL_HEIGHT) {

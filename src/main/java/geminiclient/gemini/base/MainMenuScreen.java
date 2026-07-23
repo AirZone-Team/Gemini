@@ -792,8 +792,10 @@ public class MainMenuScreen extends Screen {
         if (backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
             renderCustomBackground(gui);
         }
-        // Always render grid background (will be behind custom background if enabled)
-        InfiniteGridRenderer.render(elapsed);
+        // Render grid particles if enabled
+        if (backgroundConfig != null && backgroundConfig.isParticlesEnabled()) {
+            InfiniteGridRenderer.render(elapsed);
+        }
     }
 
     private void renderCustomBackground(GuiGraphicsExtractor gui) {
