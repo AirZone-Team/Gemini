@@ -234,8 +234,8 @@ public class BackgroundSelectorScreen extends Screen {
         // Smooth scroll
         scrollOffset += (targetScrollOffset - scrollOffset) * delta * 10f;
 
-        // Dark overlay with transparency (lighter to see background blur)
-        gui.fill(0, 0, this.width, this.height, 0x40000000);
+        // Very light dark overlay to see background blur clearly
+        gui.fill(0, 0, this.width, this.height, 0x20000000);
 
         // Panel with blur effect
         drawPanel(gui);
@@ -246,15 +246,15 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void drawPanel(GuiGraphicsExtractor gui) {
-        // Background blur behind panel (very transparent to show blur effect)
+        // Background blur behind panel (minimal color, just blur)
         CustomBlurRenderer.render(panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT,
-                12, 0x30161D28, 12f);
+                12, 0x10161D28, 16f);
 
         // Shadow
         SdfUIRenderer.drawShadow(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0, 4, 20, 0xA0000000);
 
-        // Semi-transparent background
-        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x50161D28);
+        // Semi-transparent dark background
+        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x80161D28);
 
         // Brighter outline
         CustomRoundedRectRenderer.drawRoundedOutline(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x8089DDFF, 2);
@@ -409,26 +409,32 @@ public class BackgroundSelectorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent mouse, boolean idk) {
-        // Click on particle toggle
-        if (isMouseOverParticleToggle((int) mouse.x(), (int) mouse.y())) {
-            backgroundConfig.toggleParticles();
-            return true;
-        }
+        int mx = (int) mouse.x();
+        int my = (int) mouse.y();
 
-        // Click outside panel to close
-        if (mouse.x() < panelX || mouse.x() > panelX + PANEL_WIDTH
-                || mouse.y() < panelY || mouse.y() > panelY + PANEL_HEIGHT) {
+        // Check if click is inside panel first
+        boolean insidePanel = mx >= panelX && mx <= panelX + PANEL_WIDTH
+                && my >= panelY && my <= panelY + PANEL_HEIGHT;
+
+        if (insidePanel) {
+            // Click on particle toggle
+            if (isMouseOverParticleToggle(mx, my)) {
+                backgroundConfig.toggleParticles();
+                return true;
+            }
+
+            // Click on item
+            if (hoveredIndex >= 0 && hoveredIndex < wallpapers.size()) {
+                selectWallpaper(hoveredIndex);
+                return true;
+            }
+
+            return true; // Consume click inside panel
+        } else {
+            // Click outside panel to close
             onClose();
             return true;
         }
-
-        // Click on item
-        if (hoveredIndex >= 0 && hoveredIndex < wallpapers.size()) {
-            selectWallpaper(hoveredIndex);
-            return true;
-        }
-
-        return super.mouseClicked(mouse, idk);
     }
 
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
