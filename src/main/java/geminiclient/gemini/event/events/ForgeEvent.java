@@ -1,6 +1,7 @@
 package geminiclient.gemini.event.events;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.ChatEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientChatEvent;
@@ -9,7 +10,7 @@ public class ForgeEvent {
     @SubscribeEvent
     public void onClientEvent(ClientChatEvent event) {
         ChatEvent chatEvent = new ChatEvent(event.getMessage());
-        Gemini.eventManager.call(chatEvent);
+        Gemini.eventManager.post(EventTypes.CHAT, chatEvent);
         if (chatEvent.isCancelled()) {
             event.setCanceled(true);
         }

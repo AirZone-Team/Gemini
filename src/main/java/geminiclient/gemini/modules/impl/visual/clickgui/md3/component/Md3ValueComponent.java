@@ -11,6 +11,9 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
  */
 public abstract class Md3ValueComponent {
 
+    private static final int HOVER_LEFT_EXTENSION = 8;
+    private static final int HOVER_RIGHT_EXTENSION = 2;
+
     protected final ValueParent value;
     protected final Md3Overlay.Host overlayHost;
 
@@ -50,7 +53,9 @@ public abstract class Md3ValueComponent {
     }
 
     protected boolean isHovered(double mouseX, double mouseY) {
-        return mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
+        return mouseX >= x - HOVER_LEFT_EXTENSION
+                && mouseX <= x + width + HOVER_RIGHT_EXTENSION
+                && mouseY >= y && mouseY <= y + height;
     }
 
     /**
@@ -60,7 +65,8 @@ public abstract class Md3ValueComponent {
      */
     protected void drawHoverState(GuiGraphicsExtractor gui, double mouseX, double mouseY) {
         if (isHovered(mouseX, mouseY)) {
-            CustomRoundedRectRenderer.drawRoundedRect(gui, x - 2, y + 1, width + 4, height - 2,
+            CustomRoundedRectRenderer.drawRoundedRect(gui, x - HOVER_LEFT_EXTENSION, y + 1,
+                    width + HOVER_LEFT_EXTENSION + HOVER_RIGHT_EXTENSION, height - 2,
                     Md3Theme.R_CONTROL, Md3Theme.hoverState(Md3Theme.ON_SURFACE));
         }
     }

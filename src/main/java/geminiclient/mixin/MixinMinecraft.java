@@ -1,6 +1,7 @@
 package geminiclient.mixin;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.ShutdownEvent;
 import geminiclient.gemini.modules.impl.visual.Glow;
 import net.minecraft.client.Minecraft;
@@ -21,7 +22,7 @@ public class MixinMinecraft {
 
     @Inject(method = "close",at = @At("HEAD"))
     public void callshutdown(CallbackInfo ci) {
-        Gemini.eventManager.call(new ShutdownEvent());
+        Gemini.eventManager.post(EventTypes.SHUTDOWN, new ShutdownEvent());
     }
 
     @Inject(method = "shouldEntityAppearGlowing",at = @At("RETURN"), cancellable = true)

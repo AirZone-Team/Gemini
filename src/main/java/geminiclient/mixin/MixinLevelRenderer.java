@@ -4,6 +4,7 @@ import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.resource.GraphicsResourceAllocator;
 import com.mojang.blaze3d.vertex.PoseStack;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.Render3DEvent;
 import geminiclient.gemini.modules.impl.visual.KillEffect;
 import net.minecraft.client.DeltaTracker;
@@ -102,7 +103,7 @@ public class MixinLevelRenderer {
         // ── Fire 3D render event for custom renderers ────────────────
         PoseStack poseStack = new PoseStack();
         poseStack.mulPose(modelViewMatrix);
-        Gemini.eventManager.call(new Render3DEvent(poseStack,
+        Gemini.eventManager.post(EventTypes.RENDER_3D, new Render3DEvent(poseStack,
                 deltaTracker.getGameTimeDeltaPartialTick(false)));
     }
 }

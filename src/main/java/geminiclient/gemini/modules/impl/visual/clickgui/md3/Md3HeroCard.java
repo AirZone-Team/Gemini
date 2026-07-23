@@ -28,9 +28,7 @@ public class Md3HeroCard {
      */
     public void render(GuiGraphicsExtractor gui, ModuleEnum category, int resultCount,
                        int enabledCount, boolean favoritesView) {
-        String eyebrow;
         String titleText;
-        String subtitleText;
         int accent;
 
         if (category != null) {
@@ -38,63 +36,31 @@ public class Md3HeroCard {
             CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui, x, y, width, height,
                     Md3Theme.R_LARGE, gradient[0], gradient[1]);
             String name = category.name();
-            eyebrow = "CATEGORY";
             titleText = name.charAt(0) + name.substring(1).toLowerCase();
-            subtitleText = Md3Theme.categoryDescription(category);
             accent = Md3Theme.categoryAccent(category);
         } else if (favoritesView) {
             CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui, x, y, width, height,
                     Md3Theme.R_LARGE, Md3Theme.TERTIARY_CONTAINER, rgb(0xF4C8D6));
-            eyebrow = "COLLECTION";
             titleText = "Favorites";
-            subtitleText = resultCount == 0
-                    ? "Save modules here for quick access"
-                    : "Your pinned modules in one place";
             accent = Md3Theme.TERTIARY;
         } else {
             CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui, x, y, width, height,
                     Md3Theme.R_LARGE, Md3Theme.PRIMARY_CONTAINER, rgb(0xD8C8F3));
-            eyebrow = "SEARCH";
             titleText = "Search results";
-            subtitleText = resultCount == 0
-                    ? "Try another module name"
-                    : "Matching modules across every category";
             accent = Md3Theme.PRIMARY;
         }
 
-        // A narrow accent keyline gives the large container a clear anchor.
-        CustomRoundedRectRenderer.drawRoundedRect(gui, x + 12, y + 14, 4,
-                height - 28, 2, Md3Theme.withAlpha(accent, 0.82f));
-
-        var labelFont = Md3Fonts.label();
         var displayFont = Md3Fonts.display();
-        Md3Fonts.drawText(gui, labelFont, eyebrow, x + 26, y + 14,
-                Md3Theme.withAlpha(accent, 0.9f));
-        Md3Fonts.drawText(gui, displayFont, titleText, x + 24, y + 27,
+        Md3Fonts.drawText(gui, displayFont, titleText, x + 20, y + 12,
                 Md3Theme.ON_SURFACE);
-        Md3Fonts.drawText(gui, labelFont, subtitleText, x + 26, y + 58,
-                Md3Theme.ON_SURFACE_VARIANT);
 
-        int chipY = y + height - 28;
-        int nextX = x + 24;
+        int chipY = y + 48;
+        int nextX = x + 20;
         nextX += drawSummaryChip(gui, nextX, chipY,
                 resultCount + (resultCount == 1 ? " module" : " modules"),
                 Md3Theme.SURFACE_CONTAINER_LOWEST, Md3Theme.ON_SURFACE_VARIANT) + 6;
         drawSummaryChip(gui, nextX, chipY, enabledCount + " active",
                 Md3Theme.withAlpha(accent, 0.12f), accent);
-
-        // Large low-emphasis destination icon on the trailing side.
-        int iconCenterX = x + width - 48;
-        int iconCenterY = y + height / 2;
-        CustomRoundedRectRenderer.drawCircle(gui, iconCenterX, iconCenterY, 62,
-                Md3Theme.withAlpha(accent, 0.10f));
-        if (category != null) {
-            Md3RenderUtils.drawCategoryIcon(gui, category, iconCenterX, iconCenterY,
-                    34, Md3Theme.withAlpha(accent, 0.72f));
-        } else {
-            Md3RenderUtils.drawHeartPlusIcon(gui, iconCenterX, iconCenterY,
-                    34, Md3Theme.withAlpha(accent, 0.72f));
-        }
     }
 
     private int drawSummaryChip(GuiGraphicsExtractor gui, int chipX, int chipY,

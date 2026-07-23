@@ -4,6 +4,7 @@ import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.RotationAnimationEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.FallFlyingEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.JumpEvent;
@@ -27,7 +28,7 @@ public class MixinLivingEntity {
     private float redirectGetYRotInJumpFromGround(LivingEntity instance, Operation<Float> original) {
         if (instance == mc.player) {
             JumpEvent event = new JumpEvent(instance.getYRot());
-            Gemini.eventManager.call(event);
+            Gemini.eventManager.post(EventTypes.JUMP, event);
             return event.getYaw();
         }
         return original.call(instance);
@@ -36,7 +37,7 @@ public class MixinLivingEntity {
     @ModifyExpressionValue(method = "updateFallFlyingMovement", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;getXRot()F"))
     private float modifyFallFlyingPitch(float original) {
         FallFlyingEvent event = new FallFlyingEvent(original);
-        Gemini.eventManager.call(event);
+        Gemini.eventManager.post(EventTypes.FALL_FLYING, event);
         return event.getPitch();
     }
 
@@ -50,7 +51,7 @@ public class MixinLivingEntity {
     private float modifyHeadYaw(LivingEntity entity) {
         if (entity == Minecraft.getInstance().player) {
             RotationAnimationEvent event = new RotationAnimationEvent(entity.getYRot(), 0.0F, 0.0F, 0.0F);
-            Gemini.eventManager.call(event);
+            Gemini.eventManager.post(EventTypes.ROTATION_ANIMATION, event);
             return event.getYaw();
         }
         return entity.getYRot();

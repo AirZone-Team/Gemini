@@ -30,14 +30,14 @@ import java.util.stream.Collectors;
  */
 public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Overlay.Host {
 
-    private static final int DEFAULT_W = 780;
-    private static final int DEFAULT_H = 500;
-    private static final int MIN_W = 560;
-    private static final int MIN_H = 340;
+    private static final int DEFAULT_W = 720;
+    private static final int DEFAULT_H = 440;
+    private static final int MIN_W = 520;
+    private static final int MIN_H = 320;
 
     private static final int APP_BAR_H = 56;
     private static final int SEARCH_HEIGHT = 40;
-    private static final int HERO_HEIGHT = 104;
+    private static final int HERO_HEIGHT = 78;
     private static final int SECTION_HEADER_H = 26;
     private static final int CONTENT_PADDING = 16;
     private static final int GAP = 12;
@@ -246,7 +246,7 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
                     !searchBar.hasFilter() && rail.isFavoritesSelected());
 
             renderSectionHeader(gui);
-            renderModuleList(gui, logicalMouseX, logicalMouseY, partialTicks, contentHeight);
+            renderModuleList(gui, logicalMouseX, logicalMouseY, partialTicks);
 
             if (openOverlay != null) {
                 // Modal state layer separates menus/pickers from content without
@@ -263,10 +263,10 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
     private void renderTopAppBar(GuiGraphicsExtractor gui, int mouseX, int mouseY) {
         int radius = Md3Theme.R_EXTRA_LARGE;
         CustomRoundedRectRenderer.drawRoundedRect(gui, winX + 1, renderWinY + 1,
-                winW - 2, APP_BAR_H, radius - 1, Md3Theme.SURFACE);
+                winW - 2, APP_BAR_H, radius - 1, Md3Theme.SURFACE_CONTAINER_LOW);
         // Square the lower app-bar corners while preserving the outer top shape.
         gui.fill(winX + 1, renderWinY + radius, winX + winW - 1,
-                renderWinY + APP_BAR_H, Md3Theme.SURFACE);
+                renderWinY + APP_BAR_H, Md3Theme.SURFACE_CONTAINER_LOW);
         gui.fill(winX + 16, renderWinY + APP_BAR_H - 1, winX + winW - 16,
                 renderWinY + APP_BAR_H, Md3Theme.withAlpha(Md3Theme.OUTLINE_VARIANT, 0.55f));
 
@@ -308,7 +308,7 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
     }
 
     private void renderModuleList(GuiGraphicsExtractor gui, int mouseX, int mouseY,
-                                  float partialTicks, int contentHeight) {
+                                  float partialTicks) {
         gui.enableScissor(listX, listY, listX + listWidth, listBottom);
         if (visibleRows.isEmpty()) {
             renderEmptyState(gui);
@@ -319,16 +319,6 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
             }
         }
         gui.disableScissor();
-
-        if (maxScroll > 4) {
-            int trackH = listBottom - listY;
-            int thumbH = Math.min(trackH,
-                    Math.max(28, (int) (trackH * (trackH / (float) contentHeight))));
-            int thumbY = listY + (int) ((trackH - thumbH) * (scrollCurrent / maxScroll));
-            CustomRoundedRectRenderer.drawRoundedRect(gui, listX + listWidth - 4,
-                    thumbY, 3, thumbH, 2,
-                    Md3Theme.withAlpha(Md3Theme.ON_SURFACE_VARIANT, 0.34f));
-        }
     }
 
     private void renderEmptyState(GuiGraphicsExtractor gui) {

@@ -2,6 +2,7 @@ package geminiclient.mixin;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.AttackSlowDownEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.AttackYawEvent;
 import geminiclient.gemini.modules.impl.visual.SweepingAttackVFX;
@@ -20,7 +21,7 @@ public class MixinPlayer {
     @ModifyExpressionValue(method = {"causeExtraKnockback", "doSweepAttack*"}, at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Player;getYRot()F"))
     private float modifyAttackYaw(float original) {
         AttackYawEvent event = new AttackYawEvent(original);
-        Gemini.eventManager.call(event);
+        Gemini.eventManager.post(EventTypes.ATTACK_YAW, event);
         return event.getYaw();
     }
 
@@ -37,6 +38,7 @@ public class MixinPlayer {
     @Inject(method = "causeExtraKnockback", at = @At("HEAD"), cancellable = true)
     private void onCauseExtraKnockback(Entity entity, float knockbackAmount, Vec3 oldMovement, DamageSource damageSource, float damage, boolean comesFromEffect, CallbackInfo ci) {
         AttackSlowDownEvent event = new AttackSlowDownEvent(entity, knockbackAmount);
+        Gemini.eventManager.post(EventTypes.ATTACK_SLOW_DOWN, event);
         if (event.isCancelled()) {
             ci.cancel();
         }
