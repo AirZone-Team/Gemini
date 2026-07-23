@@ -884,6 +884,25 @@ public class MainMenuScreen extends Screen {
         }
     }
 
+    /**
+     * Reloads the custom background texture.
+     * Called when a new wallpaper is selected from the selector screen.
+     */
+    public void reloadCustomBackground() {
+        // Clear existing texture
+        if (customBackgroundTexture != null) {
+            AbstractTexture texture = minecraft.getTextureManager().getTexture(customBackgroundTexture);
+            if (texture != null) {
+                texture.close();
+            }
+            minecraft.getTextureManager().release(customBackgroundTexture);
+            customBackgroundTexture = null;
+        }
+
+        // Reset flags to trigger reload on next render
+        customBackgroundLoadFailed = false;
+    }
+
     // ========================
     // Background Toggle Button
     // ========================
@@ -921,8 +940,8 @@ public class MainMenuScreen extends Screen {
         CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
         CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
 
-        // Icon: Gear symbol for settings
-        String iconText = "⚙";
+        // Icon: "BG" text
+        String iconText = "BG";
         float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
         float iconX = x + (w - iconW) / 2f;
         float iconY = y + (h - VERSION_FONT_SIZE) / 2f;
@@ -961,9 +980,8 @@ public class MainMenuScreen extends Screen {
         ensureFontsLoaded();
         if (versionFont == null) return;
 
-        // Only show when custom backgrounds exist and are enabled
-        if (backgroundConfig == null || !backgroundConfig.customBackgroundFileExists()
-            || !backgroundConfig.isCustomBackgroundEnabled()) {
+        // Only show when custom backgrounds exist
+        if (backgroundConfig == null || !backgroundConfig.customBackgroundFileExists()) {
             return;
         }
 
@@ -975,9 +993,6 @@ public class MainMenuScreen extends Screen {
         int y = layout.bgCycleY;
         int w = layout.bgCycleW;
         int h = layout.bgCycleH;
-
-        int bgCount = backgroundConfig.getBackgroundCount();
-        if (bgCount <= 1) return; // No need to show cycle button if only 1 background
 
         // Button background with hover effect
         float hoverScale = 1f + bgCycleHover * 0.08f;
@@ -996,24 +1011,14 @@ public class MainMenuScreen extends Screen {
         CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
         CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
 
-        // Icon: "→" arrow or counter text
-        String iconText = "→";
+        // Icon: Gear symbol for background selector
+        String iconText = "⚙";
         float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
         float iconX = x + (w - iconW) / 2f;
         float iconY = y + (h - VERSION_FONT_SIZE) / 2f;
 
         int iconColor = scaleAlpha(NAV_IDLE, entryAlpha * reveal);
         CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);
-
-        // Counter indicator (e.g., "2/5")
-        String counterText = backgroundConfig.getCurrentBackgroundNumber() + "/" + bgCount;
-        float counterW = CustomFontRenderer.stringWidth(versionFont, counterText);
-        float counterX = x + (w - counterW) / 2f;
-        float counterY = y + h - 2;
-        int counterColor = scaleAlpha(VERSION_COLOR, entryAlpha * reveal * 0.5f);
-
-        // Draw counter below button
-        CustomFontRenderer.drawString(gui, versionFont, counterText, counterX, counterY, counterColor);
     }
 
     // ========================
@@ -1024,29 +1029,22 @@ public class MainMenuScreen extends Screen {
     public boolean mouseClicked(@NotNull MouseButtonEvent mouse, boolean idk) {
         Layout layout = layout();
 
-        // Background settings button (opens selector)
+        // Background toggle button
         if (isBgToggleHover(layout, mouse.x(), mouse.y())) {
             if (backgroundConfig != null) {
-                // Open background selector screen
-                this.minecraft.gui.setScreen(new BackgroundSelectorScreen(this, backgroundConfig));
+                if (backgroundConfig.customBackgroundFileExists()) {
+                    backgroundConfig.toggle();
+                    // No need to reload texture on every toggle - just switch rendering
+                }
             }
             return true;
         }
 
-        // Background cycle button
+        // Background selector button (gear icon, opens GUI)
         if (isBgCycleHover(layout, mouse.x(), mouse.y())) {
-            if (backgroundConfig != null && backgroundConfig.customBackgroundFileExists()
-                && backgroundConfig.isCustomBackgroundEnabled()) {
-                backgroundConfig.nextBackground();
-                // Clear texture to force reload of new background
-                if (customBackgroundTexture != null) {
-                    AbstractTexture texture = minecraft.getTextureManager().getTexture(customBackgroundTexture);
-                    if (texture != null) {
-                        texture.close();
-                    }
-                    minecraft.getTextureManager().release(customBackgroundTexture);
-                    customBackgroundTexture = null;
-                }
+            if (backgroundConfig != null && backgroundConfig.customBackgroundFileExists()) {
+                // Open background selector screen
+                this.minecraft.gui.setScreen(new BackgroundSelectorScreen(this, backgroundConfig));
             }
             return true;
         }

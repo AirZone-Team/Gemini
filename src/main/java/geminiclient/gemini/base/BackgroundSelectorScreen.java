@@ -396,6 +396,11 @@ public class BackgroundSelectorScreen extends Screen {
         backgroundConfig.setSelectedWallpaper(entry.filePath());
         backgroundConfig.setCustomBackgroundEnabled(true);
 
+        // If parent is MainMenuScreen, trigger texture reload
+        if (parent instanceof MainMenuScreen) {
+            ((MainMenuScreen) parent).reloadCustomBackground();
+        }
+
         // Close and refresh parent
         onClose();
     }
