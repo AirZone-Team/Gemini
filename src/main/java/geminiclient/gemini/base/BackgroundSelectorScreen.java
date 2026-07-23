@@ -17,8 +17,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
 import javax.imageio.ImageIO;
-import java.awt.FileDialog;
-import java.awt.Frame;
+import javax.swing.JFileChooser;
+import javax.swing.SwingUtilities;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -185,37 +186,50 @@ public class BackgroundSelectorScreen extends Screen {
         }
 
         try {
-            BufferedImage img = ImageIO.read(entry.filePath().toFile());
-            if (img == null) return null;
+            // Load original image
+            BufferedImage originalImg = ImageIO.read(entry.filePath().toFile());
+            if (originalImg == null) return null;
 
-            // Scale to thumbnail size with high quality
-            int thumbSize = THUMBNAIL_SIZE;
-            BufferedImage scaled = new BufferedImage(thumbSize, thumbSize, BufferedImage.TYPE_INT_ARGB);
-            java.awt.Graphics2D g2d = scaled.createGraphics();
+            // Use THUMBNAIL_SIZE for preview (128px, much higher than before)
+            int targetSize = THUMBNAIL_SIZE;
 
-            // Use high-quality rendering hints
+            // Create high-quality scaled image using Image.SCALE_SMOOTH
+            java.awt.Image scaledImage = originalImg.getScaledInstance(
+                targetSize, targetSize, java.awt.Image.SCALE_SMOOTH);
+
+            // Convert to BufferedImage with high quality rendering
+            BufferedImage scaledBuf = new BufferedImage(targetSize, targetSize, BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D g2d = scaledBuf.createGraphics();
+
+            // Apply highest quality rendering hints
             g2d.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
                     java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
             g2d.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
                     java.awt.RenderingHints.VALUE_RENDER_QUALITY);
             g2d.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
                     java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+            g2d.setRenderingHint(java.awt.RenderingHints.KEY_COLOR_RENDERING,
+                    java.awt.RenderingHints.VALUE_COLOR_RENDER_QUALITY);
+            g2d.setRenderingHint(java.awt.RenderingHints.KEY_ALPHA_INTERPOLATION,
+                    java.awt.RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
 
-            // Calculate aspect-fit scaling
-            float scale = Math.min((float) thumbSize / img.getWidth(), (float) thumbSize / img.getHeight());
-            int scaledW = (int) (img.getWidth() * scale);
-            int scaledH = (int) (img.getHeight() * scale);
-            int offsetX = (thumbSize - scaledW) / 2;
-            int offsetY = (thumbSize - scaledH) / 2;
+            // Calculate aspect-fit scaling for centered display
+            float scale = Math.min((float) targetSize / originalImg.getWidth(),
+                                   (float) targetSize / originalImg.getHeight());
+            int scaledW = (int) (originalImg.getWidth() * scale);
+            int scaledH = (int) (originalImg.getHeight() * scale);
+            int offsetX = (targetSize - scaledW) / 2;
+            int offsetY = (targetSize - scaledH) / 2;
 
-            g2d.drawImage(img, offsetX, offsetY, scaledW, scaledH, null);
+            // Draw scaled image from original (not from pre-scaled thumbnail)
+            g2d.drawImage(originalImg, offsetX, offsetY, scaledW, scaledH, null);
             g2d.dispose();
 
-            // Convert to NativeImage
-            NativeImage nativeImg = new NativeImage(thumbSize, thumbSize, true);
-            for (int y = 0; y < thumbSize; y++) {
-                for (int x = 0; x < thumbSize; x++) {
-                    int argb = scaled.getRGB(x, y);
+            // Convert to NativeImage for Minecraft texture
+            NativeImage nativeImg = new NativeImage(targetSize, targetSize, true);
+            for (int y = 0; y < targetSize; y++) {
+                for (int x = 0; x < targetSize; x++) {
+                    int argb = scaledBuf.getRGB(x, y);
                     nativeImg.setPixel(x, y, argb);
                 }
             }
@@ -278,34 +292,6 @@ public class BackgroundSelectorScreen extends Screen {
         float titleY = panelY + (TITLE_HEIGHT - TITLE_FONT_SIZE) / 2f;
         CustomFontRenderer.drawString(gui, titleFont, title, titleX, titleY, TITLE_COLOR);
 
-        // Particle toggle on the right
-        String particleLabel = "Particles";
-        float particleLabelW = CustomFontRenderer.stringWidth(itemFont, particleLabel);
-
-        // Toggle switch position
-        int toggleW = 40;
-        int toggleH = 20;
-        int toggleX = panelX + PANEL_WIDTH - toggleW - 20;
-        int toggleY = panelY + (TITLE_HEIGHT - toggleH) / 2;
-
-        // Label position (left of toggle)
-        float labelX = toggleX - particleLabelW - 10;
-        float labelY = panelY + (TITLE_HEIGHT - ITEM_FONT_SIZE) / 2f;
-
-        // Draw label
-        CustomFontRenderer.drawString(gui, itemFont, particleLabel, labelX, labelY, TEXT_COLOR);
-
-        // Get particle state from config
-        boolean particlesEnabled = backgroundConfig.isParticlesEnabled();
-        int toggleBg = particlesEnabled ? 0x8089DDFF : 0x40FFFFFF;
-        CustomRoundedRectRenderer.drawRoundedRect(gui, toggleX, toggleY, toggleW, toggleH, 10, toggleBg);
-
-        // Toggle knob
-        int knobSize = 16;
-        int knobX = particlesEnabled ? toggleX + toggleW - knobSize - 2 : toggleX + 2;
-        int knobY = toggleY + 2;
-        CustomRoundedRectRenderer.drawRoundedRect(gui, knobX, knobY, knobSize, knobSize, 8, 0xFFFFFFFF);
-
         // Divider line
         int lineY = panelY + TITLE_HEIGHT - 1;
         CustomRectRenderer.drawRect(gui, panelX, lineY, PANEL_WIDTH, 1, 0x4089DDFF);
@@ -338,8 +324,17 @@ public class BackgroundSelectorScreen extends Screen {
                     PANEL_WIDTH - ITEM_PADDING * 2, ITEM_HEIGHT, hovered, selected);
         }
 
-        // TODO: Add button disabled until file picker is implemented
-        // Users can manually add files to config/gemini/ directory
+        // Draw "+" button at the end
+        int addButtonIndex = wallpapers.size();
+        int addButtonY = listY + yOffset + addButtonIndex * (ITEM_HEIGHT + ITEM_PADDING);
+
+        // Check if visible
+        if (addButtonY <= listY + listHeight && addButtonY + ITEM_HEIGHT >= listY) {
+            boolean addButtonHovered = isMouseOverItem(mouseX, mouseY, addButtonY);
+            if (addButtonHovered) hoveredIndex = -2; // Special index for add button
+            drawAddButton(gui, panelX + ITEM_PADDING, addButtonY,
+                    PANEL_WIDTH - ITEM_PADDING * 2, ITEM_HEIGHT, addButtonHovered);
+        }
 
         gui.disableScissor();
     }
@@ -365,7 +360,7 @@ public class BackgroundSelectorScreen extends Screen {
 
             // Draw rounded background first
             CustomRoundedRectRenderer.drawRoundedRect(gui, thumbX, thumbY,
-                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 8, 0xFF000000);
+                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 15, 0xFF000000);
 
             // Draw thumbnail with rounded corners
             gui.blit(RenderPipelines.GUI_TEXTURED, thumbnail,
@@ -376,11 +371,11 @@ public class BackgroundSelectorScreen extends Screen {
 
             // Draw rounded outline
             CustomRoundedRectRenderer.drawRoundedOutline(gui, thumbX, thumbY,
-                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 8, 0x4089DDFF, 1);
+                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 15, 0x4089DDFF, 1);
         } else {
             // Placeholder for thumbnails (animated or failed to load)
             CustomRoundedRectRenderer.drawRoundedRect(gui, thumbX, thumbY,
-                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 8, 0x40FFFFFF);
+                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 15, 0x40FFFFFF);
 
             // Show play icon for animated
             if (entry.isAnimated() && itemFont != null) {
@@ -413,28 +408,34 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void drawAddButton(GuiGraphicsExtractor gui, int x, int y, int w, int h, boolean hovered) {
-        // Background
+        // Background with same style as wallpaper items
         int bgColor = hovered ? ITEM_HOVER_BG : ITEM_BG;
         CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, w, h, 8, bgColor);
 
         // Border
         CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, 8, 0x4089DDFF, 1);
 
-        // Simple large "+" text in center
+        // Large "+" text character (not drawn shape)
         if (titleFont != null) {
-            float largeSize = 64f; // Very large font
             try {
+                // Load very large font for the "+" character
+                float largeSize = 72f; // 72pt for visibility
                 GlyphFont largeFont = CustomFontRenderer.loadFont(FONT_BOLD, largeSize);
-                float plusW = CustomFontRenderer.stringWidth(largeFont, "+");
+
+                String plusText = "+";
+                float plusW = CustomFontRenderer.stringWidth(largeFont, plusText);
                 float plusX = x + (w - plusW) / 2f;
                 float plusY = y + (h - largeSize) / 2f;
-                CustomFontRenderer.drawString(gui, largeFont, "+", plusX, plusY, 0x8089DDFF);
+
+                // Draw large centered "+" text
+                CustomFontRenderer.drawString(gui, largeFont, plusText, plusX, plusY, 0xFF89DDFF);
             } catch (Exception e) {
-                // Fallback to title font
-                float plusW = CustomFontRenderer.stringWidth(titleFont, "+");
+                // Fallback to title font if large font fails
+                String plusText = "+";
+                float plusW = CustomFontRenderer.stringWidth(titleFont, plusText);
                 float plusX = x + (w - plusW) / 2f;
                 float plusY = y + (h - TITLE_FONT_SIZE) / 2f;
-                CustomFontRenderer.drawString(gui, titleFont, "+", plusX, plusY, 0x8089DDFF);
+                CustomFontRenderer.drawString(gui, titleFont, plusText, plusX, plusY, 0xFF89DDFF);
             }
         }
     }
@@ -444,16 +445,6 @@ public class BackgroundSelectorScreen extends Screen {
                 && mouseX <= panelX + PANEL_WIDTH - ITEM_PADDING
                 && mouseY >= itemY
                 && mouseY <= itemY + ITEM_HEIGHT;
-    }
-
-    private boolean isMouseOverParticleToggle(int mouseX, int mouseY) {
-        int toggleW = 40;
-        int toggleH = 20;
-        int toggleX = panelX + PANEL_WIDTH - toggleW - 20;
-        int toggleY = panelY + (TITLE_HEIGHT - toggleH) / 2;
-
-        return mouseX >= toggleX && mouseX <= toggleX + toggleW
-                && mouseY >= toggleY && mouseY <= toggleY + toggleH;
     }
 
     // ========================
@@ -470,12 +461,9 @@ public class BackgroundSelectorScreen extends Screen {
                 && my >= panelY && my <= panelY + PANEL_HEIGHT;
 
         if (insidePanel) {
-            // Click on particle toggle
-            if (isMouseOverParticleToggle(mx, my)) {
-                boolean oldState = backgroundConfig.isParticlesEnabled();
-                backgroundConfig.toggleParticles();
-                boolean newState = backgroundConfig.isParticlesEnabled();
-                System.out.println("[BackgroundSelector] Particle toggle clicked! " + oldState + " -> " + newState);
+            // Click on add button (hoveredIndex == -2)
+            if (hoveredIndex == -2) {
+                openFileChooser();
                 return true;
             }
 
@@ -518,9 +506,75 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void openFileChooser() {
-        // TODO: File chooser causes HeadlessException in Minecraft environment
-        // Temporarily disabled - users can manually add files to config/gemini/ directory
-        System.out.println("[BackgroundSelector] File chooser not implemented - add wallpapers to config/gemini/ manually");
+        // Use SwingUtilities.invokeLater to run file chooser in separate Swing thread
+        // This avoids conflicts with Minecraft's OpenGL/LWJGL rendering thread
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            try {
+                // Create file chooser with null parent (independent window)
+                javax.swing.JFileChooser fileChooser = new javax.swing.JFileChooser();
+                fileChooser.setDialogTitle("Select Wallpaper");
+                fileChooser.setFileSelectionMode(javax.swing.JFileChooser.FILES_ONLY);
+
+                // File filter for image files
+                javax.swing.filechooser.FileNameExtensionFilter filter =
+                    new javax.swing.filechooser.FileNameExtensionFilter(
+                        "Image Files (PNG, JPG, JPEG, GIF, MP4, WEBM)",
+                        "png", "jpg", "jpeg", "gif", "mp4", "webm");
+                fileChooser.setFileFilter(filter);
+
+                // Show dialog (blocks in Swing thread, not Minecraft thread)
+                int result = fileChooser.showOpenDialog(null);
+
+                if (result == javax.swing.JFileChooser.APPROVE_OPTION) {
+                    File selectedFile = fileChooser.getSelectedFile();
+                    System.out.println("[BackgroundSelector] File selected: " + selectedFile.getAbsolutePath());
+
+                    // Copy file to wallpapers directory
+                    Path targetDir = backgroundConfig.getBackgroundsDirectory();
+                    Path targetPath = targetDir.resolve(selectedFile.getName());
+
+                    // Handle duplicate filenames
+                    int counter = 1;
+                    String baseName = selectedFile.getName();
+                    String extension = "";
+                    int dotIndex = baseName.lastIndexOf('.');
+                    if (dotIndex > 0) {
+                        extension = baseName.substring(dotIndex);
+                        baseName = baseName.substring(0, dotIndex);
+                    }
+
+                    while (Files.exists(targetPath)) {
+                        targetPath = targetDir.resolve(baseName + "_" + counter + extension);
+                        counter++;
+                    }
+
+                    final Path finalTargetPath = targetPath;
+
+                    // Copy file
+                    Files.copy(selectedFile.toPath(), finalTargetPath);
+                    System.out.println("[BackgroundSelector] Wallpaper copied to: " + finalTargetPath);
+
+                    // Execute on Minecraft thread to update UI
+                    this.minecraft.execute(() -> {
+                        // Set as current wallpaper
+                        backgroundConfig.setSelectedWallpaper(finalTargetPath);
+                        backgroundConfig.setCustomBackgroundEnabled(true);
+
+                        // Reload parent background
+                        if (parent instanceof MainMenuScreen) {
+                            ((MainMenuScreen) parent).reloadCustomBackground();
+                        }
+
+                        // Close and reopen selector to refresh list
+                        onClose();
+                        this.minecraft.gui.setScreen(new BackgroundSelectorScreen(parent, backgroundConfig));
+                    });
+                }
+            } catch (Exception e) {
+                System.err.println("[BackgroundSelector] Error in file chooser: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
     }
 
     @Override
