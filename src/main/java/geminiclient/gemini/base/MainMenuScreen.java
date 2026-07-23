@@ -796,10 +796,7 @@ public class MainMenuScreen extends Screen {
         if (backgroundConfig != null && backgroundConfig.isParticlesEnabled()) {
             InfiniteGridRenderer.render(elapsed);
         } else if (backgroundConfig != null) {
-            // Particles disabled - log once per state change
-            if (elapsed < 0.1f) {
-                System.out.println("[MainMenu] Particles disabled, skipping InfiniteGridRenderer");
-            }
+            // Particles disabled - skip rendering
         }
     }
 
@@ -1022,7 +1019,7 @@ public class MainMenuScreen extends Screen {
         String iconText = "⚙";
         float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
         float iconX = x + (w - iconW) / 2f;
-        float iconY = y + (h - VERSION_FONT_SIZE) / 2f;
+        float iconY = y + (h - VERSION_FONT_SIZE) / 2f - 3;
 
         int iconColor = scaleAlpha(NAV_IDLE, entryAlpha * reveal);
         CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);

@@ -7,11 +7,10 @@
           <value>
             <TabSessionState>
               <option name="provider" value="claude" />
-              <option name="sessionId" value="9136ca8e-ffa6-485f-8d46-80496b419b6d" />
+              <option name="sessionId" value="396ef0ee-265f-4829-9c6c-24f853dd8b5d" />
               <option name="cwd" value="C:\Users\25526\IdeaProjects\Gemini" />
               <option name="model" value="claude-opus-4-8[1m]" />
               <option name="permissionMode" value="bypassPermissions" />
-              <option name="reasoningEffort" value="high" />
             </TabSessionState>
           </value>
         </entry>
