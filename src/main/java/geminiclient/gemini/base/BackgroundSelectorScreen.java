@@ -257,13 +257,13 @@ public class BackgroundSelectorScreen extends Screen {
     private void drawPanel(GuiGraphicsExtractor gui) {
         // Background blur behind panel - lighter for better transparency
         CustomBlurRenderer.render(panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT,
-                12, 0x20161D28, 18f);
+                12, 0x10161D28, 18f);
 
         // Shadow
         SdfUIRenderer.drawShadow(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0, 4, 20, 0xA0000000);
 
-        // Semi-transparent dark background - lighter
-        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x90161D28);
+        // Semi-transparent dark background - much lighter (30% opacity)
+        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x4D161D28);
 
         // Brighter outline
         CustomRoundedRectRenderer.drawRoundedOutline(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x8089DDFF, 2);
@@ -338,17 +338,8 @@ public class BackgroundSelectorScreen extends Screen {
                     PANEL_WIDTH - ITEM_PADDING * 2, ITEM_HEIGHT, hovered, selected);
         }
 
-        // Draw "+" button at the end
-        int addButtonIndex = wallpapers.size();
-        int addButtonY = listY + yOffset + addButtonIndex * (ITEM_HEIGHT + ITEM_PADDING);
-
-        // Check if visible
-        if (addButtonY <= listY + listHeight && addButtonY + ITEM_HEIGHT >= listY) {
-            boolean addButtonHovered = isMouseOverItem(mouseX, mouseY, addButtonY);
-            if (addButtonHovered) hoveredIndex = -2; // Special index for add button
-            drawAddButton(gui, panelX + ITEM_PADDING, addButtonY,
-                    PANEL_WIDTH - ITEM_PADDING * 2, ITEM_HEIGHT, addButtonHovered);
-        }
+        // TODO: Add button disabled until file picker is implemented
+        // Users can manually add files to config/gemini/ directory
 
         gui.disableScissor();
     }
@@ -369,14 +360,27 @@ public class BackgroundSelectorScreen extends Screen {
 
         Identifier thumbnail = getThumbnail(entry);
         if (thumbnail != null) {
-            // Draw thumbnail
+            // Enable scissor for rounded corners
+            gui.enableScissor(thumbX, thumbY, thumbX + THUMBNAIL_SIZE, thumbY + THUMBNAIL_SIZE);
+
+            // Draw rounded background first
+            CustomRoundedRectRenderer.drawRoundedRect(gui, thumbX, thumbY,
+                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 8, 0xFF000000);
+
+            // Draw thumbnail with rounded corners
             gui.blit(RenderPipelines.GUI_TEXTURED, thumbnail,
                     thumbX, thumbY, 0, 0, THUMBNAIL_SIZE, THUMBNAIL_SIZE,
                     THUMBNAIL_SIZE, THUMBNAIL_SIZE, 0xFFFFFFFF);
+
+            gui.disableScissor();
+
+            // Draw rounded outline
+            CustomRoundedRectRenderer.drawRoundedOutline(gui, thumbX, thumbY,
+                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 8, 0x4089DDFF, 1);
         } else {
             // Placeholder for thumbnails (animated or failed to load)
             CustomRoundedRectRenderer.drawRoundedRect(gui, thumbX, thumbY,
-                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 4, 0x40FFFFFF);
+                    THUMBNAIL_SIZE, THUMBNAIL_SIZE, 8, 0x40FFFFFF);
 
             // Show play icon for animated
             if (entry.isAnimated() && itemFont != null) {
@@ -416,23 +420,21 @@ public class BackgroundSelectorScreen extends Screen {
         // Border
         CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, 8, 0x4089DDFF, 1);
 
-        // Large "+" symbol in center
+        // Simple large "+" text in center
         if (titleFont != null) {
-            String plusText = "+";
-            // Use larger font size for the + symbol
-            float largeSize = 48f;
+            float largeSize = 64f; // Very large font
             try {
                 GlyphFont largeFont = CustomFontRenderer.loadFont(FONT_BOLD, largeSize);
-                float plusW = CustomFontRenderer.stringWidth(largeFont, plusText);
+                float plusW = CustomFontRenderer.stringWidth(largeFont, "+");
                 float plusX = x + (w - plusW) / 2f;
                 float plusY = y + (h - largeSize) / 2f;
-                CustomFontRenderer.drawString(gui, largeFont, plusText, plusX, plusY, 0x8089DDFF);
+                CustomFontRenderer.drawString(gui, largeFont, "+", plusX, plusY, 0x8089DDFF);
             } catch (Exception e) {
                 // Fallback to title font
-                float plusW = CustomFontRenderer.stringWidth(titleFont, plusText);
+                float plusW = CustomFontRenderer.stringWidth(titleFont, "+");
                 float plusX = x + (w - plusW) / 2f;
                 float plusY = y + (h - TITLE_FONT_SIZE) / 2f;
-                CustomFontRenderer.drawString(gui, titleFont, plusText, plusX, plusY, 0x8089DDFF);
+                CustomFontRenderer.drawString(gui, titleFont, "+", plusX, plusY, 0x8089DDFF);
             }
         }
     }
@@ -474,12 +476,6 @@ public class BackgroundSelectorScreen extends Screen {
                 backgroundConfig.toggleParticles();
                 boolean newState = backgroundConfig.isParticlesEnabled();
                 System.out.println("[BackgroundSelector] Particle toggle clicked! " + oldState + " -> " + newState);
-                return true;
-            }
-
-            // Click on add button (hoveredIndex == -2)
-            if (hoveredIndex == -2) {
-                openFileChooser();
                 return true;
             }
 
