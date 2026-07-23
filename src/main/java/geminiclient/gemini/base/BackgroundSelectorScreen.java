@@ -45,7 +45,7 @@ public class BackgroundSelectorScreen extends Screen {
     private static final int TITLE_HEIGHT = 50;
     private static final int ITEM_HEIGHT = 80;
     private static final int ITEM_PADDING = 12;
-    private static final int THUMBNAIL_SIZE = 64;
+    private static final int THUMBNAIL_SIZE = 128; // Increased from 64 for higher resolution
     private static final int SCROLL_SPEED = 20;
 
     // Fonts - All using googlesans-regular.ttf (lowercase for Minecraft compatibility)
@@ -273,7 +273,7 @@ public class BackgroundSelectorScreen extends Screen {
         if (titleFont == null || itemFont == null) return;
 
         // Title on the left
-        String title = "Background";
+        String title = "BackGround";
         float titleX = panelX + 20;
         float titleY = panelY + (TITLE_HEIGHT - TITLE_FONT_SIZE) / 2f;
         CustomFontRenderer.drawString(gui, titleFont, title, titleX, titleY, TITLE_COLOR);
@@ -416,28 +416,24 @@ public class BackgroundSelectorScreen extends Screen {
         // Border
         CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, 8, 0x4089DDFF, 1);
 
-        // Draw "+" icon in center (same size as thumbnail)
-        int thumbX = x + ITEM_PADDING;
-        int thumbY = y + (h - THUMBNAIL_SIZE) / 2;
-
-        // Thumbnail-sized background for "+"
-        CustomRoundedRectRenderer.drawRoundedRect(gui, thumbX, thumbY, THUMBNAIL_SIZE, THUMBNAIL_SIZE, 8, 0x4089DDFF);
-
-        // Draw "+" symbol
+        // Large "+" symbol in center
         if (titleFont != null) {
             String plusText = "+";
-            float plusW = CustomFontRenderer.stringWidth(titleFont, plusText);
-            float plusX = thumbX + (THUMBNAIL_SIZE - plusW) / 2f;
-            float plusY = thumbY + (THUMBNAIL_SIZE - TITLE_FONT_SIZE) / 2f;
-            CustomFontRenderer.drawString(gui, titleFont, plusText, plusX, plusY, 0xFFFFFFFF);
-        }
-
-        // Text label
-        int textX = thumbX + THUMBNAIL_SIZE + 12;
-        int textY = y + (int)((h - ITEM_FONT_SIZE) / 2);
-
-        if (itemFont != null) {
-            CustomFontRenderer.drawString(gui, itemFont, "Add Wallpaper...", textX, textY, TEXT_COLOR);
+            // Use larger font size for the + symbol
+            float largeSize = 48f;
+            try {
+                GlyphFont largeFont = CustomFontRenderer.loadFont(FONT_BOLD, largeSize);
+                float plusW = CustomFontRenderer.stringWidth(largeFont, plusText);
+                float plusX = x + (w - plusW) / 2f;
+                float plusY = y + (h - largeSize) / 2f;
+                CustomFontRenderer.drawString(gui, largeFont, plusText, plusX, plusY, 0x8089DDFF);
+            } catch (Exception e) {
+                // Fallback to title font
+                float plusW = CustomFontRenderer.stringWidth(titleFont, plusText);
+                float plusX = x + (w - plusW) / 2f;
+                float plusY = y + (h - TITLE_FONT_SIZE) / 2f;
+                CustomFontRenderer.drawString(gui, titleFont, plusText, plusX, plusY, 0x8089DDFF);
+            }
         }
     }
 
@@ -526,69 +522,9 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void openFileChooser() {
-        // Use AWT FileDialog for native Windows file chooser
-        new Thread(() -> {
-            try {
-                // Set headless property to false temporarily
-                System.setProperty("java.awt.headless", "false");
-
-                java.awt.FileDialog fileDialog = new java.awt.FileDialog((java.awt.Frame) null, "Select Wallpaper", java.awt.FileDialog.LOAD);
-                fileDialog.setMultipleMode(false);
-                fileDialog.setFilenameFilter((dir, name) -> {
-                    String lower = name.toLowerCase();
-                    return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
-                            || lower.endsWith(".gif") || lower.endsWith(".mp4") || lower.endsWith(".webm");
-                });
-                fileDialog.setVisible(true);
-
-                String selectedFile = fileDialog.getFile();
-                String selectedDir = fileDialog.getDirectory();
-
-                if (selectedFile != null && selectedDir != null) {
-                    File file = new File(selectedDir, selectedFile);
-
-                    // Copy file to wallpapers directory
-                    Path targetDir = backgroundConfig.getBackgroundsDirectory();
-                    Path targetPath = targetDir.resolve(file.getName());
-
-                    // If file already exists, add number suffix
-                    int counter = 1;
-                    String baseName = file.getName();
-                    String extension = "";
-                    int dotIndex = baseName.lastIndexOf('.');
-                    if (dotIndex > 0) {
-                        extension = baseName.substring(dotIndex);
-                        baseName = baseName.substring(0, dotIndex);
-                    }
-
-                    while (Files.exists(targetPath)) {
-                        targetPath = targetDir.resolve(baseName + "_" + counter + extension);
-                        counter++;
-                    }
-
-                    final Path finalTargetPath = targetPath; // Make it final for lambda
-                    Files.copy(file.toPath(), finalTargetPath);
-                    System.out.println("[BackgroundSelector] Added wallpaper: " + finalTargetPath);
-
-                    // Rescan backgrounds and close selector to refresh
-                    this.minecraft.execute(() -> {
-                        backgroundConfig.setSelectedWallpaper(finalTargetPath);
-                        backgroundConfig.setCustomBackgroundEnabled(true);
-
-                        if (parent instanceof MainMenuScreen) {
-                            ((MainMenuScreen) parent).reloadCustomBackground();
-                        }
-
-                        // Close and reopen selector to show new wallpaper
-                        onClose();
-                        this.minecraft.gui.setScreen(new BackgroundSelectorScreen(parent, backgroundConfig));
-                    });
-                }
-            } catch (Exception e) {
-                System.err.println("[BackgroundSelector] Error opening file chooser: " + e.getMessage());
-                e.printStackTrace();
-            }
-        }).start();
+        // TODO: File chooser causes HeadlessException in Minecraft environment
+        // Temporarily disabled - users can manually add files to config/gemini/ directory
+        System.out.println("[BackgroundSelector] File chooser not implemented - add wallpapers to config/gemini/ manually");
     }
 
     @Override
