@@ -987,9 +987,8 @@ public class MainMenuScreen extends Screen {
         ensureFontsLoaded();
         if (versionFont == null) return;
 
-        // Only show when custom backgrounds exist AND are enabled
-        if (backgroundConfig == null || !backgroundConfig.customBackgroundFileExists()
-            || !backgroundConfig.isCustomBackgroundEnabled()) {
+        // Show when custom backgrounds exist (regardless of enabled state)
+        if (backgroundConfig == null || !backgroundConfig.customBackgroundFileExists()) {
             return;
         }
 

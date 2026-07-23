@@ -48,13 +48,13 @@ public class BackgroundSelectorScreen extends Screen {
     private static final int THUMBNAIL_SIZE = 64;
     private static final int SCROLL_SPEED = 20;
 
-    // Fonts - All using GoogleSans-Regular.ttf
+    // Fonts - All using googlesans-regular.ttf (lowercase for Minecraft compatibility)
     private static final Identifier FONT_BOLD =
-            Identifier.fromNamespaceAndPath("gemini", "font/GoogleSans-Regular.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/googlesans-regular.ttf");
     private static final Identifier FONT_MEDIUM =
-            Identifier.fromNamespaceAndPath("gemini", "font/GoogleSans-Regular.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/googlesans-regular.ttf");
     private static final Identifier FONT_LIGHT =
-            Identifier.fromNamespaceAndPath("gemini", "font/GoogleSans-Regular.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/googlesans-regular.ttf");
 
     // Colors (matching MainMenuScreen style)
     private static final int PANEL_BG = 0xE8161D28;
