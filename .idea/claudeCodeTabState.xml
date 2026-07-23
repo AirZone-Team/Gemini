@@ -11,7 +11,7 @@
               <option name="cwd" value="C:\Users\25526\IdeaProjects\Gemini" />
               <option name="model" value="claude-opus-4-8[1m]" />
               <option name="permissionMode" value="bypassPermissions" />
-              <option name="reasoningEffort" value="xhigh" />
+              <option name="reasoningEffort" value="high" />
             </TabSessionState>
           </value>
         </entry>

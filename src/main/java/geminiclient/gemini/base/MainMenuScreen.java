@@ -980,8 +980,9 @@ public class MainMenuScreen extends Screen {
         ensureFontsLoaded();
         if (versionFont == null) return;
 
-        // Only show when custom backgrounds exist
-        if (backgroundConfig == null || !backgroundConfig.customBackgroundFileExists()) {
+        // Only show when custom backgrounds exist AND are enabled
+        if (backgroundConfig == null || !backgroundConfig.customBackgroundFileExists()
+            || !backgroundConfig.isCustomBackgroundEnabled()) {
             return;
         }
 
@@ -1042,7 +1043,7 @@ public class MainMenuScreen extends Screen {
 
         // Background selector button (gear icon, opens GUI)
         if (isBgCycleHover(layout, mouse.x(), mouse.y())) {
-            if (backgroundConfig != null && backgroundConfig.customBackgroundFileExists()) {
+            if (backgroundConfig != null) {
                 // Open background selector screen
                 this.minecraft.gui.setScreen(new BackgroundSelectorScreen(this, backgroundConfig));
             }

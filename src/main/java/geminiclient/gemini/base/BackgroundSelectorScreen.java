@@ -3,6 +3,7 @@ package geminiclient.gemini.base;
 import com.mojang.blaze3d.platform.NativeImage;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer.GlyphFont;
 import geminiclient.gemini.customRenderer.glsl.SdfUIRenderer;
@@ -45,6 +46,8 @@ public class BackgroundSelectorScreen extends Screen {
     private static final int SCROLL_SPEED = 20;
 
     // Fonts
+    private static final Identifier FONT_BOLD =
+            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-bold.ttf");
     private static final Identifier FONT_MEDIUM =
             Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-medium.ttf");
     private static final Identifier FONT_LIGHT =
@@ -61,7 +64,7 @@ public class BackgroundSelectorScreen extends Screen {
     private static final int SUBTITLE_COLOR = 0xFF89DDFF;
     private static final int ACCENT = 0xFF89DDFF;
 
-    private static final float TITLE_FONT_SIZE = 20f;
+    private static final float TITLE_FONT_SIZE = 24f;
     private static final float ITEM_FONT_SIZE = 14f;
     private static final float SUBTITLE_FONT_SIZE = 11f;
 
@@ -124,7 +127,7 @@ public class BackgroundSelectorScreen extends Screen {
 
     private void loadFonts() {
         try {
-            titleFont = CustomFontRenderer.loadFont(FONT_MEDIUM, TITLE_FONT_SIZE);
+            titleFont = CustomFontRenderer.loadFont(FONT_BOLD, TITLE_FONT_SIZE);
             itemFont = CustomFontRenderer.loadFont(FONT_MEDIUM, ITEM_FONT_SIZE);
             subtitleFont = CustomFontRenderer.loadFont(FONT_LIGHT, SUBTITLE_FONT_SIZE);
         } catch (Exception e) {
@@ -231,10 +234,10 @@ public class BackgroundSelectorScreen extends Screen {
         // Smooth scroll
         scrollOffset += (targetScrollOffset - scrollOffset) * delta * 10f;
 
-        // Background dim
-        gui.fill(0, 0, this.width, this.height, 0x80000000);
+        // Dark overlay with transparency
+        gui.fill(0, 0, this.width, this.height, 0x60000000);
 
-        // Panel
+        // Panel with blur effect
         drawPanel(gui);
         drawTitle(gui);
         drawList(gui, mouseX, mouseY);
@@ -243,25 +246,56 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void drawPanel(GuiGraphicsExtractor gui) {
+        // Background blur behind panel
+        CustomBlurRenderer.render(panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT,
+                12, 0xB0161D28, 10f);
+
         // Shadow
-        SdfUIRenderer.drawShadow(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0, 4, 16, 0x80000000);
+        SdfUIRenderer.drawShadow(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0, 4, 20, 0xA0000000);
 
-        // Background
-        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, PANEL_BG);
+        // Semi-transparent background
+        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x40161D28);
 
-        // Outline
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, PANEL_OUTLINE, 1);
+        // Brighter outline
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x8089DDFF, 2);
     }
 
     private void drawTitle(GuiGraphicsExtractor gui) {
-        if (titleFont == null) return;
+        if (titleFont == null || itemFont == null) return;
 
+        // Title on the left
         String title = "Background";
-        float titleW = CustomFontRenderer.stringWidth(titleFont, title);
-        float titleX = panelX + (PANEL_WIDTH - titleW) / 2f;
+        float titleX = panelX + 20;
         float titleY = panelY + (TITLE_HEIGHT - TITLE_FONT_SIZE) / 2f;
-
         CustomFontRenderer.drawString(gui, titleFont, title, titleX, titleY, TITLE_COLOR);
+
+        // Particle toggle on the right
+        String particleLabel = "Particles";
+        float particleLabelW = CustomFontRenderer.stringWidth(itemFont, particleLabel);
+
+        // Toggle switch position
+        int toggleW = 40;
+        int toggleH = 20;
+        int toggleX = panelX + PANEL_WIDTH - toggleW - 20;
+        int toggleY = panelY + (TITLE_HEIGHT - toggleH) / 2;
+
+        // Label position (left of toggle)
+        float labelX = toggleX - particleLabelW - 10;
+        float labelY = panelY + (TITLE_HEIGHT - ITEM_FONT_SIZE) / 2f;
+
+        // Draw label
+        CustomFontRenderer.drawString(gui, itemFont, particleLabel, labelX, labelY, TEXT_COLOR);
+
+        // Draw toggle switch (placeholder for now - will implement actual toggle)
+        boolean particlesEnabled = true; // TODO: get from config
+        int toggleBg = particlesEnabled ? 0x8089DDFF : 0x40FFFFFF;
+        CustomRoundedRectRenderer.drawRoundedRect(gui, toggleX, toggleY, toggleW, toggleH, 10, toggleBg);
+
+        // Toggle knob
+        int knobSize = 16;
+        int knobX = particlesEnabled ? toggleX + toggleW - knobSize - 2 : toggleX + 2;
+        int knobY = toggleY + 2;
+        CustomRoundedRectRenderer.drawRoundedRect(gui, knobX, knobY, knobSize, knobSize, 8, 0xFFFFFFFF);
 
         // Divider line
         int lineY = panelY + TITLE_HEIGHT - 1;
