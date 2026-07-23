@@ -1,0 +1,14 @@
+--- a/net/minecraft/client/renderer/block/dispatch/ModelState.java
++++ b/net/minecraft/client/renderer/block/dispatch/ModelState.java
+@@ -7,8 +_,10 @@
+ import org.joml.Matrix4f;
+ import org.joml.Matrix4fc;
+ 
++import net.neoforged.neoforge.client.extensions.ModelStateExtension;
++
+ @OnlyIn(Dist.CLIENT)
+-public interface ModelState {
++public interface ModelState extends ModelStateExtension {
+     Matrix4fc NO_TRANSFORM = new Matrix4f();
+ 
+     default Transformation transformation() {

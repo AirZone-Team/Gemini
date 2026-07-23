@@ -1,0 +1,28 @@
+--- a/net/minecraft/advancements/Advancement.java
++++ b/net/minecraft/advancements/Advancement.java
+@@ -26,6 +_,8 @@
+ import net.minecraft.world.level.storage.loot.ValidationContextSource;
+ import org.jspecify.annotations.Nullable;
+ 
++import net.neoforged.neoforge.common.extensions.IAdvancementBuilderExtension;
++
+ public record Advancement(
+     Optional<Identifier> parent,
+     Optional<DisplayInfo> display,
+@@ -53,6 +_,7 @@
+         )
+         .validate(Advancement::validate);
+     public static final StreamCodec<RegistryFriendlyByteBuf, Advancement> STREAM_CODEC = StreamCodec.ofMember(Advancement::write, Advancement::read);
++    public static final Codec<Optional<net.neoforged.neoforge.common.conditions.WithConditions<Advancement>>> CONDITIONAL_CODEC = net.neoforged.neoforge.common.conditions.ConditionalOps.createConditionalCodecWithConditions(CODEC);
+ 
+     public Advancement(
+         Optional<Identifier> parent,
+@@ -110,7 +_,7 @@
+         });
+     }
+ 
+-    public static class Builder {
++    public static class Builder implements IAdvancementBuilderExtension {
+         private Optional<Identifier> parent = Optional.empty();
+         private Optional<DisplayInfo> display = Optional.empty();
+         private AdvancementRewards rewards = AdvancementRewards.EMPTY;

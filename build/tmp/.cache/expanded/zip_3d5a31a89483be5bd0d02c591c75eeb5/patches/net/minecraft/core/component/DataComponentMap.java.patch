@@ -1,0 +1,30 @@
+--- a/net/minecraft/core/component/DataComponentMap.java
++++ b/net/minecraft/core/component/DataComponentMap.java
+@@ -20,6 +_,8 @@
+ import java.util.stream.StreamSupport;
+ import org.jspecify.annotations.Nullable;
+ 
++import net.neoforged.neoforge.common.extensions.IDataComponentMapBuilderExtensions;
++
+ public interface DataComponentMap extends Iterable<TypedDataComponent<?>>, DataComponentGetter {
+     DataComponentMap EMPTY = new DataComponentMap() {
+         @Override
+@@ -118,11 +_,17 @@
+         };
+     }
+ 
+-    class Builder {
++    class Builder implements IDataComponentMapBuilderExtensions {
+         private final Reference2ObjectMap<DataComponentType<?>, Object> map = new Reference2ObjectArrayMap<>();
+         private Consumer<DataComponentMap> validator = components -> {};
+ 
+         private Builder() {
++        }
++
++        @SuppressWarnings("unchecked")
++        @Override
++        public @Nullable <T> T get(DataComponentType<? extends T> type) {
++            return (T) map.get(type);
+         }
+ 
+         public <T> DataComponentMap.Builder set(DataComponentType<T> type, @Nullable T value) {

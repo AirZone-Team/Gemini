@@ -1,0 +1,22 @@
+--- a/net/minecraft/world/level/BlockGetter.java
++++ b/net/minecraft/world/level/BlockGetter.java
+@@ -21,7 +_,9 @@
+ import net.minecraft.world.phys.shapes.VoxelShape;
+ import org.jspecify.annotations.Nullable;
+ 
+-public interface BlockGetter extends LevelHeightAccessor {
++import net.neoforged.neoforge.common.extensions.IBlockGetterExtension;
++
++public interface BlockGetter extends LevelHeightAccessor, IBlockGetterExtension {
+     @Nullable BlockEntity getBlockEntity(BlockPos pos);
+ 
+     default <T extends BlockEntity> Optional<T> getBlockEntity(BlockPos pos, BlockEntityType<T> type) {
+@@ -34,7 +_,7 @@
+     FluidState getFluidState(BlockPos pos);
+ 
+     default int getLightEmission(BlockPos pos) {
+-        return this.getBlockState(pos).getLightEmission();
++        return this.getBlockState(pos).getLightEmission(this, pos);
+     }
+ 
+     default Stream<BlockState> getBlockStates(AABB box) {

@@ -1,0 +1,58 @@
+--- a/net/minecraft/world/entity/vehicle/boat/AbstractBoat.java
++++ b/net/minecraft/world/entity/vehicle/boat/AbstractBoat.java
+@@ -48,7 +_,9 @@
+ import net.minecraft.world.phys.shapes.VoxelShape;
+ import org.jspecify.annotations.Nullable;
+ 
+-public abstract class AbstractBoat extends VehicleEntity implements Leashable {
++import net.neoforged.neoforge.common.extensions.IAbstractBoatExtension;
++
++public abstract class AbstractBoat extends VehicleEntity implements Leashable, IAbstractBoatExtension {
+     private static final EntityDataAccessor<Boolean> DATA_ID_PADDLE_LEFT = SynchedEntityData.defineId(AbstractBoat.class, EntityDataSerializers.BOOLEAN);
+     private static final EntityDataAccessor<Boolean> DATA_ID_PADDLE_RIGHT = SynchedEntityData.defineId(AbstractBoat.class, EntityDataSerializers.BOOLEAN);
+     private static final EntityDataAccessor<Integer> DATA_ID_BUBBLE_TIME = SynchedEntityData.defineId(AbstractBoat.class, EntityDataSerializers.INT);
+@@ -416,7 +_,7 @@
+                 for (int z = minZ; z < maxZ; z++) {
+                     pos.set(x, y, z);
+                     FluidState fluidState = this.level().getFluidState(pos);
+-                    if (fluidState.is(FluidTags.WATER)) {
++                    if (this.canBoatInFluid(fluidState)) {
+                         blockHeight = Math.max(blockHeight, fluidState.getHeight(this.level(), pos));
+                     }
+ 
+@@ -458,7 +_,7 @@
+                             BlockState blockState = this.level().getBlockState(blockPos);
+                             if (!(blockState.getBlock() instanceof LilyPadBlock)
+                                 && Shapes.joinIsNotEmpty(blockState.getCollisionShape(this.level(), blockPos).move(blockPos), boatShape, BooleanOp.AND)) {
+-                                friction += blockState.getBlock().getFriction();
++                                friction += blockState.getFriction(this.level(), blockPos, this);
+                                 count++;
+                             }
+                         }
+@@ -487,7 +_,7 @@
+                 for (int z = minZ; z < maxZ; z++) {
+                     pos.set(x, y, z);
+                     FluidState fluidState = this.level().getFluidState(pos);
+-                    if (fluidState.is(FluidTags.WATER)) {
++                    if (this.canBoatInFluid(fluidState)) {
+                         float height = y + fluidState.getHeight(this.level(), pos);
+                         this.waterLevel = Math.max(height, this.waterLevel);
+                         inWater |= bb.minY < height;
+@@ -516,7 +_,7 @@
+                 for (int z = z0; z < z1; z++) {
+                     pos.set(x, y, z);
+                     FluidState fluidState = this.level().getFluidState(pos);
+-                    if (fluidState.is(FluidTags.WATER) && maxY < pos.getY() + fluidState.getHeight(this.level(), pos)) {
++                    if (this.canBoatInFluid(fluidState) && maxY < pos.getY() + fluidState.getHeight(this.level(), pos)) {
+                         if (!fluidState.isSource()) {
+                             return AbstractBoat.Status.UNDER_FLOWING_WATER;
+                         }
+@@ -725,7 +_,7 @@
+         if (!this.isPassenger()) {
+             if (onGround) {
+                 this.resetFallDistance();
+-            } else if (!this.level().getFluidState(this.blockPosition().below()).is(FluidTags.WATER) && ya < 0.0) {
++            } else if (!this.canBoatInFluid(this.level().getFluidState(this.blockPosition().below())) && ya < 0.0) {
+                 this.fallDistance -= (float)ya;
+             }
+         }

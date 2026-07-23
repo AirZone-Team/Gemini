@@ -1,0 +1,18 @@
+--- a/net/minecraft/client/renderer/block/dispatch/BlockStateModelPart.java
++++ b/net/minecraft/client/renderer/block/dispatch/BlockStateModelPart.java
+@@ -10,10 +_,14 @@
+ import net.neoforged.api.distmarker.OnlyIn;
+ import org.jspecify.annotations.Nullable;
+ 
++import net.neoforged.neoforge.client.extensions.BlockStateModelPartExtension;
++
+ @OnlyIn(Dist.CLIENT)
+-public interface BlockStateModelPart {
++public interface BlockStateModelPart extends BlockStateModelPartExtension {
+     List<BakedQuad> getQuads(@Nullable Direction direction);
+ 
++    /// @deprecated Neo: Use [#ambientOcclusion()] instead.
++    @Deprecated
+     boolean useAmbientOcclusion();
+ 
+     Material.Baked particleMaterial();

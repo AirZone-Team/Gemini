@@ -1,0 +1,17 @@
+--- a/net/minecraft/data/recipes/RecipeOutput.java
++++ b/net/minecraft/data/recipes/RecipeOutput.java
+@@ -6,8 +_,12 @@
+ import net.minecraft.world.item.crafting.Recipe;
+ import org.jspecify.annotations.Nullable;
+ 
+-public interface RecipeOutput {
+-    void accept(ResourceKey<Recipe<?>> id, Recipe<?> recipe, @Nullable AdvancementHolder advancement);
++import net.neoforged.neoforge.common.extensions.IRecipeOutputExtension;
++
++public interface RecipeOutput extends IRecipeOutputExtension {
++    default void accept(ResourceKey<Recipe<?>> id, Recipe<?> recipe, @Nullable AdvancementHolder advancement) {
++        accept(id, recipe, advancement, new net.neoforged.neoforge.common.conditions.ICondition[0]);
++    }
+ 
+     Advancement.Builder advancement();
+ 

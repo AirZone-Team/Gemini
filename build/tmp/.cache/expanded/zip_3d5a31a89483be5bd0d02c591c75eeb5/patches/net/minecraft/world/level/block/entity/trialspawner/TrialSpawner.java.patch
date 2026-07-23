@@ -1,0 +1,40 @@
+--- a/net/minecraft/world/level/block/entity/trialspawner/TrialSpawner.java
++++ b/net/minecraft/world/level/block/entity/trialspawner/TrialSpawner.java
+@@ -49,7 +_,9 @@
+ import net.minecraft.world.phys.shapes.CollisionContext;
+ import org.slf4j.Logger;
+ 
+-public final class TrialSpawner {
++import net.neoforged.neoforge.common.extensions.IOwnedSpawner;
++
++public final class TrialSpawner implements IOwnedSpawner {
+     private static final Logger LOGGER = LogUtils.getLogger();
+     public static final int DETECT_PLAYER_SPAWN_BUFFER = 40;
+     private static final int DEFAULT_TARGET_COOLDOWN_LENGTH = 36000;
+@@ -210,9 +_,9 @@
+                 }
+ 
+                 boolean hasNoConfiguration = nextSpawnData.getEntityToSpawn().size() == 1 && nextSpawnData.getEntityToSpawn().getString("id").isPresent();
+-                if (hasNoConfiguration) {
+-                    mob.finalizeSpawn(level, level.getCurrentDifficultyAt(mob.blockPosition()), EntitySpawnReason.TRIAL_SPAWNER, null);
+-                }
++                // Neo: Patch in FinalizeSpawn for spawners so it may be fired unconditionally, instead of only when vanilla would normally call it.
++                // The local flag is the conditions under which the spawner will normally call Mob#finalizeSpawn.
++                net.neoforged.neoforge.event.EventHooks.finalizeMobSpawnSpawner(mob, level, level.getCurrentDifficultyAt(mob.blockPosition()), EntitySpawnReason.TRIAL_SPAWNER, null, this, hasNoConfiguration);
+ 
+                 mob.setPersistenceRequired();
+                 nextSpawnData.getEquipment().ifPresent(mob::equip);
+@@ -406,5 +_,13 @@
+         TrialSpawnerState getState();
+ 
+         void markUpdated();
++    }
++
++    @Override
++    public com.mojang.datafixers.util.@org.jspecify.annotations.Nullable Either<net.minecraft.world.level.block.entity.BlockEntity, Entity> getOwner() {
++        if (this.stateAccessor instanceof net.minecraft.world.level.block.entity.TrialSpawnerBlockEntity be) {
++            return com.mojang.datafixers.util.Either.left(be);
++        }
++        return null;
+     }
+ }

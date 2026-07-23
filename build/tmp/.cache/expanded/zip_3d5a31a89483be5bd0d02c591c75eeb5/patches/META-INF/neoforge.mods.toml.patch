@@ -1,0 +1,11 @@
+--- /dev/null
++++ b/META-INF/neoforge.mods.toml
+@@ -1,0 +_,8 @@
++modLoader="minecraft"
++license="Minecraft EULA"
++[[mods]]
++modId="minecraft"
++version="26.2"
++displayName="Minecraft"
++authors="Mojang Studios"
++description=""

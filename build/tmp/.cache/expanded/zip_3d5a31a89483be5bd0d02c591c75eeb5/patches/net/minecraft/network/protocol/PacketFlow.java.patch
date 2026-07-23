@@ -1,0 +1,12 @@
+--- a/net/minecraft/network/protocol/PacketFlow.java
++++ b/net/minecraft/network/protocol/PacketFlow.java
+@@ -1,6 +_,8 @@
+ package net.minecraft.network.protocol;
+ 
+-public enum PacketFlow {
++import net.neoforged.neoforge.common.extensions.IPacketFlowExtension;
++
++public enum PacketFlow implements IPacketFlowExtension {
+     SERVERBOUND("serverbound"),
+     CLIENTBOUND("clientbound");
+ 

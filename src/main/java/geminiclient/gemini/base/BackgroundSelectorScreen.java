@@ -17,7 +17,10 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
 import javax.imageio.ImageIO;
+import javax.swing.JFileChooser;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -185,12 +188,18 @@ public class BackgroundSelectorScreen extends Screen {
             BufferedImage img = ImageIO.read(entry.filePath().toFile());
             if (img == null) return null;
 
-            // Scale to thumbnail size
+            // Scale to thumbnail size with high quality
             int thumbSize = THUMBNAIL_SIZE;
             BufferedImage scaled = new BufferedImage(thumbSize, thumbSize, BufferedImage.TYPE_INT_ARGB);
             java.awt.Graphics2D g2d = scaled.createGraphics();
+
+            // Use high-quality rendering hints
             g2d.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
-                    java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            g2d.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
+                    java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+            g2d.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                    java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
 
             // Calculate aspect-fit scaling
             float scale = Math.min((float) thumbSize / img.getWidth(), (float) thumbSize / img.getHeight());
@@ -234,8 +243,8 @@ public class BackgroundSelectorScreen extends Screen {
         // Smooth scroll
         scrollOffset += (targetScrollOffset - scrollOffset) * delta * 10f;
 
-        // Very light dark overlay to see background blur clearly
-        gui.fill(0, 0, this.width, this.height, 0x20000000);
+        // Very light dark overlay - more transparent
+        gui.fill(0, 0, this.width, this.height, 0x30000000);
 
         // Panel with blur effect
         drawPanel(gui);
@@ -246,15 +255,15 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void drawPanel(GuiGraphicsExtractor gui) {
-        // Background blur behind panel (minimal color, just blur)
+        // Background blur behind panel - lighter for better transparency
         CustomBlurRenderer.render(panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT,
-                12, 0x10161D28, 16f);
+                12, 0x20161D28, 18f);
 
         // Shadow
         SdfUIRenderer.drawShadow(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0, 4, 20, 0xA0000000);
 
-        // Semi-transparent dark background
-        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x80161D28);
+        // Semi-transparent dark background - lighter
+        CustomRoundedRectRenderer.drawRoundedRect(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x90161D28);
 
         // Brighter outline
         CustomRoundedRectRenderer.drawRoundedOutline(gui, panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 12, 0x8089DDFF, 2);
@@ -311,6 +320,7 @@ public class BackgroundSelectorScreen extends Screen {
         hoveredIndex = -1;
         int yOffset = (int) scrollOffset;
 
+        // Draw wallpaper items
         for (int i = 0; i < wallpapers.size(); i++) {
             WallpaperEntry entry = wallpapers.get(i);
             int itemY = listY + yOffset + i * (ITEM_HEIGHT + ITEM_PADDING);
@@ -326,6 +336,18 @@ public class BackgroundSelectorScreen extends Screen {
 
             drawListItem(gui, entry, panelX + ITEM_PADDING, itemY,
                     PANEL_WIDTH - ITEM_PADDING * 2, ITEM_HEIGHT, hovered, selected);
+        }
+
+        // Draw "+" button at the end
+        int addButtonIndex = wallpapers.size();
+        int addButtonY = listY + yOffset + addButtonIndex * (ITEM_HEIGHT + ITEM_PADDING);
+
+        // Check if visible
+        if (addButtonY <= listY + listHeight && addButtonY + ITEM_HEIGHT >= listY) {
+            boolean addButtonHovered = isMouseOverItem(mouseX, mouseY, addButtonY);
+            if (addButtonHovered) hoveredIndex = -2; // Special index for add button
+            drawAddButton(gui, panelX + ITEM_PADDING, addButtonY,
+                    PANEL_WIDTH - ITEM_PADDING * 2, ITEM_HEIGHT, addButtonHovered);
         }
 
         gui.disableScissor();
@@ -386,6 +408,39 @@ public class BackgroundSelectorScreen extends Screen {
         }
     }
 
+    private void drawAddButton(GuiGraphicsExtractor gui, int x, int y, int w, int h, boolean hovered) {
+        // Background
+        int bgColor = hovered ? ITEM_HOVER_BG : ITEM_BG;
+        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, w, h, 8, bgColor);
+
+        // Border
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, 8, 0x4089DDFF, 1);
+
+        // Draw "+" icon in center (same size as thumbnail)
+        int thumbX = x + ITEM_PADDING;
+        int thumbY = y + (h - THUMBNAIL_SIZE) / 2;
+
+        // Thumbnail-sized background for "+"
+        CustomRoundedRectRenderer.drawRoundedRect(gui, thumbX, thumbY, THUMBNAIL_SIZE, THUMBNAIL_SIZE, 8, 0x4089DDFF);
+
+        // Draw "+" symbol
+        if (titleFont != null) {
+            String plusText = "+";
+            float plusW = CustomFontRenderer.stringWidth(titleFont, plusText);
+            float plusX = thumbX + (THUMBNAIL_SIZE - plusW) / 2f;
+            float plusY = thumbY + (THUMBNAIL_SIZE - TITLE_FONT_SIZE) / 2f;
+            CustomFontRenderer.drawString(gui, titleFont, plusText, plusX, plusY, 0xFFFFFFFF);
+        }
+
+        // Text label
+        int textX = thumbX + THUMBNAIL_SIZE + 12;
+        int textY = y + (int)((h - ITEM_FONT_SIZE) / 2);
+
+        if (itemFont != null) {
+            CustomFontRenderer.drawString(gui, itemFont, "Add Wallpaper...", textX, textY, TEXT_COLOR);
+        }
+    }
+
     private boolean isMouseOverItem(int mouseX, int mouseY, int itemY) {
         return mouseX >= panelX + ITEM_PADDING
                 && mouseX <= panelX + PANEL_WIDTH - ITEM_PADDING
@@ -419,7 +474,16 @@ public class BackgroundSelectorScreen extends Screen {
         if (insidePanel) {
             // Click on particle toggle
             if (isMouseOverParticleToggle(mx, my)) {
+                boolean oldState = backgroundConfig.isParticlesEnabled();
                 backgroundConfig.toggleParticles();
+                boolean newState = backgroundConfig.isParticlesEnabled();
+                System.out.println("[BackgroundSelector] Particle toggle clicked! " + oldState + " -> " + newState);
+                return true;
+            }
+
+            // Click on add button (hoveredIndex == -2)
+            if (hoveredIndex == -2) {
+                openFileChooser();
                 return true;
             }
 
@@ -459,6 +523,69 @@ public class BackgroundSelectorScreen extends Screen {
 
         // Close and refresh parent
         onClose();
+    }
+
+    private void openFileChooser() {
+        // Use AWT FileDialog for native Windows file chooser
+        new Thread(() -> {
+            try {
+                javax.swing.JFileChooser fileChooser = new javax.swing.JFileChooser();
+                fileChooser.setDialogTitle("Select Wallpaper");
+                fileChooser.setFileSelectionMode(javax.swing.JFileChooser.FILES_ONLY);
+
+                // File filter for images
+                javax.swing.filechooser.FileNameExtensionFilter filter =
+                    new javax.swing.filechooser.FileNameExtensionFilter(
+                        "Image Files (PNG, JPG, JPEG, GIF, MP4, WEBM)",
+                        "png", "jpg", "jpeg", "gif", "mp4", "webm");
+                fileChooser.setFileFilter(filter);
+
+                int result = fileChooser.showOpenDialog(null);
+
+                if (result == javax.swing.JFileChooser.APPROVE_OPTION) {
+                    java.io.File selectedFile = fileChooser.getSelectedFile();
+
+                    // Copy file to wallpapers directory
+                    Path targetDir = backgroundConfig.getBackgroundsDirectory();
+                    Path targetPath = targetDir.resolve(selectedFile.getName());
+
+                    // If file already exists, add number suffix
+                    int counter = 1;
+                    String baseName = selectedFile.getName();
+                    String extension = "";
+                    int dotIndex = baseName.lastIndexOf('.');
+                    if (dotIndex > 0) {
+                        extension = baseName.substring(dotIndex);
+                        baseName = baseName.substring(0, dotIndex);
+                    }
+
+                    while (Files.exists(targetPath)) {
+                        targetPath = targetDir.resolve(baseName + "_" + counter + extension);
+                        counter++;
+                    }
+
+                    final Path finalTargetPath = targetPath; // Make it final for lambda
+                    Files.copy(selectedFile.toPath(), finalTargetPath);
+                    System.out.println("[BackgroundSelector] Added wallpaper: " + finalTargetPath);
+
+                    // Rescan backgrounds and close selector to refresh
+                    this.minecraft.execute(() -> {
+                        backgroundConfig.setSelectedWallpaper(finalTargetPath);
+                        backgroundConfig.setCustomBackgroundEnabled(true);
+
+                        if (parent instanceof MainMenuScreen) {
+                            ((MainMenuScreen) parent).reloadCustomBackground();
+                        }
+
+                        // Close and reopen selector to show new wallpaper
+                        onClose();
+                        this.minecraft.gui.setScreen(new BackgroundSelectorScreen(parent, backgroundConfig));
+                    });
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 
     @Override

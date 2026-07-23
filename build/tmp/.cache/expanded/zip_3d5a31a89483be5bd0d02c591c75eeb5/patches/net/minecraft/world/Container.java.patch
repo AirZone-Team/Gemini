@@ -1,0 +1,13 @@
+--- a/net/minecraft/world/Container.java
++++ b/net/minecraft/world/Container.java
+@@ -16,7 +_,9 @@
+ import net.minecraft.world.level.block.entity.BlockEntity;
+ import org.jspecify.annotations.Nullable;
+ 
+-public interface Container extends Clearable, Iterable<ItemStack>, SlotProvider {
++import net.neoforged.neoforge.common.extensions.ContainerExtension;
++
++public interface Container extends Clearable, Iterable<ItemStack>, SlotProvider, ContainerExtension {
+     float DEFAULT_DISTANCE_BUFFER = 4.0F;
+ 
+     int getContainerSize();

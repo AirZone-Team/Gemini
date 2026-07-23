@@ -1,5 +1,5 @@
 {
     "customBackgroundEnabled": true,
-    "currentBackgroundIndex": 1,
-    "particlesEnabled": true
+    "currentBackgroundIndex": 0,
+    "particlesEnabled": false
 }

@@ -6,14 +6,14 @@
             {
                 "name": "NoCoolDown",
                 "type": "Bool",
-                "value": false
+                "value": true
             },
             {
                 "name": "CPS",
                 "type": "IntRange",
                 "value": {
-                    "min": 10,
-                    "max": 18
+                    "min": 5,
+                    "max": 10
                 }
             },
             {
@@ -24,7 +24,7 @@
             {
                 "name": "FOV",
                 "type": "Float",
-                "value": 180
+                "value": 360
             },
             {
                 "name": "HurtTime",
@@ -84,7 +84,7 @@
             {
                 "name": "RotationMode",
                 "type": "List",
-                "value": "Linear"
+                "value": "Smooth"
             },
             {
                 "name": "EasingCurve",
@@ -119,7 +119,7 @@
             {
                 "name": "RayTrace",
                 "type": "Bool",
-                "value": false
+                "value": true
             },
             {
                 "name": "AimMode",
@@ -162,7 +162,7 @@
             {
                 "name": "IndicatorStyle",
                 "type": "List",
-                "value": "Arcane Array"
+                "value": "Health Ring"
             },
             {
                 "name": "TargetEffects",
@@ -170,7 +170,7 @@
                 "value": [
                     {
                         "name": "Comet Vortex",
-                        "enabled": true
+                        "enabled": false
                     },
                     {
                         "name": "Prismatic Cage",
@@ -178,7 +178,7 @@
                     },
                     {
                         "name": "Rune Crown",
-                        "enabled": true
+                        "enabled": false
                     }
                 ]
             },
@@ -267,7 +267,7 @@
         "category": "Combat",
         "favorite": false,
         "enabled": false,
-        "key": 0
+        "key": 82
     },
     {
         "hudX": 6,
@@ -276,7 +276,7 @@
         "name": "Sprint",
         "category": "Movement",
         "favorite": false,
-        "enabled": false,
+        "enabled": true,
         "key": 0
     },
     {
@@ -338,11 +338,11 @@
         "category": "Visual",
         "favorite": false,
         "enabled": false,
-        "key": 79
+        "key": 78
     },
     {
-        "hudX": 6,
-        "hudY": 50,
+        "hudX": 0,
+        "hudY": 0,
         "values": [
             {
                 "name": "Module BG",
@@ -516,7 +516,7 @@
         "name": "Arraylists",
         "category": "Visual",
         "favorite": false,
-        "enabled": false,
+        "enabled": true,
         "key": 0
     },
     {
@@ -529,8 +529,8 @@
         }],
         "name": "Velocity",
         "category": "Combat",
-        "favorite": false,
-        "enabled": false,
+        "favorite": true,
+        "enabled": true,
         "key": 0
     },
     {
@@ -602,7 +602,7 @@
         "name": "NoSlow",
         "category": "Movement",
         "favorite": false,
-        "enabled": false,
+        "enabled": true,
         "key": 0
     },
     {
@@ -1022,13 +1022,13 @@
         "key": 0
     },
     {
-        "hudX": 6,
-        "hudY": 248,
+        "hudX": 547,
+        "hudY": 570,
         "values": [
             {
                 "name": "Mode",
                 "type": "List",
-                "value": "TellyBridge"
+                "value": "GodBridge"
             },
             {
                 "name": "SwapMode",
@@ -1048,7 +1048,7 @@
             {
                 "name": "TellyTick",
                 "type": "Int",
-                "value": 0
+                "value": 1
             },
             {
                 "name": "KeepY",
@@ -1058,7 +1058,7 @@
             {
                 "name": "RotationSpeed",
                 "type": "Float",
-                "value": 10
+                "value": 7.3693547
             },
             {
                 "name": "RotationBackSpeed",
@@ -1078,17 +1078,17 @@
             {
                 "name": "SafeWalk",
                 "type": "Bool",
-                "value": true
+                "value": false
             },
             {
                 "name": "BlockCounter",
                 "type": "Bool",
-                "value": false
+                "value": true
             },
             {
                 "name": "CountScope",
                 "type": "List",
-                "value": "Inventory"
+                "value": "Hotbar"
             },
             {
                 "name": "LowBlockThreshold",
@@ -1109,7 +1109,7 @@
         "name": "Scaffold",
         "category": "Player",
         "favorite": false,
-        "enabled": false,
+        "enabled": true,
         "key": 0
     },
     {
@@ -1133,7 +1133,7 @@
         "name": "KeepSprint",
         "category": "Movement",
         "favorite": false,
-        "enabled": false,
+        "enabled": true,
         "key": 0
     },
     {

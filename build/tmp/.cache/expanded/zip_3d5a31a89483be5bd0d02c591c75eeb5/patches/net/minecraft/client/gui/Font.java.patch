@@ -1,0 +1,23 @@
+--- a/net/minecraft/client/gui/Font.java
++++ b/net/minecraft/client/gui/Font.java
+@@ -27,8 +_,10 @@
+ import net.neoforged.api.distmarker.OnlyIn;
+ import org.jspecify.annotations.Nullable;
+ 
++import net.neoforged.neoforge.client.extensions.IFontExtension;
++
+ @OnlyIn(Dist.CLIENT)
+-public class Font {
++public class Font implements IFontExtension {
+     private static final float EFFECT_DEPTH = 0.01F;
+     private static final float OVER_EFFECT_DEPTH = 0.01F;
+     private static final float UNDER_EFFECT_DEPTH = -0.01F;
+@@ -37,6 +_,8 @@
+     private final RandomSource random = RandomSource.create();
+     private final Font.Provider provider;
+     private final StringSplitter splitter;
++    /** Neo: enables linear filtering on text */
++    public boolean enableTextTextureLinearFiltering = false;
+ 
+     public Font(Font.Provider provider) {
+         this.provider = provider;

@@ -1,0 +1,13 @@
+--- a/net/minecraft/world/level/block/Fallable.java
++++ b/net/minecraft/world/level/block/Fallable.java
+@@ -7,7 +_,9 @@
+ import net.minecraft.world.level.Level;
+ import net.minecraft.world.level.block.state.BlockState;
+ 
+-public interface Fallable {
++import net.neoforged.neoforge.common.extensions.IFallableExtension;
++
++public interface Fallable extends IFallableExtension {
+     default void onLand(Level level, BlockPos pos, BlockState state, BlockState replacedBlock, FallingBlockEntity entity) {
+     }
+ 

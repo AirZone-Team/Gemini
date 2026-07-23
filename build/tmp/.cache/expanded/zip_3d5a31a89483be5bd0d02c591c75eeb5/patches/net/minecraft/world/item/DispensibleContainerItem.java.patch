@@ -1,0 +1,16 @@
+--- a/net/minecraft/world/item/DispensibleContainerItem.java
++++ b/net/minecraft/world/item/DispensibleContainerItem.java
+@@ -6,9 +_,12 @@
+ import net.minecraft.world.phys.BlockHitResult;
+ import org.jspecify.annotations.Nullable;
+ 
+-public interface DispensibleContainerItem {
++import net.neoforged.neoforge.common.extensions.IDispensibleContainerItemExtension;
++
++public interface DispensibleContainerItem extends IDispensibleContainerItemExtension {
+     default void checkExtraContent(@Nullable LivingEntity user, Level level, ItemStack itemStack, BlockPos pos) {
+     }
+ 
++    @Deprecated //Forge: use the ItemStack sensitive version
+     boolean emptyContents(final @Nullable LivingEntity user, final Level level, final BlockPos pos, final @Nullable BlockHitResult hitResult);
+ }

@@ -1,0 +1,13 @@
+--- a/net/minecraft/world/level/block/LeavesBlock.java
++++ b/net/minecraft/world/level/block/LeavesBlock.java
+@@ -26,7 +_,9 @@
+ import net.minecraft.world.phys.shapes.Shapes;
+ import net.minecraft.world.phys.shapes.VoxelShape;
+ 
+-public abstract class LeavesBlock extends Block implements SimpleWaterloggedBlock {
++import net.neoforged.neoforge.common.IShearable;
++
++public abstract class LeavesBlock extends Block implements SimpleWaterloggedBlock, IShearable {
+     public static final int DECAY_DISTANCE = 7;
+     public static final IntegerProperty DISTANCE = BlockStateProperties.DISTANCE;
+     public static final BooleanProperty PERSISTENT = BlockStateProperties.PERSISTENT;

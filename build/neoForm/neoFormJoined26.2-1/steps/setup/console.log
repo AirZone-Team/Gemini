@@ -1,8 +1,0 @@
-JVM Args:          
-Run Args:          "--task", "PROCESS_MINECRAFT_JAR", "--input", "C:\Users\25526\IdeaProjects\Gemini\.gradle\caches\minecraft\versions\26.2\client.jar", "--input", "C:\Users\25526\IdeaProjects\Gemini\.gradle\caches\minecraft\versions\26.2\server.jar", "--output", "C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\setup\outputs.jar", "--neoform-data", "C:\Users\25526\.gradle\caches\modules-2\files-2.1\net.neoforged\neoform\26.2-1\7bca7efe502c2b48c861b048bb3e7891ecca996\neoform-26.2-1.zip", "--no-dist-annotations"
-JVM:               C:\Users\25526\.jdks\ms-25.0.3\bin\java.exe
-Classpath:         C:\Users\25526\.gradle\caches\modules-2\files-2.1\net.neoforged.installertools\installertools\4.0.16\a1c5664a32c3ada2a94870f81d446d27788a488c\installertools-4.0.16-fatjar.jar
-Working Dir:       C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\setup
-Main Class:        net.neoforged.installertools.ConsoleTool
-Program log file:  C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\setup\log.log
-Output file:       C:\Users\25526\IdeaProjects\Gemini\build\neoForm\neoFormJoined26.2-1\steps\setup\outputs.jar

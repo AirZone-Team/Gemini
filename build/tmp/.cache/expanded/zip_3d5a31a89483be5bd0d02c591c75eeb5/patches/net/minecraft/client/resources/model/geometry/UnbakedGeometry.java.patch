@@ -1,0 +1,18 @@
+--- a/net/minecraft/client/resources/model/geometry/UnbakedGeometry.java
++++ b/net/minecraft/client/resources/model/geometry/UnbakedGeometry.java
+@@ -7,10 +_,14 @@
+ import net.neoforged.api.distmarker.Dist;
+ import net.neoforged.api.distmarker.OnlyIn;
+ 
++import net.neoforged.neoforge.client.extensions.UnbakedGeometryExtension;
++
+ @FunctionalInterface
+ @OnlyIn(Dist.CLIENT)
+-public interface UnbakedGeometry {
++public interface UnbakedGeometry extends UnbakedGeometryExtension {
+     UnbakedGeometry EMPTY = (var0, var1, var2, var3) -> QuadCollection.EMPTY;
+ 
++    /// @deprecated Neo: Use [#bake(TextureSlots, ModelBaker, ModelState, ModelDebugName, net.minecraft.util.context.ContextMap)].
++    @Deprecated
+     QuadCollection bake(TextureSlots textureSlots, ModelBaker modelBaker, ModelState modelState, ModelDebugName name);
+ }

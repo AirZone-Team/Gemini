@@ -1,0 +1,33 @@
+--- a/com/mojang/math/Transformation.java
++++ b/com/mojang/math/Transformation.java
+@@ -14,7 +_,9 @@
+ import org.joml.Vector3fc;
+ import org.jspecify.annotations.Nullable;
+ 
+-public final class Transformation {
++import net.neoforged.neoforge.common.extensions.ITransformationExtension;
++
++public final class Transformation implements ITransformationExtension {
+     private static final Vector3fc ZERO_TRANSLATION = new Vector3f();
+     private static final Vector3fc UNIT_SCALE = new Vector3f(1.0F, 1.0F, 1.0F);
+     private static final Quaternionfc ZERO_ROTATION = new Quaternionf();
+@@ -155,6 +_,19 @@
+     @Override
+     public int hashCode() {
+         return Objects.hash(this.matrix);
++    }
++
++    private org.joml.Matrix3f normalTransform = null;
++    public org.joml.Matrix3fc getNormalMatrix() {
++        checkNormalTransform();
++        return normalTransform;
++    }
++    private void checkNormalTransform() {
++        if (normalTransform == null) {
++            normalTransform = new org.joml.Matrix3f(matrix);
++            normalTransform.invert();
++            normalTransform.transpose();
++        }
+     }
+ 
+     public Transformation slerp(Transformation that, float progress) {

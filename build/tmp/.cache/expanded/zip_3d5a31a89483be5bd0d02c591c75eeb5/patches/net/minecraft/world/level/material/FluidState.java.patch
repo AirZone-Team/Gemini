@@ -1,0 +1,21 @@
+--- a/net/minecraft/world/level/material/FluidState.java
++++ b/net/minecraft/world/level/material/FluidState.java
+@@ -21,7 +_,9 @@
+ import net.minecraft.world.phys.shapes.VoxelShape;
+ import org.jspecify.annotations.Nullable;
+ 
+-public final class FluidState extends StateHolder<Fluid, FluidState> implements TypedInstance<Fluid> {
++import net.neoforged.neoforge.common.extensions.IFluidStateExtension;
++
++public final class FluidState extends StateHolder<Fluid, FluidState> implements TypedInstance<Fluid>, IFluidStateExtension {
+     public static final Codec<FluidState> CODEC = codec(BuiltInRegistries.FLUID.byNameCodec(), Fluid::defaultFluidState, Fluid::getStateDefinition).stable();
+     public static final int AMOUNT_MAX = 9;
+     public static final int AMOUNT_FULL = 8;
+@@ -109,6 +_,7 @@
+         return this.getType().builtInRegistryHolder();
+     }
+ 
++    @Deprecated //Forge: Use more sensitive version
+     public float getExplosionResistance() {
+         return this.getType().getExplosionResistance();
+     }

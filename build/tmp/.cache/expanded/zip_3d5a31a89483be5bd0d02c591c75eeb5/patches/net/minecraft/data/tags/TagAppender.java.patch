@@ -1,0 +1,44 @@
+--- a/net/minecraft/data/tags/TagAppender.java
++++ b/net/minecraft/data/tags/TagAppender.java
+@@ -7,7 +_,9 @@
+ import net.minecraft.tags.TagBuilder;
+ import net.minecraft.tags.TagKey;
+ 
+-public interface TagAppender<T> {
++import net.neoforged.neoforge.common.extensions.ITagAppenderExtension;
++
++public interface TagAppender<T> extends ITagAppenderExtension<T> {
+     TagAppender<T> add(ResourceKey<T> element);
+ 
+     default TagAppender<T> add(ResourceKey<T>... elements) {
+@@ -53,6 +_,30 @@
+             @Override
+             public TagAppender<T> addOptionalTag(TagKey<T> tag) {
+                 builder.addOptionalTag(tag.location());
++                return this;
++            }
++
++            @Override
++            public TagAppender<T> add(net.minecraft.tags.TagEntry entry) {
++                builder.add(entry);
++                return this;
++            }
++
++            @Override
++            public TagAppender<T> replace(boolean value) {
++                builder.setReplace(value);
++                return this;
++            }
++
++            @Override
++            public TagAppender<T> remove(TagKey<T> tag) {
++                builder.remove(net.minecraft.tags.TagEntry.tag(tag.location()));
++                return this;
++            }
++
++            @Override
++            public TagAppender<T> remove(ResourceKey<T> element) {
++                builder.removeElement(element.identifier());
+                 return this;
+             }
+         };

@@ -1,0 +1,13 @@
+--- a/net/minecraft/core/component/DataComponentHolder.java
++++ b/net/minecraft/core/component/DataComponentHolder.java
+@@ -3,7 +_,9 @@
+ import java.util.stream.Stream;
+ import org.jspecify.annotations.Nullable;
+ 
+-public interface DataComponentHolder extends DataComponentGetter {
++import net.neoforged.neoforge.common.extensions.IDataComponentHolderExtension;
++
++public interface DataComponentHolder extends DataComponentGetter, IDataComponentHolderExtension {
+     DataComponentMap getComponents();
+ 
+     @Override

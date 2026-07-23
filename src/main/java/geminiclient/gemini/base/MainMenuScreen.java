@@ -795,6 +795,11 @@ public class MainMenuScreen extends Screen {
         // Render grid particles if enabled
         if (backgroundConfig != null && backgroundConfig.isParticlesEnabled()) {
             InfiniteGridRenderer.render(elapsed);
+        } else if (backgroundConfig != null) {
+            // Particles disabled - log once per state change
+            if (elapsed < 0.1f) {
+                System.out.println("[MainMenu] Particles disabled, skipping InfiniteGridRenderer");
+            }
         }
     }
 

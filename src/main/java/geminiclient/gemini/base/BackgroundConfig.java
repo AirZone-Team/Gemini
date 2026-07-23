@@ -236,6 +236,13 @@ public class BackgroundConfig {
     }
 
     /**
+     * Gets the backgrounds directory path.
+     */
+    public Path getBackgroundsDirectory() {
+        return configDirectory;
+    }
+
+    /**
      * Gets the path to the current custom background file.
      */
     public Path getCustomBackgroundFile() {

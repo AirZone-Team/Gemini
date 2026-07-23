@@ -1,0 +1,40 @@
+--- a/net/minecraft/core/HolderSet.java
++++ b/net/minecraft/core/HolderSet.java
+@@ -15,7 +_,9 @@
+ import net.minecraft.util.Util;
+ import org.jspecify.annotations.Nullable;
+ 
+-public interface HolderSet<T> extends Iterable<Holder<T>> {
++import net.neoforged.neoforge.common.extensions.IHolderSetExtension;
++
++public interface HolderSet<T> extends Iterable<Holder<T>>, IHolderSetExtension<T> {
+     Stream<Holder<T>> stream();
+ 
+     int size();
+@@ -172,6 +_,9 @@
+ 
+         void bind(List<Holder<T>> contents) {
+             this.contents = List.copyOf(contents);
++            for (Runnable runnable : this.invalidationCallbacks) {
++                runnable.run(); // FORGE: invalidate listeners when tags rebind
++            }
+         }
+ 
+         public TagKey<T> key() {
+@@ -215,6 +_,16 @@
+         @Override
+         public boolean canSerializeIn(HolderOwner<T> context) {
+             return this.owner.canSerializeIn(context);
++        }
++        // FORGE: Keep a list of invalidation callbacks so they can be run when tags rebind
++        private List<Runnable> invalidationCallbacks = new java.util.ArrayList<>();
++        @Override
++        public void addInvalidationListener(Runnable runnable) {
++            invalidationCallbacks.add(runnable);
++        }
++        @Override
++        public boolean isImmediatelyResolvable() {
++            return false;
+         }
+     }
+ }

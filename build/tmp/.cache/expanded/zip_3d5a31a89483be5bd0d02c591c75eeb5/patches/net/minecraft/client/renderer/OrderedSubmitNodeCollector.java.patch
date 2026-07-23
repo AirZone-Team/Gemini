@@ -1,0 +1,14 @@
+--- a/net/minecraft/client/renderer/OrderedSubmitNodeCollector.java
++++ b/net/minecraft/client/renderer/OrderedSubmitNodeCollector.java
+@@ -30,8 +_,10 @@
+ import org.joml.Quaternionf;
+ import org.jspecify.annotations.Nullable;
+ 
++import net.neoforged.neoforge.client.extensions.OrderedSubmitNodeCollectorExtension;
++
+ @OnlyIn(Dist.CLIENT)
+-public interface OrderedSubmitNodeCollector {
++public interface OrderedSubmitNodeCollector extends OrderedSubmitNodeCollectorExtension {
+     void submitShadow(PoseStack poseStack, float radius, List<EntityRenderState.ShadowPiece> pieces);
+ 
+     void submitNameTag(

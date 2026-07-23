@@ -1,0 +1,23 @@
+--- a/net/minecraft/core/TypedInstance.java
++++ b/net/minecraft/core/TypedInstance.java
+@@ -4,7 +_,9 @@
+ import net.minecraft.resources.ResourceKey;
+ import net.minecraft.tags.TagKey;
+ 
+-public interface TypedInstance<T> {
++import net.neoforged.neoforge.common.extensions.TypedInstanceExtension;
++
++public interface TypedInstance<T> extends TypedInstanceExtension<T> {
+     Holder<T> typeHolder();
+ 
+     default Stream<TagKey<T>> tags() {
+@@ -24,7 +_,8 @@
+     }
+ 
+     default boolean is(Holder<T> type) {
+-        return this.typeHolder() == type;
++        // Neo: Fix comparing for custom holders such as DeferredHolders
++        return is(type.value());
+     }
+ 
+     default boolean is(ResourceKey<T> type) {

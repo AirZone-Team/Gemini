@@ -1,0 +1,13 @@
+--- a/net/minecraft/world/level/block/SeagrassBlock.java
++++ b/net/minecraft/world/level/block/SeagrassBlock.java
+@@ -24,7 +_,9 @@
+ import net.minecraft.world.phys.shapes.VoxelShape;
+ import org.jspecify.annotations.Nullable;
+ 
+-public class SeagrassBlock extends VegetationBlock implements BonemealableBlock, LiquidBlockContainer {
++import net.neoforged.neoforge.common.IShearable;
++
++public class SeagrassBlock extends VegetationBlock implements BonemealableBlock, LiquidBlockContainer, IShearable {
+     public static final MapCodec<SeagrassBlock> CODEC = simpleCodec(SeagrassBlock::new);
+     private static final VoxelShape SHAPE = Block.column(12.0, 0.0, 12.0);
+ 
