@@ -11,23 +11,29 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Manages custom background configuration for the main menu.
- * Allows users to toggle between default and custom backgrounds.
- * Supports PNG, JPG, and JPEG formats.
+ * Supports multiple backgrounds with cycling functionality.
+ * Automatically detects all image files (PNG, JPG, JPEG) in config/gemini directory.
  */
 public class BackgroundConfig {
     private static final Logger LOGGER = Logger.getLogger(BackgroundConfig.class.getName());
     private static final String CONFIG_FILE_NAME = "background.json";
-    private static final String[] SUPPORTED_EXTENSIONS = {"custom_bg.png", "custom_bg.jpg", "custom_bg.jpeg"};
+    private static final String[] SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg"};
 
     private final Path configDirectory;
     private final Path configFile;
 
     private boolean customBackgroundEnabled = false;
+    private int currentBackgroundIndex = 0;
+    private List<Path> availableBackgrounds = new ArrayList<>();
 
     public BackgroundConfig() {
         this.configDirectory = Paths.get(Minecraft.getInstance().gameDirectory.getAbsolutePath(),
@@ -35,6 +41,7 @@ public class BackgroundConfig {
         this.configFile = configDirectory.resolve(CONFIG_FILE_NAME);
 
         ensureDirectoryExists();
+        scanBackgrounds();
         load();
     }
 
@@ -49,6 +56,35 @@ public class BackgroundConfig {
     }
 
     /**
+     * Scans the config directory for all supported image files.
+     */
+    private void scanBackgrounds() {
+        availableBackgrounds.clear();
+        try (Stream<Path> files = Files.list(configDirectory)) {
+            availableBackgrounds = files
+                .filter(Files::isRegularFile)
+                .filter(this::isSupportedImageFile)
+                .sorted()
+                .collect(Collectors.toList());
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to scan backgrounds in: " + configDirectory, e);
+        }
+    }
+
+    /**
+     * Checks if a file has a supported image extension.
+     */
+    private boolean isSupportedImageFile(Path file) {
+        String filename = file.getFileName().toString().toLowerCase();
+        for (String ext : SUPPORTED_EXTENSIONS) {
+            if (filename.endsWith(ext)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Loads the background configuration from file.
      */
     public void load() {
@@ -60,9 +96,16 @@ public class BackgroundConfig {
         try (InputStream inputStream = Files.newInputStream(configFile)) {
             JSONObject json = new JSONObject(new JSONTokener(inputStream));
             customBackgroundEnabled = json.optBoolean("customBackgroundEnabled", false);
+            currentBackgroundIndex = json.optInt("currentBackgroundIndex", 0);
+
+            // Validate index
+            if (currentBackgroundIndex < 0 || currentBackgroundIndex >= availableBackgrounds.size()) {
+                currentBackgroundIndex = 0;
+            }
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Failed to load background config from: " + configFile, e);
             customBackgroundEnabled = false;
+            currentBackgroundIndex = 0;
         }
     }
 
@@ -73,6 +116,7 @@ public class BackgroundConfig {
         try {
             JSONObject json = new JSONObject();
             json.put("customBackgroundEnabled", customBackgroundEnabled);
+            json.put("currentBackgroundIndex", currentBackgroundIndex);
 
             Path tempFile = configFile.resolveSibling(configFile.getFileName() + ".tmp");
             Files.writeString(tempFile, json.toString(4), StandardCharsets.UTF_8);
@@ -111,31 +155,52 @@ public class BackgroundConfig {
     }
 
     /**
-     * Checks if the custom background image file exists.
-     * Checks for .png, .jpg, and .jpeg extensions.
+     * Cycles to the next background image.
+     * Rescans directory to pick up new files.
      */
-    public boolean customBackgroundFileExists() {
-        for (String filename : SUPPORTED_EXTENSIONS) {
-            if (Files.exists(configDirectory.resolve(filename))) {
-                return true;
-            }
+    public void nextBackground() {
+        scanBackgrounds();
+        if (availableBackgrounds.isEmpty()) {
+            currentBackgroundIndex = 0;
+            return;
         }
-        return false;
+
+        currentBackgroundIndex = (currentBackgroundIndex + 1) % availableBackgrounds.size();
+        save();
     }
 
     /**
-     * Gets the path to the custom background file.
-     * Returns the first found file from supported formats.
+     * Gets the number of available backgrounds.
+     */
+    public int getBackgroundCount() {
+        return availableBackgrounds.size();
+    }
+
+    /**
+     * Gets the current background index (1-based for display).
+     */
+    public int getCurrentBackgroundNumber() {
+        return availableBackgrounds.isEmpty() ? 0 : currentBackgroundIndex + 1;
+    }
+
+    /**
+     * Checks if any custom background files exist.
+     */
+    public boolean customBackgroundFileExists() {
+        return !availableBackgrounds.isEmpty();
+    }
+
+    /**
+     * Gets the path to the current custom background file.
      */
     public Path getCustomBackgroundFile() {
-        for (String filename : SUPPORTED_EXTENSIONS) {
-            Path file = configDirectory.resolve(filename);
-            if (Files.exists(file)) {
-                return file;
-            }
+        if (availableBackgrounds.isEmpty()) {
+            return configDirectory.resolve("custom_bg.png");
         }
-        // Return default .png path even if it doesn't exist
-        return configDirectory.resolve(SUPPORTED_EXTENSIONS[0]);
+        if (currentBackgroundIndex < 0 || currentBackgroundIndex >= availableBackgrounds.size()) {
+            currentBackgroundIndex = 0;
+        }
+        return availableBackgrounds.get(currentBackgroundIndex);
     }
 
     /**

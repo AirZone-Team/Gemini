@@ -154,7 +154,8 @@ public class MainMenuScreen extends Screen {
             float footerNameX, float footerVersionX, float footerNameY, float footerVersionY,
             float hintsX, boolean showSubtitle, boolean showAtmosphere, boolean showNavigation,
             boolean showFooter, boolean showHints,
-            int bgToggleX, int bgToggleY, int bgToggleW, int bgToggleH) {
+            int bgToggleX, int bgToggleY, int bgToggleW, int bgToggleH,
+            int bgCycleX, int bgCycleY, int bgCycleW, int bgCycleH) {
 
         float menuY(int index) {
             return menuStartY + index * menuSpacing;
@@ -184,6 +185,7 @@ public class MainMenuScreen extends Screen {
 
     // Background toggle hover
     private float bgToggleHover;
+    private float bgCycleHover;
 
     // Mouse parallax effect
     private float mouseX = 0;
@@ -285,6 +287,7 @@ public class MainMenuScreen extends Screen {
         updateMenuHover(layout, mouseX, mouseY, dt);
         updateNavHover(layout, mouseX, mouseY, dt);
         updateBgToggleHover(layout, mouseX, mouseY, dt);
+        updateBgCycleHover(layout, mouseX, mouseY, dt);
 
         // ── 3. Frosted surfaces + ambient lighting ─────────
         drawAtmosphere(gui, layout, elapsed);
@@ -305,6 +308,9 @@ public class MainMenuScreen extends Screen {
 
         // ── 8. Background Toggle Button ────────────────────
         drawBackgroundToggle(gui, layout, elapsed);
+
+        // ── 8.5. Background Cycle Button ───────────────────
+        drawBackgroundCycle(gui, layout, elapsed);
 
         // ── 9. Footer ──────────────────────────────────────
         drawFooter(gui, layout, elapsed);
@@ -399,6 +405,12 @@ public class MainMenuScreen extends Screen {
         int navSurfaceH = 31;
         int bgToggleY = showNavigation ? navSurfaceY + navSurfaceH + 12 : 52;
 
+        // Background cycle button (left of toggle button)
+        int bgCycleW = 28;
+        int bgCycleH = 28;
+        int bgCycleX = bgToggleX - bgCycleW - 6; // 6px gap
+        int bgCycleY = bgToggleY;
+
         return new Layout(
                 titleText, (this.width - titleWidth) / 2f, titleY, titleWidth, titleSpacing,
                 titleY + TITLE_FONT_SIZE + 10f,
@@ -411,7 +423,8 @@ public class MainMenuScreen extends Screen {
                 footerNameY, footerVersionY,
                 panelX + (panelW - hintsW) / 2f,
                 showSubtitle, showAtmosphere, showNavigation, showFooter, showHints,
-                bgToggleX, bgToggleY, bgToggleW, bgToggleH);
+                bgToggleX, bgToggleY, bgToggleW, bgToggleH,
+                bgCycleX, bgCycleY, bgCycleW, bgCycleH);
     }
 
     private void drawAtmosphere(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
@@ -498,6 +511,11 @@ public class MainMenuScreen extends Screen {
     private void updateBgToggleHover(Layout layout, int mouseX, int mouseY, float dt) {
         boolean overToggle = isBgToggleHover(layout, mouseX, mouseY);
         bgToggleHover += ((overToggle ? 1f : 0f) - bgToggleHover) * dt * HOVER_SPEED;
+    }
+
+    private void updateBgCycleHover(Layout layout, int mouseX, int mouseY, float dt) {
+        boolean overCycle = isBgCycleHover(layout, mouseX, mouseY);
+        bgCycleHover += ((overCycle ? 1f : 0f) - bgCycleHover) * dt * HOVER_SPEED;
     }
 
     // ========================
@@ -936,6 +954,69 @@ public class MainMenuScreen extends Screen {
     }
 
     // ========================
+    // Background Cycle Button
+    // ========================
+
+    private void drawBackgroundCycle(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+        ensureFontsLoaded();
+        if (versionFont == null) return;
+
+        // Only show when custom backgrounds exist and are enabled
+        if (backgroundConfig == null || !backgroundConfig.customBackgroundFileExists()
+            || !backgroundConfig.isCustomBackgroundEnabled()) {
+            return;
+        }
+
+        float reveal = easeOutCubic(clamp01((elapsed - 0.65f) * 3f));
+        int alpha = (int) (entryAlpha * reveal * 255);
+        if (alpha <= 0) return;
+
+        int x = layout.bgCycleX;
+        int y = layout.bgCycleY;
+        int w = layout.bgCycleW;
+        int h = layout.bgCycleH;
+
+        int bgCount = backgroundConfig.getBackgroundCount();
+        if (bgCount <= 1) return; // No need to show cycle button if only 1 background
+
+        // Button background with hover effect
+        float hoverScale = 1f + bgCycleHover * 0.08f;
+        int hoverW = (int) (w * hoverScale);
+        int hoverH = (int) (h * hoverScale);
+        int hoverX = x - (hoverW - w) / 2;
+        int hoverY = y - (hoverH - h) / 2;
+
+        // Shadow
+        SdfUIRenderer.drawShadow(gui, hoverX, hoverY, hoverW, hoverH,
+                8, 0, 3, 10, scaleAlpha(0x48000000, reveal * (0.5f + bgCycleHover * 0.5f)));
+
+        // Background
+        int bgFill = scaleAlpha(0x80161D28, reveal);
+        int bgOutline = scaleAlpha(0x4089DDFF, reveal);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
+
+        // Icon: "→" arrow or counter text
+        String iconText = "→";
+        float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
+        float iconX = x + (w - iconW) / 2f;
+        float iconY = y + (h - VERSION_FONT_SIZE) / 2f;
+
+        int iconColor = scaleAlpha(NAV_IDLE, entryAlpha * reveal);
+        CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);
+
+        // Counter indicator (e.g., "2/5")
+        String counterText = backgroundConfig.getCurrentBackgroundNumber() + "/" + bgCount;
+        float counterW = CustomFontRenderer.stringWidth(versionFont, counterText);
+        float counterX = x + (w - counterW) / 2f;
+        float counterY = y + h - 2;
+        int counterColor = scaleAlpha(VERSION_COLOR, entryAlpha * reveal * 0.5f);
+
+        // Draw counter below button
+        CustomFontRenderer.drawString(gui, versionFont, counterText, counterX, counterY, counterColor);
+    }
+
+    // ========================
     // Input
     // ========================
 
@@ -949,6 +1030,24 @@ public class MainMenuScreen extends Screen {
                 if (backgroundConfig.customBackgroundFileExists()) {
                     backgroundConfig.toggle();
                     // No need to reload texture on every toggle - just switch rendering
+                }
+            }
+            return true;
+        }
+
+        // Background cycle button
+        if (isBgCycleHover(layout, mouse.x(), mouse.y())) {
+            if (backgroundConfig != null && backgroundConfig.customBackgroundFileExists()
+                && backgroundConfig.isCustomBackgroundEnabled()) {
+                backgroundConfig.nextBackground();
+                // Clear texture to force reload of new background
+                if (customBackgroundTexture != null) {
+                    AbstractTexture texture = minecraft.getTextureManager().getTexture(customBackgroundTexture);
+                    if (texture != null) {
+                        texture.close();
+                    }
+                    minecraft.getTextureManager().release(customBackgroundTexture);
+                    customBackgroundTexture = null;
                 }
             }
             return true;
@@ -1048,6 +1147,11 @@ public class MainMenuScreen extends Screen {
     private boolean isBgToggleHover(Layout layout, double mx, double my) {
         return mx >= layout.bgToggleX && mx <= layout.bgToggleX + layout.bgToggleW
                 && my >= layout.bgToggleY && my <= layout.bgToggleY + layout.bgToggleH;
+    }
+
+    private boolean isBgCycleHover(Layout layout, double mx, double my) {
+        return mx >= layout.bgCycleX && mx <= layout.bgCycleX + layout.bgCycleW
+                && my >= layout.bgCycleY && my <= layout.bgCycleY + layout.bgCycleH;
     }
 
     // ========================
