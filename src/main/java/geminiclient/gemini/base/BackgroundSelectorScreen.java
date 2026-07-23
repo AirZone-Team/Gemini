@@ -17,8 +17,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
 import javax.imageio.ImageIO;
-import javax.swing.JFileChooser;
-import javax.swing.filechooser.FileNameExtensionFilter;
+import java.awt.FileDialog;
+import java.awt.Frame;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -48,13 +48,13 @@ public class BackgroundSelectorScreen extends Screen {
     private static final int THUMBNAIL_SIZE = 64;
     private static final int SCROLL_SPEED = 20;
 
-    // Fonts
+    // Fonts - All using GoogleSans-Regular.ttf
     private static final Identifier FONT_BOLD =
-            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-bold.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/GoogleSans-Regular.ttf");
     private static final Identifier FONT_MEDIUM =
-            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-medium.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/GoogleSans-Regular.ttf");
     private static final Identifier FONT_LIGHT =
-            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-light.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/GoogleSans-Regular.ttf");
 
     // Colors (matching MainMenuScreen style)
     private static final int PANEL_BG = 0xE8161D28;
@@ -529,29 +529,31 @@ public class BackgroundSelectorScreen extends Screen {
         // Use AWT FileDialog for native Windows file chooser
         new Thread(() -> {
             try {
-                javax.swing.JFileChooser fileChooser = new javax.swing.JFileChooser();
-                fileChooser.setDialogTitle("Select Wallpaper");
-                fileChooser.setFileSelectionMode(javax.swing.JFileChooser.FILES_ONLY);
+                // Set headless property to false temporarily
+                System.setProperty("java.awt.headless", "false");
 
-                // File filter for images
-                javax.swing.filechooser.FileNameExtensionFilter filter =
-                    new javax.swing.filechooser.FileNameExtensionFilter(
-                        "Image Files (PNG, JPG, JPEG, GIF, MP4, WEBM)",
-                        "png", "jpg", "jpeg", "gif", "mp4", "webm");
-                fileChooser.setFileFilter(filter);
+                java.awt.FileDialog fileDialog = new java.awt.FileDialog((java.awt.Frame) null, "Select Wallpaper", java.awt.FileDialog.LOAD);
+                fileDialog.setMultipleMode(false);
+                fileDialog.setFilenameFilter((dir, name) -> {
+                    String lower = name.toLowerCase();
+                    return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                            || lower.endsWith(".gif") || lower.endsWith(".mp4") || lower.endsWith(".webm");
+                });
+                fileDialog.setVisible(true);
 
-                int result = fileChooser.showOpenDialog(null);
+                String selectedFile = fileDialog.getFile();
+                String selectedDir = fileDialog.getDirectory();
 
-                if (result == javax.swing.JFileChooser.APPROVE_OPTION) {
-                    java.io.File selectedFile = fileChooser.getSelectedFile();
+                if (selectedFile != null && selectedDir != null) {
+                    File file = new File(selectedDir, selectedFile);
 
                     // Copy file to wallpapers directory
                     Path targetDir = backgroundConfig.getBackgroundsDirectory();
-                    Path targetPath = targetDir.resolve(selectedFile.getName());
+                    Path targetPath = targetDir.resolve(file.getName());
 
                     // If file already exists, add number suffix
                     int counter = 1;
-                    String baseName = selectedFile.getName();
+                    String baseName = file.getName();
                     String extension = "";
                     int dotIndex = baseName.lastIndexOf('.');
                     if (dotIndex > 0) {
@@ -565,7 +567,7 @@ public class BackgroundSelectorScreen extends Screen {
                     }
 
                     final Path finalTargetPath = targetPath; // Make it final for lambda
-                    Files.copy(selectedFile.toPath(), finalTargetPath);
+                    Files.copy(file.toPath(), finalTargetPath);
                     System.out.println("[BackgroundSelector] Added wallpaper: " + finalTargetPath);
 
                     // Rescan backgrounds and close selector to refresh
@@ -583,6 +585,7 @@ public class BackgroundSelectorScreen extends Screen {
                     });
                 }
             } catch (Exception e) {
+                System.err.println("[BackgroundSelector] Error opening file chooser: " + e.getMessage());
                 e.printStackTrace();
             }
         }).start();
@@ -590,6 +593,10 @@ public class BackgroundSelectorScreen extends Screen {
 
     @Override
     public void onClose() {
+        // Force refresh parent screen to apply particle settings
+        if (parent instanceof MainMenuScreen) {
+            ((MainMenuScreen) parent).reloadCustomBackground();
+        }
         this.minecraft.gui.setScreen(parent);
     }
 
