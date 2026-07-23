@@ -1,6 +1,7 @@
 package geminiclient.gemini.base;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.platform.NativeImage;
 import geminiclient.gemini.base.alt.AltManagerScreen;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
@@ -16,10 +17,18 @@ import net.minecraft.client.gui.screens.options.OptionsScreen;
 import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.NotNull;
 
+import javax.imageio.ImageIO;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -122,6 +131,13 @@ public class MainMenuScreen extends Screen {
     private static final String DISCORD_URL = "https://discord.com/";
 
     // ========================
+    // Custom Background
+    // ========================
+    private static BackgroundConfig backgroundConfig;
+    private static Identifier customBackgroundTexture;
+    private static boolean customBackgroundLoadFailed = false;
+
+    // ========================
     // Inner Types
     // ========================
 
@@ -137,7 +153,9 @@ public class MainMenuScreen extends Screen {
             int navSurfaceX, int navSurfaceY, int navSurfaceW, int navSurfaceH,
             float footerNameX, float footerVersionX, float footerNameY, float footerVersionY,
             float hintsX, boolean showSubtitle, boolean showAtmosphere, boolean showNavigation,
-            boolean showFooter, boolean showHints) {
+            boolean showFooter, boolean showHints,
+            int bgToggleX, int bgToggleY, int bgToggleW, int bgToggleH,
+            int bgCycleX, int bgCycleY, int bgCycleW, int bgCycleH) {
 
         float menuY(int index) {
             return menuStartY + index * menuSpacing;
@@ -165,6 +183,17 @@ public class MainMenuScreen extends Screen {
     private float githubUnderline;
     private float discordUnderline;
 
+    // Background toggle hover
+    private float bgToggleHover;
+    private float bgCycleHover;
+
+    // Mouse parallax effect
+    private float mouseX = 0;
+    private float mouseY = 0;
+
+    // Particle system for custom background
+    private ParticleSystem particleSystem;
+
     private long screenOpenTime;
     private long lastFrameMs;
     private boolean firstInit = true;
@@ -183,6 +212,18 @@ public class MainMenuScreen extends Screen {
 
     @Override
     protected void init() {
+        // Initialize background config
+        if (backgroundConfig == null) {
+            backgroundConfig = new BackgroundConfig();
+        }
+
+        // Initialize particle system
+        if (particleSystem == null) {
+            particleSystem = new ParticleSystem(this.width, this.height);
+        } else {
+            particleSystem.resize(this.width, this.height);
+        }
+
         menuItems.clear();
         menuItems.add(new MenuItem("Singleplayer",
                 () -> this.minecraft.gui.setScreen(new SelectWorldScreen(this))));
@@ -218,6 +259,16 @@ public class MainMenuScreen extends Screen {
         lastFrameMs = now;
         float elapsed = (now - screenOpenTime) / 1000f;
 
+        // Update mouse position for parallax
+        this.mouseX = mouseX;
+        this.mouseY = mouseY;
+
+        // Update particle system
+        if (particleSystem != null && backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
+            particleSystem.updateMousePosition(mouseX, mouseY);
+            particleSystem.update(dt);
+        }
+
         // Entry fade-in
         entryAlpha += (1f - entryAlpha) * dt * ENTRY_FADE_SPEED;
         if (entryAlpha > 0.99f) entryAlpha = 1f;
@@ -225,11 +276,18 @@ public class MainMenuScreen extends Screen {
         Layout layout = layout();
 
         // ── 1. GLSL Background ─────────────────────────────
-        InfiniteGridRenderer.render(elapsed);
+        renderBackground(gui, elapsed);
+
+        // ── 1.5. Particle System (only with custom background) ─────
+        if (particleSystem != null && backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
+            particleSystem.render(gui, partialTicks);
+        }
 
         // ── 2. Update hover animations ─────────────────────
         updateMenuHover(layout, mouseX, mouseY, dt);
         updateNavHover(layout, mouseX, mouseY, dt);
+        updateBgToggleHover(layout, mouseX, mouseY, dt);
+        updateBgCycleHover(layout, mouseX, mouseY, dt);
 
         // ── 3. Frosted surfaces + ambient lighting ─────────
         drawAtmosphere(gui, layout, elapsed);
@@ -248,7 +306,13 @@ public class MainMenuScreen extends Screen {
         // ── 7. Navigation ──────────────────────────────────
         drawNavigation(gui, layout, elapsed);
 
-        // ── 8. Footer ──────────────────────────────────────
+        // ── 8. Background Toggle Button ────────────────────
+        drawBackgroundToggle(gui, layout, elapsed);
+
+        // ── 8.5. Background Cycle Button ───────────────────
+        drawBackgroundCycle(gui, layout, elapsed);
+
+        // ── 9. Footer ──────────────────────────────────────
         drawFooter(gui, layout, elapsed);
     }
 
@@ -333,6 +397,20 @@ public class MainMenuScreen extends Screen {
         String hints = "↑↓  Select    Enter  Open";
         float hintsW = versionFont == null ? 0f : CustomFontRenderer.stringWidth(versionFont, hints);
 
+        // Background toggle button (right side, below navigation)
+        int bgToggleW = 28;
+        int bgToggleH = 28;
+        int bgToggleX = this.width - (int) Math.min(NAV_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f)) - bgToggleW;
+        int navSurfaceY = 10;
+        int navSurfaceH = 31;
+        int bgToggleY = showNavigation ? navSurfaceY + navSurfaceH + 12 : 52;
+
+        // Background cycle button (left of toggle button)
+        int bgCycleW = 28;
+        int bgCycleH = 28;
+        int bgCycleX = bgToggleX - bgCycleW - 6; // 6px gap
+        int bgCycleY = bgToggleY;
+
         return new Layout(
                 titleText, (this.width - titleWidth) / 2f, titleY, titleWidth, titleSpacing,
                 titleY + TITLE_FONT_SIZE + 10f,
@@ -344,11 +422,19 @@ public class MainMenuScreen extends Screen {
                 this.width - footerRight - w1, this.width - footerRight - w2,
                 footerNameY, footerVersionY,
                 panelX + (panelW - hintsW) / 2f,
-                showSubtitle, showAtmosphere, showNavigation, showFooter, showHints);
+                showSubtitle, showAtmosphere, showNavigation, showFooter, showHints,
+                bgToggleX, bgToggleY, bgToggleW, bgToggleH,
+                bgCycleX, bgCycleY, bgCycleW, bgCycleH);
     }
 
     private void drawAtmosphere(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         if (!layout.showAtmosphere) return;
+        // Don't show atmosphere when custom background is active
+        if (backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()
+                && backgroundConfig.customBackgroundFileExists()) {
+            return;
+        }
+
         float reveal = easeOutCubic(clamp01(elapsed * 1.6f)) * entryAlpha;
         if (reveal <= 0.01f) return;
 
@@ -420,6 +506,16 @@ public class MainMenuScreen extends Screen {
 
         githubUnderline += ((overGithub ? 1f : 0f) - githubUnderline) * dt * UNDERLINE_SPEED;
         discordUnderline += ((overDiscord ? 1f : 0f) - discordUnderline) * dt * UNDERLINE_SPEED;
+    }
+
+    private void updateBgToggleHover(Layout layout, int mouseX, int mouseY, float dt) {
+        boolean overToggle = isBgToggleHover(layout, mouseX, mouseY);
+        bgToggleHover += ((overToggle ? 1f : 0f) - bgToggleHover) * dt * HOVER_SPEED;
+    }
+
+    private void updateBgCycleHover(Layout layout, int mouseX, int mouseY, float dt) {
+        boolean overCycle = isBgCycleHover(layout, mouseX, mouseY);
+        bgCycleHover += ((overCycle ? 1f : 0f) - bgCycleHover) * dt * HOVER_SPEED;
     }
 
     // ========================
@@ -689,12 +785,274 @@ public class MainMenuScreen extends Screen {
     }
 
     // ========================
+    // Background Rendering
+    // ========================
+
+    private void renderBackground(GuiGraphicsExtractor gui, float elapsed) {
+        if (backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
+            renderCustomBackground(gui);
+        }
+        // Render grid particles if enabled
+        if (backgroundConfig != null && backgroundConfig.isParticlesEnabled()) {
+            InfiniteGridRenderer.render(elapsed);
+        } else if (backgroundConfig != null) {
+            // Particles disabled - skip rendering
+        }
+    }
+
+    private void renderCustomBackground(GuiGraphicsExtractor gui) {
+        if (!backgroundConfig.customBackgroundFileExists()) {
+            return;
+        }
+
+        if (customBackgroundLoadFailed) {
+            return;
+        }
+
+        // Load texture if not already loaded
+        if (customBackgroundTexture == null) {
+            try {
+                Path bgFile = backgroundConfig.getCustomBackgroundFile();
+                if (!Files.exists(bgFile)) {
+                    customBackgroundLoadFailed = true;
+                    return;
+                }
+
+                // Load image from file using NativeImage
+                // NativeImage.read() supports both PNG and JPEG formats
+                NativeImage image = null;
+                try (FileInputStream fis = new FileInputStream(bgFile.toFile())) {
+                    image = NativeImage.read(fis);
+                } catch (IOException readError) {
+                    // If NativeImage fails, try using ImageIO as fallback for JPEG
+                    try {
+                        java.awt.image.BufferedImage bufferedImage = ImageIO.read(bgFile.toFile());
+                        if (bufferedImage == null) {
+                            customBackgroundLoadFailed = true;
+                            return;
+                        }
+
+                        // Convert BufferedImage to NativeImage
+                        int width = bufferedImage.getWidth();
+                        int height = bufferedImage.getHeight();
+                        image = new NativeImage(width, height, false);
+
+                        for (int y = 0; y < height; y++) {
+                            for (int x = 0; x < width; x++) {
+                                int argb = bufferedImage.getRGB(x, y);
+                                image.setPixel(x, y, argb);
+                            }
+                        }
+                    } catch (Exception fallbackError) {
+                        customBackgroundLoadFailed = true;
+                        return;
+                    }
+                }
+
+                if (image == null) {
+                    customBackgroundLoadFailed = true;
+                    return;
+                }
+
+                // Create dynamic texture from NativeImage
+                DynamicTexture texture = new DynamicTexture(() -> "custom_background", image);
+                customBackgroundTexture = Identifier.fromNamespaceAndPath("gemini", "custom_background");
+                minecraft.getTextureManager().register(customBackgroundTexture, texture);
+
+            } catch (Exception e) {
+                customBackgroundLoadFailed = true;
+                return;
+            }
+        }
+
+        // Render the custom background with parallax effect
+        try {
+            // Calculate parallax offset based on mouse position
+            float parallaxOffsetX = ((mouseX / (float) this.width) - 0.5f) * 40f;
+            float parallaxOffsetY = ((mouseY / (float) this.height) - 0.5f) * 40f;
+
+            // Scale image by 110% to cover parallax movement and avoid tiling
+            float scale = 1.1f;
+            int scaledWidth = (int) (this.width * scale);
+            int scaledHeight = (int) (this.height * scale);
+
+            // Center the scaled image and apply parallax offset
+            int renderX = (int) (-(scaledWidth - this.width) / 2f + parallaxOffsetX);
+            int renderY = (int) (-(scaledHeight - this.height) / 2f + parallaxOffsetY);
+
+            // Render: blit(pipeline, texture, screenX, screenY, texU, texV, screenW, screenH, texWidth, texHeight, color)
+            gui.blit(RenderPipelines.GUI_TEXTURED, customBackgroundTexture,
+                    renderX, renderY, 0, 0, scaledWidth, scaledHeight, scaledWidth, scaledHeight, 0xFFFFFFFF);
+        } catch (Exception e) {
+            // Silently fail
+        }
+    }
+
+    /**
+     * Reloads the custom background texture.
+     * Called when a new wallpaper is selected from the selector screen.
+     */
+    public void reloadCustomBackground() {
+        // Clear existing texture
+        if (customBackgroundTexture != null) {
+            AbstractTexture texture = minecraft.getTextureManager().getTexture(customBackgroundTexture);
+            if (texture != null) {
+                texture.close();
+            }
+            minecraft.getTextureManager().release(customBackgroundTexture);
+            customBackgroundTexture = null;
+        }
+
+        // Reset flags to trigger reload on next render
+        customBackgroundLoadFailed = false;
+    }
+
+    // ========================
+    // Background Toggle Button
+    // ========================
+
+    private void drawBackgroundToggle(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+        ensureFontsLoaded();
+        if (versionFont == null) return;
+
+        float reveal = easeOutCubic(clamp01((elapsed - 0.65f) * 3f));
+        int alpha = (int) (entryAlpha * reveal * 255);
+        if (alpha <= 0) return;
+
+        int x = layout.bgToggleX;
+        int y = layout.bgToggleY;
+        int w = layout.bgToggleW;
+        int h = layout.bgToggleH;
+
+        boolean enabled = backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled();
+        boolean fileExists = backgroundConfig != null && backgroundConfig.customBackgroundFileExists();
+
+        // Button background with hover effect
+        float hoverScale = 1f + bgToggleHover * 0.08f;
+        int hoverW = (int) (w * hoverScale);
+        int hoverH = (int) (h * hoverScale);
+        int hoverX = x - (hoverW - w) / 2;
+        int hoverY = y - (hoverH - h) / 2;
+
+        // Shadow
+        SdfUIRenderer.drawShadow(gui, hoverX, hoverY, hoverW, hoverH,
+                8, 0, 3, 10, scaleAlpha(0x48000000, reveal * (0.5f + bgToggleHover * 0.5f)));
+
+        // Background
+        int bgFill = enabled ? scaleAlpha(0xB01B2936, reveal) : scaleAlpha(0x80161D28, reveal);
+        int bgOutline = enabled ? scaleAlpha(ROW_OUTLINE, reveal) : scaleAlpha(0x4089DDFF, reveal);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
+
+        // Icon: "BG" text
+        String iconText = "BG";
+        float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
+        float iconX = x + (w - iconW) / 2f;
+        float iconY = y + (h - VERSION_FONT_SIZE) / 2f;
+
+        int iconColor;
+        if (!fileExists) {
+            // Gray if no custom background file exists
+            iconColor = scaleAlpha(VERSION_COLOR, entryAlpha * reveal * 0.6f);
+        } else if (enabled) {
+            // Accent cyan when enabled
+            iconColor = scaleAlpha(ACCENT, entryAlpha * reveal);
+        } else {
+            // Normal gray when disabled but file exists
+            iconColor = scaleAlpha(NAV_IDLE, entryAlpha * reveal);
+        }
+
+        CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);
+
+        // Status indicator dot
+        if (fileExists) {
+            int dotSize = 4;
+            int dotX = x + w - dotSize - 3;
+            int dotY = y + 3;
+            int dotColor = enabled
+                    ? scaleAlpha(0xFF89DDFF, reveal)  // Cyan when on
+                    : scaleAlpha(0xFF666666, reveal * 0.7f);  // Gray when off
+            CustomRoundedRectRenderer.drawRoundedRect(gui, dotX, dotY, dotSize, dotSize, 2, dotColor);
+        }
+    }
+
+    // ========================
+    // Background Cycle Button
+    // ========================
+
+    private void drawBackgroundCycle(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+        ensureFontsLoaded();
+        if (versionFont == null) return;
+
+        // Only show when custom backgrounds are enabled
+        if (backgroundConfig == null || !backgroundConfig.isCustomBackgroundEnabled()) {
+            return;
+        }
+
+        float reveal = easeOutCubic(clamp01((elapsed - 0.65f) * 3f));
+        int alpha = (int) (entryAlpha * reveal * 255);
+        if (alpha <= 0) return;
+
+        int x = layout.bgCycleX;
+        int y = layout.bgCycleY;
+        int w = layout.bgCycleW;
+        int h = layout.bgCycleH;
+
+        // Button background with hover effect
+        float hoverScale = 1f + bgCycleHover * 0.08f;
+        int hoverW = (int) (w * hoverScale);
+        int hoverH = (int) (h * hoverScale);
+        int hoverX = x - (hoverW - w) / 2;
+        int hoverY = y - (hoverH - h) / 2;
+
+        // Shadow
+        SdfUIRenderer.drawShadow(gui, hoverX, hoverY, hoverW, hoverH,
+                8, 0, 3, 10, scaleAlpha(0x48000000, reveal * (0.5f + bgCycleHover * 0.5f)));
+
+        // Background
+        int bgFill = scaleAlpha(0x80161D28, reveal);
+        int bgOutline = scaleAlpha(0x4089DDFF, reveal);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
+
+        // Icon: Gear symbol for background selector
+        String iconText = "⚙";
+        float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
+        float iconX = x + (w - iconW) / 2f;
+        float iconY = y + (h - VERSION_FONT_SIZE) / 2f - 3;
+
+        int iconColor = scaleAlpha(NAV_IDLE, entryAlpha * reveal);
+        CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);
+    }
+
+    // ========================
     // Input
     // ========================
 
     @Override
     public boolean mouseClicked(@NotNull MouseButtonEvent mouse, boolean idk) {
         Layout layout = layout();
+
+        // Background toggle button
+        if (isBgToggleHover(layout, mouse.x(), mouse.y())) {
+            if (backgroundConfig != null) {
+                if (backgroundConfig.customBackgroundFileExists()) {
+                    backgroundConfig.toggle();
+                    // No need to reload texture on every toggle - just switch rendering
+                }
+            }
+            return true;
+        }
+
+        // Background selector button (gear icon, opens GUI)
+        if (isBgCycleHover(layout, mouse.x(), mouse.y())) {
+            if (backgroundConfig != null) {
+                // Open background selector screen
+                this.minecraft.gui.setScreen(new BackgroundSelectorScreen(this, backgroundConfig));
+            }
+            return true;
+        }
+
         // Navigation links
         if (isNavGithubHover(layout, mouse.x(), mouse.y())) {
 //            Util.getPlatform().openUri(GITHUB_URL);
@@ -784,6 +1142,16 @@ public class MainMenuScreen extends Screen {
         float discordX = layout.discordX();
         return mx >= discordX - 4 && mx <= discordX + layout.discordW + 4
                 && my >= layout.navY - 4 && my <= layout.navY + navFont.lineHeight + 4;
+    }
+
+    private boolean isBgToggleHover(Layout layout, double mx, double my) {
+        return mx >= layout.bgToggleX && mx <= layout.bgToggleX + layout.bgToggleW
+                && my >= layout.bgToggleY && my <= layout.bgToggleY + layout.bgToggleH;
+    }
+
+    private boolean isBgCycleHover(Layout layout, double mx, double my) {
+        return mx >= layout.bgCycleX && mx <= layout.bgCycleX + layout.bgCycleW
+                && my >= layout.bgCycleY && my <= layout.bgCycleY + layout.bgCycleH;
     }
 
     // ========================
