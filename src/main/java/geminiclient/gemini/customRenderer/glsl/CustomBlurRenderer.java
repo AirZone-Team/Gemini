@@ -12,6 +12,7 @@ import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
+import com.mojang.blaze3d.shaders.ShaderSource;
 import com.mojang.blaze3d.shaders.UniformType;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderPass;
@@ -109,15 +110,14 @@ public final class CustomBlurRenderer {
 
     /**
      * Compile the blur program ahead of first use. Called by
-     * {@link UiShaderWarmup} during the resource-reload stage (render thread,
-     * after the vanilla ShaderManager) so the first blur render doesn't pay
-     * the compile/link cost. Repeat calls are cheap: the GL pipeline cache
-     * deduplicates.
+     * {@link UiShaderWarmup} during the resource-reload stage so the first blur
+     * render doesn't pay the compile/link cost. Repeat calls are cheap: the GL
+     * pipeline cache deduplicates them.
      */
-    public static void precompile() {
+    public static void precompile(ShaderSource shaderSource) {
         ensureProgram();
-        RenderSystem.getDevice().precompilePipeline(pipeline, null);
-        RenderSystem.getDevice().precompilePipeline(copyPipeline, null);
+        RenderSystem.getDevice().precompilePipeline(pipeline, shaderSource);
+        RenderSystem.getDevice().precompilePipeline(copyPipeline, shaderSource);
     }
 
     // ========================

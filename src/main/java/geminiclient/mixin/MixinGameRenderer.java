@@ -2,8 +2,10 @@ package geminiclient.mixin;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
+import geminiclient.gemini.customRenderer.glsl.CustomRendererRegistry;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectInstance;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectPostProcessor;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.modules.impl.visual.KillEffect;
@@ -50,10 +52,14 @@ public class MixinGameRenderer {
 
     @Inject(method = "render",at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;render()V"))
     public void inject2D(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
+        if (!CustomRendererRegistry.areShadersReady()) {
+            return;
+        }
+
         int i = (int) this.minecraft.mouseHandler.getScaledXPos(this.minecraft.getWindow());
         int j = (int) this.minecraft.mouseHandler.getScaledYPos(this.minecraft.getWindow());
         GuiGraphicsExtractor g = new GuiGraphicsExtractor(this.minecraft, this.gameRenderState.guiRenderState, i, j);
-        Gemini.eventManager.call(new Render2DEvent(g, g.pose()));
+        Gemini.eventManager.post(EventTypes.RENDER_2D, new Render2DEvent(g, g.pose()));
         CustomFontRenderer.flushAllPages();
 
         // ── ClickGui: submit the screen above all HUD, with a blur boundary ──

@@ -2,6 +2,7 @@ package geminiclient.mixin;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.MoveInputEvent;
 import geminiclient.gemini.event.events.impl.StrafeEvent;
 import geminiclient.gemini.event.impl.Event;
@@ -27,7 +28,7 @@ public class MixinKeyboardInput extends ClientInput {
                 original.shift(),
                 original.sprint())
         ;
-        Gemini.eventManager.call(event);
+        Gemini.eventManager.post(EventTypes.MOVE_INPUT, event);
         return event.toNewInput();
     }
 }

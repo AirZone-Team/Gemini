@@ -2,6 +2,7 @@ package geminiclient.mixin;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.RotationAnimationEvent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.EntityModel;
@@ -38,7 +39,7 @@ public class MixinLivingEntityRenderer<T extends LivingEntity, S extends LivingE
     private float redirectHeadYaw(float pDelta, float pStart, float pEnd) {
         RotationAnimationEvent event = new RotationAnimationEvent(pEnd, pStart, 0.0F, 0.0F);
         if (RotationAnimationEvent.currentEntity == Minecraft.getInstance().player) {
-            Gemini.eventManager.call(event);
+            Gemini.eventManager.post(EventTypes.ROTATION_ANIMATION, event);
         }
         return Mth.rotLerp(pDelta, event.getLastYaw(), event.getYaw());
     }
@@ -47,7 +48,7 @@ public class MixinLivingEntityRenderer<T extends LivingEntity, S extends LivingE
     private float modifyPitch(float original, LivingEntity entity, S state, float partialTicks) {
         if (entity == mc.player) {
             RotationAnimationEvent event = new RotationAnimationEvent(0.0f, 0.0f, entity.getXRot(), entity.getXRot(0.0f));
-            Gemini.eventManager.call(event);
+            Gemini.eventManager.post(EventTypes.ROTATION_ANIMATION, event);
             return Mth.rotLerp(partialTicks, event.getLastPitch(), event.getPitch());
         }
         return original;

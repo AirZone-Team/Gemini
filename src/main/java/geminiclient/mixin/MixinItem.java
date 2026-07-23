@@ -2,6 +2,7 @@ package geminiclient.mixin;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.moveFixEvent.UseItemRaytraceEvent;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
@@ -16,7 +17,7 @@ public class MixinItem {
     @ModifyExpressionValue(method = "getPlayerPOVHitResult", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Player;calculateViewVector(FF)Lnet/minecraft/world/phys/Vec3;"))
     private static Vec3 hookUseItemRayTrace(Vec3 original, Level level, Player player, ClipContext.Fluid fluid) {
         UseItemRaytraceEvent event = new UseItemRaytraceEvent(player.getYRot(), player.getXRot());
-        Gemini.eventManager.call(event);
+        Gemini.eventManager.post(EventTypes.USE_ITEM_RAY_TRACE, event);
         return player.calculateViewVector(event.getPitch(), event.getYaw());
     }
 }

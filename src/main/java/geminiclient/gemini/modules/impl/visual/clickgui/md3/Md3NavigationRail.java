@@ -8,19 +8,19 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
  * Persistent Material 3 navigation rail.
  *
  * <p>Material navigation rails are intentionally stable rather than revealed
- * on hover: destinations keep a 56dp active indicator and an always-visible
+ * on hover: destinations keep a compact active indicator and an always-visible
  * label, so category changes never move the content under the pointer.</p>
  */
 public class Md3NavigationRail {
 
-    public static final int WIDTH = 88;
+    public static final int WIDTH = 76;
 
-    private static final int HEADER_HEIGHT = 40;
-    private static final int BLOCK_HEIGHT = 54;
+    private static final int HEADER_HEIGHT = 32;
+    private static final int BLOCK_HEIGHT = 44;
     private static final int BLOCK_SPACING = 2;
-    private static final int PILL_W = 56;
-    private static final int PILL_H = 30;
-    private static final int ICON_SIZE = 18;
+    private static final int PILL_W = 48;
+    private static final int PILL_H = 26;
+    private static final int ICON_SIZE = 16;
 
     public int x, y, height;
 
@@ -71,7 +71,7 @@ public class Md3NavigationRail {
     }
 
     private float pillCenterY(float index) {
-        return y + HEADER_HEIGHT + 3 + PILL_H / 2f
+        return y + HEADER_HEIGHT + 2 + PILL_H / 2f
                 + index * blockStep();
     }
 
@@ -80,7 +80,7 @@ public class Md3NavigationRail {
             return BLOCK_HEIGHT + BLOCK_SPACING;
         }
         return Math.min(BLOCK_HEIGHT + BLOCK_SPACING,
-                Math.max(44f, (height - HEADER_HEIGHT) / (float) destinations.length));
+                Math.max(40f, (height - HEADER_HEIGHT) / (float) destinations.length));
     }
 
     /**
@@ -93,8 +93,13 @@ public class Md3NavigationRail {
     public void render(GuiGraphicsExtractor gui, int mouseX, int mouseY, float partialTicks) {
         int railHeight = getTotalHeight();
 
-        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, WIDTH, railHeight, 0,
+        int railRadius = Md3Theme.R_EXTRA_LARGE;
+        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, WIDTH, railHeight, railRadius,
                 Md3Theme.SURFACE_CONTAINER_LOW);
+        // Keep the rail square where it joins the app bar and content surface.
+        gui.fill(x, y, x + WIDTH, y + railRadius, Md3Theme.SURFACE_CONTAINER_LOW);
+        gui.fill(x + railRadius, y + railHeight - railRadius,
+                x + WIDTH, y + railHeight, Md3Theme.SURFACE_CONTAINER_LOW);
         gui.fill(x + WIDTH - 1, y + 8, x + WIDTH, y + railHeight - 8,
                 Md3Theme.withAlpha(Md3Theme.OUTLINE_VARIANT, 0.55f));
 
@@ -102,7 +107,7 @@ public class Md3NavigationRail {
         String browse = "BROWSE";
         float browseWidth = Md3Fonts.width(labelFont, browse);
         Md3Fonts.drawText(gui, labelFont, browse, x + (WIDTH - browseWidth) / 2f,
-                y + 13, Md3Theme.ON_SURFACE_VARIANT);
+                y + 9, Md3Theme.ON_SURFACE_VARIANT);
 
         selectionAnim.setTarget(selectedIndex);
         float activeCenterY = pillCenterY(selectionAnim.getValue());

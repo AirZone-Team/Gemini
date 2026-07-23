@@ -2,6 +2,7 @@ package geminiclient.gemini.customRenderer.glsl;
 
 import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.shaders.ShaderSource;
 import com.mojang.blaze3d.systems.RenderSystem;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Fonts;
 import net.minecraft.client.Minecraft;
@@ -10,8 +11,12 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
 import net.minecraft.util.profiling.ProfilerFiller;
+import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.Reader;
 
 /**
  * Pre-compiles every GPU resource the ClickGui needs on first open, so the
@@ -19,11 +24,9 @@ import org.slf4j.LoggerFactory;
  * visible hitch when the GUI opens for the first time.
  *
  * <p>Registered as a client resource-reload listener via
- * {@code AddClientReloadListenersEvent}. NeoForge automatically sorts mod
- * listeners after the last vanilla listener, so the {@code apply} stage runs
- * on the render thread <b>after</b> the vanilla {@code ShaderManager} — meaning
- * shader sources and post-chain configs are already loaded and the GL pipeline
- * cache has just been cleared (which is also why this re-warms after F3+T).</p>
+ * {@code AddClientReloadListenersEvent}. Because reload-listener ordering can
+ * place this before vanilla's {@code ShaderManager} apply stage, custom shader
+ * sources are read directly from the active resource manager.</p>
  *
  * <p>What is warmed:</p>
  * <ul>
@@ -65,26 +68,35 @@ public final class UiShaderWarmup {
 
             @Override
             protected void apply(Object preparations, ResourceManager manager, ProfilerFiller profiler) {
-                warmup();
+                warmup(manager);
             }
         };
     }
 
     /** Run all warmup steps. Safe to call repeatedly (caches make repeats cheap). */
-    public static void warmup() {
+    public static void warmup(ResourceManager resourceManager) {
         long start = System.nanoTime();
+        ShaderSource shaderSource = (id, type) -> {
+            Identifier location = type.idConverter().idToFile(id);
+            try (Reader reader = resourceManager.getResourceOrThrow(location).openAsReader()) {
+                return IOUtils.toString(reader);
+            } catch (IOException exception) {
+                LOGGER.error("[UiWarmup] Couldn't load {} shader source {}", type, location, exception);
+                return null;
+            }
+        };
 
         // ── Custom render pipelines (MSDF font + glow shadows + SDF rounded UI) ──
-        precompile("font", CustomFontRenderer.FONT_PIPELINE);
-        precompile("glow_rect", GlowRenderer.GLOW_PIPELINE);
-        precompile("sdf_rounded_rect", SdfUIRenderer.SDF_RECT_PIPELINE);
-        precompile("sdf_rounded_shadow", SdfUIRenderer.SDF_SHADOW_PIPELINE);
-        precompile("sdf_wavy_ring", SdfUIRenderer.SDF_WAVY_RING_PIPELINE);
-        precompile("sdf_md3_icon", SdfUIRenderer.SDF_ICON_PIPELINE);
+        precompile("font", CustomFontRenderer.FONT_PIPELINE, shaderSource);
+        precompile("glow_rect", GlowRenderer.GLOW_PIPELINE, shaderSource);
+        precompile("sdf_rounded_rect", SdfUIRenderer.SDF_RECT_PIPELINE, shaderSource);
+        precompile("sdf_rounded_shadow", SdfUIRenderer.SDF_SHADOW_PIPELINE, shaderSource);
+        precompile("sdf_wavy_ring", SdfUIRenderer.SDF_WAVY_RING_PIPELINE, shaderSource);
+        precompile("sdf_md3_icon", SdfUIRenderer.SDF_ICON_PIPELINE, shaderSource);
 
         // ── Custom region blur pipeline ──
         try {
-            CustomBlurRenderer.precompile();
+            CustomBlurRenderer.precompile(shaderSource);
         } catch (Throwable t) {
             LOGGER.warn("[UiWarmup] Region-blur pipeline warmup failed; will compile lazily", t);
         }
@@ -109,11 +121,11 @@ public final class UiShaderWarmup {
                 (System.nanoTime() - start) / 1_000_000L);
     }
 
-    private static void precompile(String name, RenderPipeline pipeline) {
+    private static void precompile(String name, RenderPipeline pipeline, ShaderSource shaderSource) {
         try {
-            CompiledRenderPipeline compiled = RenderSystem.getDevice().precompilePipeline(pipeline, null);
+            CompiledRenderPipeline compiled = RenderSystem.getDevice().precompilePipeline(pipeline, shaderSource);
             if (!compiled.isValid()) {
-                LOGGER.warn("[UiWarmup] Pipeline {} compiled invalid; will retry lazily", name);
+                LOGGER.warn("[UiWarmup] Pipeline {} compiled invalid", name);
             }
         } catch (Throwable t) {
             LOGGER.warn("[UiWarmup] Pipeline {} warmup failed; will compile lazily", name, t);

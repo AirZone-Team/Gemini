@@ -24,13 +24,15 @@ import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.monster.cubemob.Slime;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.ClipContext;
 import org.jetbrains.annotations.UnknownNullability;
 
 import java.awt.Color;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -54,19 +56,23 @@ public class KillAura extends Module {
             new BoolValue("OpeningScreen")
     });
     private final ListValue rotationMode = new ListValue("RotationMode", "Linear", new String[]{
-            "Linear", "Exponential", "Smooth", "Adaptive"
+            "Linear", "Exponential", "Smooth", "Bezier", "Adaptive"
     });
     private final ListValue easingCurve = new ListValue("EasingCurve", "Smoothstep", new String[]{
             "Smoothstep", "EaseInOutCubic", "EaseOutCubic", "EaseOutExpo"
-    }, () -> rotationMode.is("Smooth"));
+    }, () -> rotationMode.is("Smooth") || rotationMode.is("Bezier"));
     private final FloatValue overshoot = new FloatValue("Overshoot", 0f, 0f, 1f,
             () -> rotationMode.is("Smooth"));
+    private final FloatValue bezierRandomness = new FloatValue("BezierRandomness", 0.12f, 0f, 0.35f,
+            () -> rotationMode.is("Bezier"));
     private final FloatValue rotationJitter = new FloatValue("RotationJitter", 0.15f, 0f, 3f);
     private final FloatValue distanceSpread = new FloatValue("DistanceSpread", 0.75f, 0f, 2f,
             () -> rotationJitter.getValue() > 0f);
     private final FloatValue prediction = new FloatValue("Prediction", 1f, 0f, 5f);
     private final BoolValue silentRotate = new BoolValue("SilentRotate", true);
     private final BoolValue rayTrace = new BoolValue("RayTrace", false);
+    private final BoolValue blockRayTrace = new BoolValue("BlockRayTrace", true,
+            () -> rayTrace.enabled);
     private final ListValue aimMode = new ListValue("AimMode", "Head", new String[]{
             "Head", "Chest", "Body", "Legs", "Random"
     });
@@ -135,6 +141,13 @@ public class KillAura extends Module {
     private float smoothEndYaw, smoothEndPitch;
     private Entity smoothTarget;
 
+    // Bezier mode state
+    private float bezierStartYaw, bezierStartPitch, bezierProgress;
+    private float bezierControl1Yaw, bezierControl1Pitch;
+    private float bezierControl2Yaw, bezierControl2Pitch;
+    private float bezierEndYaw, bezierEndPitch;
+    private Entity bezierTarget;
+
     private float jitterYaw, jitterPitch, jitterTargetYaw, jitterTargetPitch;
     private int jitterRefreshTicks;
     private Entity jitterTarget;
@@ -162,6 +175,10 @@ public class KillAura extends Module {
     private static final int JITTER_MAX_REFRESH_INTERVAL = 7;
     private static final float JITTER_LERP_FACTOR = 0.25f;
     private static final float SMOOTH_REPLAN_THRESHOLD = 3f;
+    private static final float BEZIER_MIN_CONTROL_POSITION = 0.20f;
+    private static final float BEZIER_MAX_CONTROL_POSITION = 0.40f;
+    private static final float BEZIER_CONTROL_DISTANCE_CAP = 90f;
+    private static final float BEZIER_SHORT_SEGMENT_SCALE = 12f;
     private static final int REACTION_COOLDOWN_TICKS = 4;
     private static final int MAX_CATCHUP_TICKS = 12;
     private static final double MAX_PREDICTION_VELOCITY = 1.5;
@@ -170,8 +187,8 @@ public class KillAura extends Module {
         super("KillAura", ModuleEnum.Combat);
         addValue(noCoolDown, cps, range, fov, hurtTime, pro,
                 targets, stop, rotationSpeed, rotationMode,
-                easingCurve, overshoot, rotationJitter, distanceSpread, prediction,
-                silentRotate, rayTrace, aimMode, aimPointSmooth, randomAimInterval,
+                easingCurve, overshoot, bezierRandomness, rotationJitter, distanceSpread, prediction,
+                silentRotate, rayTrace, blockRayTrace, aimMode, aimPointSmooth, randomAimInterval,
                 movementReaction, reactionDelay, repositionThreshold,
                 targetIndicator, indicatorStyle, targetEffects,
                 indicatorTargets, indicatorColorMode,
@@ -977,6 +994,9 @@ public class KillAura extends Module {
         float rotYawDiff = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
         float rotPitchDiff = targetPitch - serverPitch;
         float speed = rotationSpeed.getValue();
+        if (!rotationMode.is("Bezier")) {
+            resetBezier();
+        }
 
         switch (rotationMode.get()) {
             case "Linear": {
@@ -1012,9 +1032,39 @@ public class KillAura extends Module {
                 } else {
                     float duration = Math.max(totalDist / speed, 3f);
                     smoothProgress = Math.min(smoothProgress + 1f / duration, 1f);
-                    float eased = applyEasing(smoothProgress);
+                    float eased = applySmoothEasing(smoothProgress);
                     serverYaw = smoothStartYaw + totalYawDiff * eased;
                     serverPitch = smoothStartPitch + totalPitchDiff * eased;
+                }
+                break;
+            }
+            case "Bezier": {
+                float endpointYawDiff = Math.abs(MathHelper.wrapAngleTo180_float(targetYaw - bezierEndYaw));
+                float endpointPitchDiff = Math.abs(targetPitch - bezierEndPitch);
+                if (target != bezierTarget || bezierProgress >= 1f
+                        || endpointYawDiff + endpointPitchDiff > SMOOTH_REPLAN_THRESHOLD) {
+                    planBezierSegment(targetYaw, targetPitch, target);
+                }
+
+                float totalYawDiff = bezierEndYaw - bezierStartYaw;
+                float totalPitchDiff = bezierEndPitch - bezierStartPitch;
+                float totalDist = (float) Math.hypot(totalYawDiff, totalPitchDiff);
+                if (totalDist <= 0.5f) {
+                    serverYaw = bezierEndYaw;
+                    serverPitch = bezierEndPitch;
+                    bezierProgress = 1f;
+                } else {
+                    float duration = Math.max(totalDist / speed, 3f);
+                    bezierProgress = Math.min(bezierProgress + 1f / duration, 1f);
+                    float eased = applyBaseEasing(bezierProgress);
+                    serverYaw = cubicBezier(bezierStartYaw, bezierControl1Yaw,
+                            bezierControl2Yaw, bezierEndYaw, eased);
+                    serverPitch = cubicBezier(bezierStartPitch, bezierControl1Pitch,
+                            bezierControl2Pitch, bezierEndPitch, eased);
+                    if (bezierProgress >= 1f) {
+                        serverYaw = bezierEndYaw;
+                        serverPitch = bezierEndPitch;
+                    }
                 }
                 break;
             }
@@ -1033,14 +1083,77 @@ public class KillAura extends Module {
         serverPitch = net.minecraft.util.Mth.clamp(serverPitch, -90f, 90f);
     }
 
-    private float applyEasing(float t) {
-        float eased = switch (easingCurve.get()) {
+    private void planBezierSegment(float targetYaw, float targetPitch, Entity target) {
+        bezierTarget = target;
+        bezierStartYaw = serverYaw;
+        bezierStartPitch = serverPitch;
+
+        float yawDiff = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
+        float pitchDiff = net.minecraft.util.Mth.clamp(targetPitch, -90f, 90f) - serverPitch;
+        bezierEndYaw = serverYaw + yawDiff;
+        bezierEndPitch = serverPitch + pitchDiff;
+        bezierProgress = 0f;
+
+        float distance = (float) Math.hypot(yawDiff, pitchDiff);
+        if (distance <= 0.001f) {
+            bezierControl1Yaw = bezierEndYaw;
+            bezierControl1Pitch = bezierEndPitch;
+            bezierControl2Yaw = bezierEndYaw;
+            bezierControl2Pitch = bezierEndPitch;
+            return;
+        }
+
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        float control1Position = BEZIER_MIN_CONTROL_POSITION
+                + random.nextFloat() * (BEZIER_MAX_CONTROL_POSITION - BEZIER_MIN_CONTROL_POSITION);
+        float control2Position = 1f - (BEZIER_MIN_CONTROL_POSITION
+                + random.nextFloat() * (BEZIER_MAX_CONTROL_POSITION - BEZIER_MIN_CONTROL_POSITION));
+
+        float perpendicularYaw = -pitchDiff / distance;
+        float perpendicularPitch = yawDiff / distance;
+        float shortSegmentScale = net.minecraft.util.Mth.clamp(
+                distance / BEZIER_SHORT_SEGMENT_SCALE, 0f, 1f);
+        float maximumOffset = bezierRandomness.getValue()
+                * Math.min(distance, BEZIER_CONTROL_DISTANCE_CAP) * shortSegmentScale;
+        float control1Offset = centeredRandom(random, maximumOffset);
+        float control2Offset = centeredRandom(random, maximumOffset);
+
+        bezierControl1Yaw = bezierStartYaw + yawDiff * control1Position
+                + perpendicularYaw * control1Offset;
+        bezierControl1Pitch = net.minecraft.util.Mth.clamp(
+                bezierStartPitch + pitchDiff * control1Position
+                        + perpendicularPitch * control1Offset,
+                -90f, 90f);
+        bezierControl2Yaw = bezierStartYaw + yawDiff * control2Position
+                + perpendicularYaw * control2Offset;
+        bezierControl2Pitch = net.minecraft.util.Mth.clamp(
+                bezierStartPitch + pitchDiff * control2Position
+                        + perpendicularPitch * control2Offset,
+                -90f, 90f);
+    }
+
+    private static float cubicBezier(float start, float control1, float control2, float end, float t) {
+        float inverse = 1f - t;
+        float inverseSquared = inverse * inverse;
+        float tSquared = t * t;
+        return inverseSquared * inverse * start
+                + 3f * inverseSquared * t * control1
+                + 3f * inverse * tSquared * control2
+                + tSquared * t * end;
+    }
+
+    private float applyBaseEasing(float t) {
+        return switch (easingCurve.get()) {
             case "EaseInOutCubic" -> SpringAnimation.easeInOutCubic(t);
             case "EaseOutCubic" -> SpringAnimation.easeOutCubic(t);
             case "EaseOutExpo" -> SpringAnimation.easeOutExpo(t);
             case "Smoothstep" -> t * t * (3f - 2f * t);
             default -> t;
         };
+    }
+
+    private float applySmoothEasing(float t) {
+        float eased = applyBaseEasing(t);
         float overshootStrength = overshoot.getValue();
         if (overshootStrength > 0f) {
             float back = SpringAnimation.easeOutBack(t);
@@ -1087,12 +1200,26 @@ public class KillAura extends Module {
         smoothProgress = 0f;
         smoothEndYaw = 0f;
         smoothEndPitch = 0f;
+        resetBezier();
         if (mc.player != null) {
             serverYaw = mc.player.getYRot();
             serverPitch = mc.player.getXRot();
         }
         resetAimTracking();
         resetJitter();
+    }
+
+    private void resetBezier() {
+        bezierTarget = null;
+        bezierProgress = 0f;
+        bezierStartYaw = 0f;
+        bezierStartPitch = 0f;
+        bezierControl1Yaw = 0f;
+        bezierControl1Pitch = 0f;
+        bezierControl2Yaw = 0f;
+        bezierControl2Pitch = 0f;
+        bezierEndYaw = 0f;
+        bezierEndPitch = 0f;
     }
 
     private void resetAimTracking() {
@@ -1130,57 +1257,40 @@ public class KillAura extends Module {
     }
 
     private boolean isLookingAtTarget(Entity entity) {
-        if (mc.player == null)
+        if (mc.player == null || mc.level == null)
             return false;
 
-        float yaw = serverYaw;
-        float pitch = serverPitch;
+        Vec3 start = mc.player.getEyePosition();
+        Vec3 direction = Vec3.directionFromRotation(serverPitch, serverYaw);
+        Vec3 end = start.add(direction.scale(range.getValue()));
 
-        double yawRad = Math.toRadians(yaw);
-        double pitchRad = Math.toRadians(pitch);
+        double maxDistanceSquared = start.distanceToSqr(end);
+        if (blockRayTrace.enabled) {
+            // 开启时由方块命中点截断射线，避免隔墙或透过方块攻击。
+            BlockHitResult blockHit = mc.level.clip(new ClipContext(
+                    start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
+            maxDistanceSquared = start.distanceToSqr(blockHit.getLocation());
+        }
 
-        double dx = -Math.sin(yawRad) * Math.cos(pitchRad);
-        double dy = -Math.sin(pitchRad);
-        double dz = Math.cos(yawRad) * Math.cos(pitchRad);
+        Entity closestHit = null;
+        double closestDistanceSquared = maxDistanceSquared;
+        for (Entity candidate : mc.level.entitiesForRendering()) {
+            if (candidate == mc.player || !candidate.isPickable())
+                continue;
 
-        // [修复] 增加一个极小值避免除以0导致的 NaN 或不可预测的 Infinity
-        if (dx == 0) dx = 0.0001;
-        if (dy == 0) dy = 0.0001;
-        if (dz == 0) dz = 0.0001;
+            // 使用原始碰撞箱；只有真实命中实体时才允许攻击。
+            Optional<Vec3> hit = candidate.getBoundingBox().clip(start, end);
+            if (hit.isEmpty())
+                continue;
 
-        double eyeX = mc.player.getX();
-        double eyeY = mc.player.getY() + mc.player.getEyeHeight();
-        double eyeZ = mc.player.getZ();
+            double hitDistanceSquared = start.distanceToSqr(hit.get());
+            if (hitDistanceSquared < closestDistanceSquared) {
+                closestDistanceSquared = hitDistanceSquared;
+                closestHit = candidate;
+            }
+        }
 
-        AABB bb = entity.getBoundingBox().inflate(0.1);
-
-        double tMin = 0.0;
-        double tMax = range.getValue();
-
-        // X slab
-        double t1 = (bb.minX - eyeX) / dx;
-        double t2 = (bb.maxX - eyeX) / dx;
-        if (t1 > t2) { double tmp = t1; t1 = t2; t2 = tmp; }
-        tMin = Math.max(tMin, t1);
-        tMax = Math.min(tMax, t2);
-        if (tMin > tMax) return false;
-
-        // Y slab
-        t1 = (bb.minY - eyeY) / dy;
-        t2 = (bb.maxY - eyeY) / dy;
-        if (t1 > t2) { double tmp = t1; t1 = t2; t2 = tmp; }
-        tMin = Math.max(tMin, t1);
-        tMax = Math.min(tMax, t2);
-        if (tMin > tMax) return false;
-
-        // Z slab
-        t1 = (bb.minZ - eyeZ) / dz;
-        t2 = (bb.maxZ - eyeZ) / dz;
-        if (t1 > t2) { double tmp = t1; t1 = t2; t2 = tmp; }
-        tMin = Math.max(tMin, t1);
-        tMax = Math.min(tMax, t2);
-
-        return tMin <= tMax;
+        return closestHit == entity;
     }
 
     private boolean isTeammate(@UnknownNullability Entity player) {

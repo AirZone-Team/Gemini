@@ -1,7 +1,7 @@
 package geminiclient.gemini.base;
 
-import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.ShutdownEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleManager;
@@ -12,30 +12,42 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
+import java.util.*;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
- * Configuration manager, responsible for saving and loading module
- * configurations
- * using the org.json library.
+ * Manages Gemini configuration, account and font files.
+ *
+ * <p>All externally supplied names are validated before path resolution, and
+ * writes are performed through a temporary file in the target directory.</p>
  */
-public class FileSystem {
+public final class FileSystem {
     private static final Logger LOGGER = Logger.getLogger(FileSystem.class.getName());
+
     private static final String DEFAULT_CONFIG_NAME = "config";
     private static final String CONFIG_EXTENSION = ".json";
     private static final String ALTS_CONFIG_NAME = "alts";
+    private static final String DEFAULT_FONT_NAME = "Default";
+    private static final String TTF_EXTENSION = ".ttf";
+
+    private static final String JSON_MODULES = "modules";
+    private static final String JSON_VALUES = "values";
+    private static final String JSON_NAME = "name";
+    private static final String JSON_TYPE = "type";
+    private static final String JSON_VALUE = "value";
 
     private final ModuleManager moduleManager;
     private final Path configDirectory;
@@ -43,29 +55,27 @@ public class FileSystem {
     private final Path altsFile;
     private final Path ttfDirectory;
 
-    public FileSystem(ModuleManager moduleManager) {
-        Gemini.eventManager.register(this);
-        this.moduleManager = moduleManager;
+    /** Case-insensitive module lookup, rebuilt before loading a configuration. */
+    private Map<String, Module> modulesByName = Map.of();
 
-        // Initialize paths using NIO for better path handling
-        this.configDirectory = Paths.get(Minecraft.getInstance().gameDirectory.getAbsolutePath(),
-                "gemini", "configs");
-        this.configNameFile = Paths.get(Minecraft.getInstance().gameDirectory.getAbsolutePath(),
-                "gemini", "configName.txt");
+    public FileSystem(ModuleManager moduleManager) {
+        this.moduleManager = java.util.Objects.requireNonNull(moduleManager, "moduleManager");
+        Gemini.eventManager.register(this);
+
+        Path geminiDirectory = Minecraft.getInstance().gameDirectory.toPath().resolve("gemini");
+        this.configDirectory = geminiDirectory.resolve("configs");
+        this.configNameFile = geminiDirectory.resolve("configName.txt");
         this.altsFile = configDirectory.resolve("alts.json");
-        this.ttfDirectory = Paths.get(Minecraft.getInstance().gameDirectory.getAbsolutePath(),
-                "gemini", "ttf");
+        this.ttfDirectory = geminiDirectory.resolve("ttf");
 
         ensureDirectoriesExist();
+        rebuildModuleIndex();
     }
 
-    // =========================================================================
-    // Directory Management
-    // =========================================================================
+    // -------------------------------------------------------------------------
+    // Directory and path handling
+    // -------------------------------------------------------------------------
 
-    /**
-     * Ensures required directories exist
-     */
     private void ensureDirectoriesExist() {
         ensureDirectory(configDirectory, "config");
         ensureDirectory(ttfDirectory, "TTF");
@@ -74,12 +84,11 @@ public class FileSystem {
     private boolean ensureDirectory(Path directory, String description) {
         try {
             if (Files.exists(directory) && !Files.isDirectory(directory)) {
-                LOGGER.severe(description + " path exists but is not a directory: " + directory);
+                LOGGER.severe(() -> description + " path is not a directory: " + directory);
                 return false;
             }
 
             Files.createDirectories(directory);
-            LOGGER.info(description + " directory ensured: " + directory);
             return true;
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Failed to create " + description + " directory: " + directory, e);
@@ -87,565 +96,447 @@ public class FileSystem {
         }
     }
 
-    private boolean ensureParentDirectory(Path file) {
-        Path parent = file.getParent();
-        return parent == null || ensureDirectory(parent, "parent");
+    private Optional<String> normalizeConfigName(String rawName) {
+        if (rawName == null) {
+            return Optional.empty();
+        }
+
+        String name = rawName.trim();
+        if (name.toLowerCase(Locale.ROOT).endsWith(CONFIG_EXTENSION)) {
+            name = name.substring(0, name.length() - CONFIG_EXTENSION.length()).trim();
+        }
+
+        if (!isSafeSinglePathSegment(name) || name.equalsIgnoreCase(ALTS_CONFIG_NAME)) {
+            return Optional.empty();
+        }
+
+        return Optional.of(name);
     }
 
-    private Optional<String> normalizeConfigName(String name) {
-        if (name == null) {
-            return Optional.empty();
-        }
-
-        String normalized = name.trim();
-        if (normalized.toLowerCase(Locale.ROOT).endsWith(CONFIG_EXTENSION)) {
-            normalized = normalized.substring(0, normalized.length() - CONFIG_EXTENSION.length()).trim();
-        }
-
-        if (normalized.isEmpty()
-                || normalized.equals(".")
-                || normalized.equals("..")
-                || normalized.equalsIgnoreCase(ALTS_CONFIG_NAME)
-                || normalized.contains("/")
-                || normalized.contains("\\")
-                || normalized.contains(":")
-                || normalized.indexOf('\0') >= 0) {
-            return Optional.empty();
-        }
-
-        try {
-            Paths.get(normalized);
-            return Optional.of(normalized);
-        } catch (InvalidPathException e) {
-            LOGGER.log(Level.WARNING, "Invalid config name: " + name, e);
-            return Optional.empty();
-        }
-    }
-
-    private Optional<Path> resolveConfigFile(String name) {
-        Optional<String> configName = normalizeConfigName(name);
-        if (configName.isEmpty()) {
-            return Optional.empty();
-        }
-
-        Path configRoot = configDirectory.toAbsolutePath().normalize();
-        Path configFile = configRoot.resolve(configName.get() + CONFIG_EXTENSION).normalize();
-        if (!configFile.startsWith(configRoot)) {
-            return Optional.empty();
-        }
-
-        return Optional.of(configFile);
-    }
-
-    private boolean writeStringAtomically(Path file, String content) {
-        if (!ensureParentDirectory(file)) {
+    private static boolean isSafeSinglePathSegment(String name) {
+        if (name.isEmpty() || name.equals(".") || name.equals("..") || name.indexOf('\0') >= 0) {
             return false;
         }
 
-        Path tempFile = file.resolveSibling(file.getFileName() + ".tmp");
         try {
+            Path path = Path.of(name);
+            return path.getNameCount() == 1
+                    && path.getParent() == null
+                    && !name.contains(":")
+                    && !name.contains("/")
+                    && !name.contains("\\");
+        } catch (InvalidPathException e) {
+            return false;
+        }
+    }
+
+    private Path configPath(String normalizedName) {
+        return configDirectory.resolve(normalizedName + CONFIG_EXTENSION).normalize();
+    }
+
+    private boolean writeStringAtomically(Path target, String content) {
+        Path parent = target.getParent();
+        if (parent != null && !ensureDirectory(parent, "parent")) {
+            return false;
+        }
+
+        Path tempFile = null;
+        try {
+            tempFile = Files.createTempFile(parent, target.getFileName().toString(), ".tmp");
             Files.writeString(tempFile, content, StandardCharsets.UTF_8);
+
             try {
-                Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (IOException atomicMoveError) {
-                Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING);
+                Files.move(tempFile, target,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicMoveFailure) {
+                Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING);
             }
             return true;
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to write file: " + file, e);
-            try {
-                Files.deleteIfExists(tempFile);
-            } catch (IOException cleanupError) {
-                LOGGER.log(Level.WARNING, "Failed to clean temporary file: " + tempFile, cleanupError);
-            }
+            LOGGER.log(Level.SEVERE, "Failed to write file: " + target, e);
             return false;
-        }
-    }
-
-    /**
-     * Scans the gemini/ttf/ directory for .ttf files and returns their names
-     * (without the .ttf extension).
-     */
-    public List<String> scanTtfFonts() {
-        List<String> fonts = new ArrayList<>();
-        try {
-            File dir = ttfDirectory.toFile();
-            if (!dir.exists() || !dir.isDirectory()) {
-                return fonts;
-            }
-            File[] files = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".ttf"));
-            if (files != null) {
-                for (File file : files) {
-                    String name = file.getName();
-                    fonts.add(name.substring(0, name.length() - 4)); // strip .ttf
+        } finally {
+            if (tempFile != null) {
+                try {
+                    Files.deleteIfExists(tempFile);
+                } catch (IOException cleanupFailure) {
+                    LOGGER.log(Level.FINE, "Failed to remove temporary file: " + tempFile, cleanupFailure);
                 }
             }
-            LOGGER.info("Scanned TTF fonts: " + fonts);
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Failed to scan TTF fonts directory", e);
         }
-        return fonts;
     }
 
-    /**
-     * Returns the File for a given TTF font name (without .ttf extension).
-     * Returns null if the name is "Default" or blank.
-     */
-    public File getTtfFontFile(String name) {
-        if (name == null || name.isEmpty() || "Default".equals(name)) {
+    // -------------------------------------------------------------------------
+    // Fonts
+    // -------------------------------------------------------------------------
+
+    public List<String> scanTtfFonts() {
+        if (!Files.isDirectory(ttfDirectory)) {
+            return List.of();
+        }
+
+        List<String> fonts = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(ttfDirectory,
+                path -> Files.isRegularFile(path)
+                        && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(TTF_EXTENSION))) {
+            for (Path path : stream) {
+                String fileName = path.getFileName().toString();
+                fonts.add(fileName.substring(0, fileName.length() - TTF_EXTENSION.length()));
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to scan TTF directory: " + ttfDirectory, e);
+        }
+
+        fonts.sort(String.CASE_INSENSITIVE_ORDER);
+        return List.copyOf(fonts);
+    }
+
+    public File getTtfFontFile(String rawName) {
+        if (rawName == null || DEFAULT_FONT_NAME.equalsIgnoreCase(rawName.trim())) {
             return null;
         }
 
-        String fontName = name.trim();
-        if (fontName.isEmpty()
-                || fontName.contains("/")
-                || fontName.contains("\\")
-                || fontName.contains(":")
-                || fontName.indexOf('\0') >= 0) {
-            LOGGER.warning("Attempted to access TTF font with invalid name: " + name);
+        String fontName = rawName.trim();
+        if (!isSafeSinglePathSegment(fontName)) {
+            LOGGER.warning(() -> "Invalid TTF font name: " + rawName);
             return null;
         }
 
         Path fontRoot = ttfDirectory.toAbsolutePath().normalize();
-        Path fontFile = fontRoot.resolve(fontName + ".ttf").normalize();
-        if (!fontFile.startsWith(fontRoot)) {
-            LOGGER.warning("Attempted to access TTF font outside directory: " + name);
+        Path fontFile = fontRoot.resolve(fontName + TTF_EXTENSION).normalize();
+        if (!fontFile.startsWith(fontRoot) || !Files.isRegularFile(fontFile)) {
             return null;
         }
-
         return fontFile.toFile();
     }
 
-    // =========================================================================
-    // Helper Methods
-    // =========================================================================
+    // -------------------------------------------------------------------------
+    // Lookup indexes
+    // -------------------------------------------------------------------------
 
-    /**
-     * Finds a module in the ModuleManager by name.
-     */
-    private Optional<Module> getModuleByName(String name) {
-        return moduleManager.getModules().stream()
-                .filter(m -> m.getName().equalsIgnoreCase(name))
-                .findFirst();
+    private void rebuildModuleIndex() {
+        modulesByName = moduleManager.getModules().stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        module -> normalizedLookupKey(module.getName()),
+                        Function.identity(),
+                        (first, duplicate) -> {
+                            LOGGER.warning(() -> "Duplicate module name: " + duplicate.getName());
+                            return first;
+                        }));
     }
 
-    /**
-     * Finds a value within the specified module by name.
-     */
-    private Optional<ValueParent> getValueByName(Module module, String name) {
+    private static Map<String, ValueParent> indexValues(Module module) {
         return module.getValues().stream()
-                .filter(v -> v.getName().equalsIgnoreCase(name))
-                .findFirst();
+                .collect(Collectors.toMap(
+                        value -> normalizedLookupKey(value.getName()),
+                        Function.identity(),
+                        (first, duplicate) -> first,
+                        HashMap::new));
     }
 
-    // =========================================================================
-    // Event Handlers
-    // =========================================================================
+    private static String normalizedLookupKey(String name) {
+        return name.toLowerCase(Locale.ROOT);
+    }
+
+    // -------------------------------------------------------------------------
+    // Events and selected config name
+    // -------------------------------------------------------------------------
 
     @SuppressWarnings("unused")
     @EventTarget
     public void shutdown(ShutdownEvent event) {
-        saveConfig();
-        saveConfigName();
-        LOGGER.info("Shutdown completed, last config: " + Gemini.lastConfigName);
+        saveConfig(); // saveConfig already persists the selected config name.
+        LOGGER.info(() -> "Shutdown completed, last config: " + Gemini.lastConfigName);
     }
 
-    // =========================================================================
-    // Config Name Management
-    // =========================================================================
-
-    /**
-     * Loads the last used config name from file
-     */
     public void loadConfigName() {
-        try {
-            if (!Files.exists(configNameFile)) {
-                Gemini.lastConfigName = DEFAULT_CONFIG_NAME;
-                saveConfigName();
-                LOGGER.info("Created default config name file: " + configNameFile);
-                return;
-            }
+        if (!Files.isRegularFile(configNameFile)) {
+            setDefaultConfigName(true);
+            return;
+        }
 
-            // Read the config name
-            String configName = Files.readString(configNameFile, StandardCharsets.UTF_8).trim();
-            Optional<String> normalizedName = normalizeConfigName(configName);
+        try {
+            String storedName = Files.readString(configNameFile, StandardCharsets.UTF_8);
+            Optional<String> normalizedName = normalizeConfigName(storedName);
             if (normalizedName.isPresent()) {
                 Gemini.lastConfigName = normalizedName.get();
-                LOGGER.info("Loaded config name: " + Gemini.lastConfigName);
             } else {
-                Gemini.lastConfigName = DEFAULT_CONFIG_NAME;
-                saveConfigName();
-                LOGGER.warning("Invalid saved config name, reset to default: " + configName);
+                LOGGER.warning(() -> "Invalid stored config name, resetting: " + storedName.trim());
+                setDefaultConfigName(true);
             }
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to load config name from: " + configNameFile, e);
-            Gemini.lastConfigName = DEFAULT_CONFIG_NAME; // Fallback
+            LOGGER.log(Level.SEVERE, "Failed to load config name: " + configNameFile, e);
+            setDefaultConfigName(false);
         }
     }
 
-    /**
-     * Saves the current config name to file
-     */
     public void saveConfigName() {
-        Optional<String> normalizedName = normalizeConfigName(Gemini.lastConfigName);
-        if (normalizedName.isEmpty()) {
-            Gemini.lastConfigName = DEFAULT_CONFIG_NAME;
-            normalizedName = Optional.of(DEFAULT_CONFIG_NAME);
-        }
+        String normalizedName = normalizeConfigName(Gemini.lastConfigName)
+                .orElse(DEFAULT_CONFIG_NAME);
 
-        if (!writeStringAtomically(configNameFile, normalizedName.get())) {
-            return;
+        if (writeStringAtomically(configNameFile, normalizedName)) {
+            Gemini.lastConfigName = normalizedName;
         }
-
-        Gemini.lastConfigName = normalizedName.get();
-        LOGGER.info("Config name saved: " + Gemini.lastConfigName);
     }
 
-    // =========================================================================
-    // Save Config Methods
-    // =========================================================================
+    private void setDefaultConfigName(boolean persist) {
+        Gemini.lastConfigName = DEFAULT_CONFIG_NAME;
+        if (persist) {
+            saveConfigName();
+        }
+    }
 
-    /**
-     * Saves configuration using the last used config name
-     */
+    // -------------------------------------------------------------------------
+    // Configuration save/create/delete
+    // -------------------------------------------------------------------------
+
     public void saveConfig() {
-        saveConfig(Gemini.lastConfigName == null ? DEFAULT_CONFIG_NAME : Gemini.lastConfigName);
+        saveConfig(Optional.ofNullable(Gemini.lastConfigName).orElse(DEFAULT_CONFIG_NAME));
     }
 
-    /**
-     * Saves configuration with specified name
-     */
-    public void saveConfig(String name) {
-        Optional<String> normalizedName = normalizeConfigName(name);
-        Optional<Path> configPath = resolveConfigFile(name);
-        if (normalizedName.isEmpty() || configPath.isEmpty()) {
-            LOGGER.warning("Attempted to save config with invalid name: " + name);
+    public void saveConfig(String rawName) {
+        Optional<String> normalizedName = normalizeConfigName(rawName);
+        if (normalizedName.isEmpty()) {
+            LOGGER.warning(() -> "Invalid config name: " + rawName);
             return;
         }
 
-        Path configFile = configPath.get();
-        JSONObject configRoot = buildConfigJson();
-        String jsonContent = configRoot.toString(4);
-
-        if (!writeStringAtomically(configFile, jsonContent)) {
-            return;
+        String name = normalizedName.get();
+        Path file = configPath(name);
+        if (writeStringAtomically(file, buildConfigJson().toString(4))) {
+            Gemini.lastConfigName = name;
+            saveConfigName();
+            LOGGER.info(() -> "Configuration saved: " + file);
         }
-
-        Gemini.lastConfigName = normalizedName.get();
-        saveConfigName();
-        LOGGER.info("Configuration successfully saved: " + configFile);
     }
 
-    /**
-     * Creates a config file only when it does not already exist.
-     */
-    public boolean createConfig(String name) {
-        Optional<String> normalizedName = normalizeConfigName(name);
-        Optional<Path> configPath = resolveConfigFile(name);
-        if (normalizedName.isEmpty() || configPath.isEmpty()) {
-            LOGGER.warning("Attempted to create config with invalid name: " + name);
+    public boolean createConfig(String rawName) {
+        Optional<String> normalizedName = normalizeConfigName(rawName);
+        if (normalizedName.isEmpty()) {
+            LOGGER.warning(() -> "Invalid config name: " + rawName);
             return false;
         }
 
-        Path configFile = configPath.get();
-        if (Files.exists(configFile)) {
-            LOGGER.warning("Config already exists: " + configFile);
+        String name = normalizedName.get();
+        Path file = configPath(name);
+        if (Files.exists(file)) {
             return false;
         }
 
-        if (!writeStringAtomically(configFile, buildConfigJson().toString(4))) {
+        if (!writeStringAtomically(file, buildConfigJson().toString(4))) {
             return false;
         }
 
-        Gemini.lastConfigName = normalizedName.get();
+        Gemini.lastConfigName = name;
         saveConfigName();
-        LOGGER.info("Configuration successfully created: " + configFile);
         return true;
     }
 
-    /**
-     * Deletes a saved config file without allowing paths outside the config directory.
-     */
-    public boolean deleteConfig(String name) {
-        Optional<String> normalizedName = normalizeConfigName(name);
-        Optional<Path> configPath = resolveConfigFile(name);
-        if (normalizedName.isEmpty() || configPath.isEmpty()) {
-            LOGGER.warning("Attempted to delete config with invalid name: " + name);
+    public boolean deleteConfig(String rawName) {
+        Optional<String> normalizedName = normalizeConfigName(rawName);
+        if (normalizedName.isEmpty()) {
+            LOGGER.warning(() -> "Invalid config name: " + rawName);
             return false;
         }
 
-        Path configFile = configPath.get();
+        String name = normalizedName.get();
+        Path file = configPath(name);
         try {
-            boolean deleted = Files.deleteIfExists(configFile);
-            if (deleted && normalizedName.get().equalsIgnoreCase(Gemini.lastConfigName)) {
-                Gemini.lastConfigName = DEFAULT_CONFIG_NAME;
-                saveConfigName();
+            boolean deleted = Files.deleteIfExists(file);
+            if (deleted && name.equalsIgnoreCase(Gemini.lastConfigName)) {
+                setDefaultConfigName(true);
             }
-            LOGGER.info((deleted ? "Configuration deleted: " : "Configuration did not exist: ") + configFile);
             return deleted;
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to delete configuration: " + configFile, e);
+            LOGGER.log(Level.SEVERE, "Failed to delete configuration: " + file, e);
             return false;
         }
     }
 
-    /**
-     * Builds the complete configuration JSON structure
-     */
     private JSONObject buildConfigJson() {
-        JSONObject configRoot = new JSONObject();
-        JSONArray modulesArray = new JSONArray();
-
+        JSONArray modules = new JSONArray();
         for (Module module : moduleManager.getModules()) {
-            modulesArray.put(buildModuleJson(module));
+            modules.put(buildModuleJson(module));
         }
-
-        configRoot.put("modules", modulesArray);
-        return configRoot;
+        return new JSONObject().put(JSON_MODULES, modules);
     }
 
-    /**
-     * Builds JSON representation of a single module
-     */
     private JSONObject buildModuleJson(Module module) {
-        JSONObject moduleObject = new JSONObject();
-
-        // Basic Module Info
-        moduleObject.put("name", module.getName());
-        moduleObject.put("category", module.getModuleEnum().name());
-        moduleObject.put("enabled", module.enabled);
-        moduleObject.put("favorite", module.favorite);
-        moduleObject.put("key", module.key);
-        moduleObject.put("hudX", module.hudX);
-        moduleObject.put("hudY", module.hudY);
-
-        // Module Values
-        JSONArray valuesArray = new JSONArray();
+        JSONArray values = new JSONArray();
         for (ValueParent value : module.getValues()) {
-            valuesArray.put(buildValueJson(value));
+            JSONObject serialized = buildValueJson(value);
+            if (serialized != null) {
+                values.put(serialized);
+            }
         }
-        moduleObject.put("values", valuesArray);
 
-        return moduleObject;
+        return new JSONObject()
+                .put(JSON_NAME, module.getName())
+                .put("category", module.getModuleEnum().name())
+                .put("enabled", module.enabled)
+                .put("favorite", module.favorite)
+                .put("key", module.key)
+                .put("hudX", module.hudX)
+                .put("hudY", module.hudY)
+                .put(JSON_VALUES, values);
     }
 
-    /**
-     * Builds JSON representation of a single value
-     */
+    /** Returns null for unsupported or failed values instead of emitting partial JSON. */
     private JSONObject buildValueJson(ValueParent value) {
-        JSONObject valueObject = new JSONObject();
-        valueObject.put("name", value.getName());
-
+        JSONObject json = new JSONObject().put(JSON_NAME, value.getName());
         try {
             switch (value) {
-                case BoolValue boolValue -> {
-                    valueObject.put("type", "Bool");
-                    valueObject.put("value", boolValue.enabled);
+                case BoolValue v -> json.put(JSON_TYPE, "Bool").put(JSON_VALUE, v.enabled);
+                case IntValue v -> json.put(JSON_TYPE, "Int").put(JSON_VALUE, v.getValue());
+                case FloatValue v -> json.put(JSON_TYPE, "Float").put(JSON_VALUE, v.getValue());
+                case ListValue v -> json.put(JSON_TYPE, "List").put(JSON_VALUE, v.get());
+                case IntRangeValue v -> json.put(JSON_TYPE, "IntRange").put(JSON_VALUE,
+                        new JSONObject().put("min", v.getMinValue()).put("max", v.getMaxValue()));
+                case FloatRangeValue v -> json.put(JSON_TYPE, "FloatRange").put(JSON_VALUE,
+                        new JSONObject().put("min", v.getMinValue()).put("max", v.getMaxValue()));
+                case CheckboxValue v -> json.put(JSON_TYPE, "Checkbox").put(JSON_VALUE, serializeCheckbox(v));
+                case ColorValue v -> json.put(JSON_TYPE, "Color").put(JSON_VALUE, v.getColor());
+                default -> {
+                    LOGGER.warning(() -> "Unsupported value type: " + value.getClass().getName());
+                    return null;
                 }
-                case IntValue intValue -> {
-                    valueObject.put("type", "Int");
-                    valueObject.put("value", intValue.getValue());
-                }
-                case FloatValue floatValue -> {
-                    valueObject.put("type", "Float");
-                    valueObject.put("value", floatValue.getValue());
-                }
-                case ListValue listValue -> {
-                    valueObject.put("type", "List");
-                    valueObject.put("value", listValue.get());
-                }
-                case IntRangeValue intRangeValue -> {
-                    valueObject.put("type", "IntRange");
-                    JSONObject range = new JSONObject();
-                    range.put("min", intRangeValue.getMinValue());
-                    range.put("max", intRangeValue.getMaxValue());
-                    valueObject.put("value", range);
-                }
-                case FloatRangeValue floatRangeValue -> {
-                    valueObject.put("type", "FloatRange");
-                    JSONObject range = new JSONObject();
-                    range.put("min", floatRangeValue.getMinValue());
-                    range.put("max", floatRangeValue.getMaxValue());
-                    valueObject.put("value", range);
-                }
-                case CheckboxValue checkboxValue -> {
-                    valueObject.put("type", "Checkbox");
-                    JSONArray boolsArray = new JSONArray();
-                    for (BoolValue boolValue : checkboxValue.boolValues) {
-                        JSONObject boolObject = new JSONObject();
-                        boolObject.put("name", boolValue.getName());
-                        boolObject.put("enabled", boolValue.enabled);
-                        boolsArray.put(boolObject);
-                    }
-                    valueObject.put("value", boolsArray);
-                }
-                case ColorValue colorValue -> {
-                    valueObject.put("type", "Color");
-                    valueObject.put("value", colorValue.getColor());
-                }
-                default -> LOGGER.warning("Unhandled value type: " + value.getClass().getSimpleName());
             }
-        } catch (Exception e) {
+            return json;
+        } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "Failed to serialize value: " + value.getName(), e);
+            return null;
         }
-
-        return valueObject;
     }
 
-    // =========================================================================
-    // Load Config Methods
-    // =========================================================================
+    private static JSONArray serializeCheckbox(CheckboxValue checkbox) {
+        JSONArray values = new JSONArray();
+        for (BoolValue boolValue : checkbox.boolValues) {
+            values.put(new JSONObject()
+                    .put(JSON_NAME, boolValue.getName())
+                    .put("enabled", boolValue.enabled));
+        }
+        return values;
+    }
 
-    /**
-     * Loads configuration using the last used config name
-     */
+    // -------------------------------------------------------------------------
+    // Configuration loading
+    // -------------------------------------------------------------------------
+
     public void loadConfig() {
-        loadConfig(Gemini.lastConfigName == null ? DEFAULT_CONFIG_NAME : Gemini.lastConfigName);
+        loadConfig(Optional.ofNullable(Gemini.lastConfigName).orElse(DEFAULT_CONFIG_NAME));
     }
 
-    /**
-     * Loads configuration with specified name
-     */
-    public void loadConfig(String name) {
-        Optional<String> normalizedName = normalizeConfigName(name);
-        Optional<Path> configPath = resolveConfigFile(name);
-        if (normalizedName.isEmpty() || configPath.isEmpty()) {
-            LOGGER.warning("Attempted to load config with invalid name: " + name);
+    public void loadConfig(String rawName) {
+        Optional<String> normalizedName = normalizeConfigName(rawName);
+        if (normalizedName.isEmpty()) {
+            LOGGER.warning(() -> "Invalid config name: " + rawName);
             return;
         }
 
-        Path configFile = configPath.get();
-        LOGGER.info("Loading configuration from: " + configFile);
-
-        if (!Files.exists(configFile)) {
-            LOGGER.warning("Config file does not exist: " + configFile);
+        String name = normalizedName.get();
+        Path file = configPath(name);
+        if (!Files.isRegularFile(file)) {
+            LOGGER.warning(() -> "Config does not exist: " + file);
             return;
         }
 
-        try (InputStream inputStream = Files.newInputStream(configFile)) {
-            JSONObject configRoot = new JSONObject(new JSONTokener(inputStream));
-            applyConfigFromJson(configRoot);
-            Gemini.lastConfigName = normalizedName.get();
+        try (InputStream input = Files.newInputStream(file)) {
+            JSONObject root = new JSONObject(new JSONTokener(input));
+            applyConfigFromJson(root);
+            Gemini.lastConfigName = name;
             saveConfigName();
-            LOGGER.info("Configuration loaded successfully: " + configFile);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to read configuration file: " + configFile, e);
-        } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "JSON parsing error in configuration file: " + configFile, e);
+            LOGGER.log(Level.SEVERE, "Failed to read configuration: " + file, e);
+        } catch (RuntimeException e) {
+            LOGGER.log(Level.SEVERE, "Invalid configuration JSON: " + file, e);
         }
     }
 
-    /**
-     * Applies configuration from JSON object to modules
-     */
-    private void applyConfigFromJson(JSONObject configRoot) {
-        if (!configRoot.has("modules")) {
+    private void applyConfigFromJson(JSONObject root) {
+        JSONArray modules = root.optJSONArray(JSON_MODULES);
+        if (modules == null) {
             LOGGER.warning("Missing 'modules' array in configuration");
             return;
         }
 
-        // 加载配置时抑制 IPC 回调，避免模块/值变更时误发增量到 C#
-        try {
-            JSONArray modulesArray = configRoot.getJSONArray("modules");
-            int loadedCount = 0;
-
-            for (int i = 0; i < modulesArray.length(); i++) {
-                JSONObject moduleJson = modulesArray.getJSONObject(i);
-                if (applyModuleConfig(moduleJson)) {
-                    loadedCount++;
-                }
-            }
-
-            LOGGER.info("Applied configuration to " + loadedCount + " modules");
-        } finally {
-        }
+        rebuildModuleIndex();
+        int loadedCount = (int) IntStream.range(0, modules.length()).mapToObj(modules::optJSONObject).filter(moduleJson -> moduleJson != null && applyModuleConfig(moduleJson)).count();
+        LOGGER.info(() -> "Applied configuration to " + loadedCount + " modules");
     }
 
-    /**
-     * Applies configuration to a single module
-     */
-    private boolean applyModuleConfig(JSONObject moduleJson) {
-        String moduleName = moduleJson.getString("name");
-        Optional<Module> moduleOpt = getModuleByName(moduleName);
-
-        if (moduleOpt.isEmpty()) {
-            LOGGER.warning("Module not found: " + moduleName);
+    private boolean applyModuleConfig(JSONObject json) {
+        String moduleName = json.optString(JSON_NAME, "").trim();
+        if (moduleName.isEmpty()) {
+            LOGGER.warning("Skipping module without a name");
             return false;
         }
 
-        Module module = moduleOpt.get();
-
-        // Apply basic module settings
-        if (moduleJson.has("enabled")) {
-            module.setEnabled(moduleJson.getBoolean("enabled"));
-        }
-        if (moduleJson.has("key")) {
-            module.key = moduleJson.getInt("key");
-        }
-        module.favorite = moduleJson.optBoolean("favorite", false);
-        module.hudX = moduleJson.optInt("hudX", 6);
-        module.hudY = moduleJson.optInt("hudY", 6);
-
-        // Apply module values
-        if (moduleJson.has("values")) {
-            applyModuleValues(module, moduleJson.getJSONArray("values"));
+        Module module = modulesByName.get(normalizedLookupKey(moduleName));
+        if (module == null) {
+            LOGGER.warning(() -> "Module not found: " + moduleName);
+            return false;
         }
 
+        if (json.has("enabled")) {
+            module.setEnabled(json.optBoolean("enabled", module.enabled));
+        }
+        module.key = json.optInt("key", module.key);
+        module.favorite = json.optBoolean("favorite", module.favorite);
+        module.hudX = json.optInt("hudX", module.hudX);
+        module.hudY = json.optInt("hudY", module.hudY);
+
+        JSONArray values = json.optJSONArray(JSON_VALUES);
+        if (values != null) {
+            applyModuleValues(module, values);
+        }
         return true;
     }
 
-    /**
-     * Applies values configuration to a module
-     */
-    private void applyModuleValues(Module module, JSONArray valuesArray) {
+    private void applyModuleValues(Module module, JSONArray values) {
+        Map<String, ValueParent> valuesByName = indexValues(module);
         int appliedCount = 0;
 
-        for (int j = 0; j < valuesArray.length(); j++) {
-            JSONObject valueJson = valuesArray.getJSONObject(j);
-            if (applyValueConfig(module, valueJson)) {
+        for (int i = 0; i < values.length(); i++) {
+            JSONObject valueJson = values.optJSONObject(i);
+            if (valueJson != null && applyValueConfig(module, valuesByName, valueJson)) {
                 appliedCount++;
             }
         }
 
-        LOGGER.fine("Applied " + appliedCount + " values to module: " + module.getName());
+        int count = appliedCount;
+        LOGGER.fine(() -> "Applied " + count + " values to module: " + module.getName());
     }
 
-    /**
-     * Applies configuration to a single value
-     */
-    private boolean applyValueConfig(Module module, JSONObject valueJson) {
-        String valueName = valueJson.getString("name");
-        String valueType = valueJson.optString("type", "");
-
-        if (valueType.isEmpty()) {
-            LOGGER.warning("Missing type for value " + valueName + " in module " + module.getName());
+    private boolean applyValueConfig(Module module,
+                                     Map<String, ValueParent> valuesByName,
+                                     JSONObject json) {
+        String valueName = json.optString(JSON_NAME, "").trim();
+        String type = json.optString(JSON_TYPE, "").trim();
+        if (valueName.isEmpty() || type.isEmpty() || !json.has(JSON_VALUE)) {
+            LOGGER.warning(() -> "Incomplete value entry in module: " + module.getName());
             return false;
         }
 
-        Optional<ValueParent> valueOpt = getValueByName(module, valueName);
-        if (valueOpt.isEmpty()) {
-            LOGGER.warning("Value not found in module " + module.getName() + ": " + valueName);
+        ValueParent value = valuesByName.get(normalizedLookupKey(valueName));
+        if (value == null) {
+            LOGGER.warning(() -> "Value not found in " + module.getName() + ": " + valueName);
+            return false;
+        }
+        if (!isTypeMatch(value, type)) {
+            LOGGER.warning(() -> "Type mismatch for " + module.getName() + '.' + valueName
+                    + ": expected " + value.getClass().getSimpleName() + ", got " + type);
             return false;
         }
 
-        ValueParent vp = valueOpt.get();
-        if (!isTypeMatch(vp, valueType)) {
-            LOGGER.warning("Type mismatch for " + valueName + ": config has " + valueType
-                    + " but module has " + vp.getClass().getSimpleName() + ", skipping");
+        try {
+            applyValue(value, type, json.get(JSON_VALUE));
+            return true;
+        } catch (RuntimeException e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to apply value " + valueName + " in module " + module.getName(), e);
             return false;
         }
-
-        if (valueJson.has("value")) {
-            try {
-                applyValue(vp, valueType, valueJson.get("value"));
-                return true;
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to apply value " + valueName + " in module " + module.getName(), e);
-            }
-        }
-
-        return false;
     }
 
     private static boolean isTypeMatch(ValueParent value, String type) {
@@ -662,85 +553,105 @@ public class FileSystem {
         };
     }
 
-    /**
-     * Applies the JSON value to the ValueParent instance based on the type.
-     */
     private void applyValue(ValueParent value, String type, Object jsonValue) {
         switch (type) {
-            case "Bool" -> ((BoolValue) value).enabled = (boolean) jsonValue;
-            case "Int" -> ((IntValue) value).setValue((int) jsonValue);
-            case "Float" -> ((FloatValue) value).setValue(((Number) jsonValue).floatValue());
-            case "List" -> ((ListValue) value).setMode((String) jsonValue);
-            case "IntRange" -> applyIntRangeValue((IntRangeValue) value, (JSONObject) jsonValue);
-            case "FloatRange" -> applyFloatRangeValue((FloatRangeValue) value, (JSONObject) jsonValue);
-            case "Checkbox" -> applyCheckboxValue((CheckboxValue) value, (JSONArray) jsonValue);
-            case "Color" -> ((ColorValue) value).setColor(((Number) jsonValue).intValue());
-            default -> LOGGER.warning("Unknown value type: " + type);
+            case "Bool" -> ((BoolValue) value).enabled = requireBoolean(jsonValue);
+            case "Int" -> ((IntValue) value).setValue(requireNumber(jsonValue).intValue());
+            case "Float" -> ((FloatValue) value).setValue(requireNumber(jsonValue).floatValue());
+            case "List" -> ((ListValue) value).setMode(String.valueOf(jsonValue));
+            case "IntRange" -> applyIntRangeValue((IntRangeValue) value, requireObject(jsonValue));
+            case "FloatRange" -> applyFloatRangeValue((FloatRangeValue) value, requireObject(jsonValue));
+            case "Checkbox" -> applyCheckboxValue((CheckboxValue) value, requireArray(jsonValue));
+            case "Color" -> ((ColorValue) value).setColor(requireNumber(jsonValue).intValue());
+            default -> throw new IllegalArgumentException("Unknown value type: " + type);
         }
     }
 
-    /**
-     * Applies integer range value configuration
-     */
-    private void applyIntRangeValue(IntRangeValue value, JSONObject range) {
-        // Set max first to avoid constraint errors
-        value.setMaxValue(range.getInt("max"));
-        value.setMinValue(range.getInt("min"));
+    private static Number requireNumber(Object value) {
+        if (value instanceof Number number) {
+            return number;
+        }
+        throw new IllegalArgumentException("Expected number, got: " + value);
     }
 
-    /**
-     * Applies float range value configuration
-     */
-    private void applyFloatRangeValue(FloatRangeValue value, JSONObject range) {
-        // Set max first to avoid constraint errors
-        value.setMaxValue((float) range.getDouble("max"));
-        value.setMinValue((float) range.getDouble("min"));
+    private static boolean requireBoolean(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        throw new IllegalArgumentException("Expected boolean, got: " + value);
     }
 
-    /**
-     * Applies checkbox value configuration
-     */
-    private void applyCheckboxValue(CheckboxValue checkboxValue, JSONArray boolsArray) {
-        for (int i = 0; i < boolsArray.length(); i++) {
-            JSONObject boolJson = boolsArray.getJSONObject(i);
-            String boolName = boolJson.getString("name");
-            boolean boolState = boolJson.getBoolean("enabled");
+    private static JSONObject requireObject(Object value) {
+        if (value instanceof JSONObject object) {
+            return object;
+        }
+        throw new IllegalArgumentException("Expected JSON object, got: " + value);
+    }
 
-            for (BoolValue boolValue : checkboxValue.boolValues) {
-                if (boolValue.getName().equalsIgnoreCase(boolName)) {
-                    boolValue.enabled = boolState;
-                    break;
-                }
+    private static JSONArray requireArray(Object value) {
+        if (value instanceof JSONArray array) {
+            return array;
+        }
+        throw new IllegalArgumentException("Expected JSON array, got: " + value);
+    }
+
+    private static void applyIntRangeValue(IntRangeValue value, JSONObject range) {
+        int min = range.getInt("min");
+        int max = range.getInt("max");
+        value.setMaxValue(max);
+        value.setMinValue(min);
+    }
+
+    private static void applyFloatRangeValue(FloatRangeValue value, JSONObject range) {
+        float min = requireNumber(range.get("min")).floatValue();
+        float max = requireNumber(range.get("max")).floatValue();
+        value.setMaxValue(max);
+        value.setMinValue(min);
+    }
+
+    private static void applyCheckboxValue(CheckboxValue checkbox, JSONArray array) {
+        Map<String, BoolValue> valuesByName = Arrays.stream(checkbox.boolValues)
+                .collect(Collectors.toMap(
+                        value -> normalizedLookupKey(value.getName()),
+                        Function.identity(),
+                        (first, duplicate) -> first));
+
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject json = array.optJSONObject(i);
+            if (json == null) {
+                continue;
+            }
+
+            String name = json.optString(JSON_NAME, "").trim();
+            BoolValue value = valuesByName.get(normalizedLookupKey(name));
+            if (value != null && json.has("enabled")) {
+                value.enabled = json.optBoolean("enabled", value.enabled);
             }
         }
     }
 
-    /**
-     * 读取本地保存的账号列表，如果不存在则返回一个空的 JSONArray
-     */
+    // -------------------------------------------------------------------------
+    // Alternate accounts
+    // -------------------------------------------------------------------------
+
     public JSONArray loadAlts() {
-        if (!Files.exists(altsFile)) {
+        if (!Files.isRegularFile(altsFile)) {
             return new JSONArray();
         }
-        try (InputStream inputStream = Files.newInputStream(altsFile)) {
-            return new JSONArray(new JSONTokener(inputStream));
-        } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Failed to load alts from: " + altsFile, e);
+
+        try (InputStream input = Files.newInputStream(altsFile)) {
+            return new JSONArray(new JSONTokener(input));
+        } catch (IOException | RuntimeException e) {
+            LOGGER.log(Level.SEVERE, "Failed to load alts: " + altsFile, e);
             return new JSONArray();
         }
     }
 
-    /**
-     * 将当前的账号列表保存到 alts.json
-     */
     public void saveAlts(JSONArray accounts) {
         if (accounts == null) {
-            LOGGER.warning("Attempted to save null alts list");
+            LOGGER.warning("Cannot save a null alts list");
             return;
         }
-
-        if (writeStringAtomically(altsFile, accounts.toString(4))) {
-            LOGGER.info("Alts successfully saved: " + altsFile);
-        }
+        writeStringAtomically(altsFile, accounts.toString(4));
     }
 }

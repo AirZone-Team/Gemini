@@ -3,134 +3,245 @@ package geminiclient.gemini.event;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.impl.Event;
 
+import java.lang.invoke.CallSite;
+import java.lang.invoke.LambdaMetafactory;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
-import java.util.*;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+/**
+ * Allocation-free event dispatcher optimized for the publish path.
+ *
+ * <p>Reflection and listener linking happen only while an owner is registered.
+ * Publishing is an integer-indexed array lookup followed by direct interface
+ * calls over a compact immutable array.</p>
+ */
 public final class EventManager {
 
     private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
-    private static final MethodType EVENT_SINK = MethodType.methodType(void.class, Event.class);
+    private static final MethodType ERASED_LISTENER_METHOD =
+            MethodType.methodType(void.class, Event.class);
+    private static final Dispatch[] EMPTY_TABLE = new Dispatch[0];
+    private static final ClassValue<ListenerFactory[]> LISTENER_FACTORIES = new ClassValue<>() {
+        @Override
+        protected ListenerFactory[] computeValue(Class<?> ownerClass) {
+            ArrayList<ListenerFactory> factories = new ArrayList<>();
+            for (Method method : ownerClass.getDeclaredMethods()) {
+                EventTarget target = method.getAnnotation(EventTarget.class);
+                if (target == null) {
+                    continue;
+                }
 
-    // Hot path: volatile ensures visibility of rebuilt table to all threads
-    private volatile Map<Class<? extends Event>, Handler[]> dispatchTable = Collections.emptyMap();
+                Class<?>[] parameters = method.getParameterTypes();
+                if (parameters.length != 1
+                        || !Event.class.isAssignableFrom(parameters[0])
+                        || method.getReturnType() != void.class) {
+                    continue;
+                }
 
-    // Cold-path mutable storage — only touched during register/unregister
-    private final Map<Class<? extends Event>, List<Handler>> registry = new HashMap<>();
+                @SuppressWarnings("unchecked")
+                Class<? extends Event> eventClass = (Class<? extends Event>) parameters[0];
+                try {
+                    factories.add(createFactory(ownerClass, method, eventClass, target.value()));
+                } catch (Throwable throwable) {
+                    System.err.println("EventManager: cannot link " + ownerClass.getName()
+                            + '#' + method.getName());
+                    throwable.printStackTrace();
+                }
+            }
+            return factories.toArray(ListenerFactory[]::new);
+        }
+    };
+
+    /** Published with one volatile write after a registration change. */
+    private volatile Dispatch[] dispatchTable = EMPTY_TABLE;
+
+    /** Cold-path state, guarded by this manager's monitor. */
+    private final Map<EventType<?>, List<Handler>> registry = new HashMap<>();
     private final IdentityHashMap<Object, Handler[]> objectHandlers = new IdentityHashMap<>();
 
-    private static final class Handler {
-        final MethodHandle handle;
-        final Object owner;
-        final Class<? extends Event> eventClass;
-        final int priority;
-
-        Handler(MethodHandle handle, Object owner, Class<? extends Event> eventClass, int priority) {
-            this.handle = handle;
-            this.owner = owner;
-            this.eventClass = eventClass;
-            this.priority = priority;
+    /**
+     * Registers every valid {@link EventTarget} method declared by {@code owner}.
+     * Registering the same object twice is a no-op.
+     */
+    public synchronized void register(Object owner) {
+        if (owner == null || objectHandlers.containsKey(owner)) {
+            return;
         }
-    }
 
-    // -------------------------------------------------------------------------
-    //  Public API
-    // -------------------------------------------------------------------------
+        ArrayList<Handler> collected = new ArrayList<>();
+        HashSet<EventType<?>> changedTypes = new HashSet<>();
 
-    public void register(Object... objects) {
-        boolean changed = false;
-        for (Object obj : objects) {
-            if (registerOne(obj)) changed = true;
-        }
-        if (changed) rebuild();
-    }
-
-    public void unregister(Object obj) {
-        Handler[] handlers = objectHandlers.remove(obj);
-        if (handlers == null || handlers.length == 0) return;
-
-        for (Handler h : handlers) {
-            List<Handler> list = registry.get(h.eventClass);
-            if (list != null) {
-                list.remove(h);
-                if (list.isEmpty()) registry.remove(h.eventClass);
+        for (ListenerFactory factory : LISTENER_FACTORIES.get(owner.getClass())) {
+            try {
+                Handler handler = new Handler(
+                        factory.bind(owner), owner, factory.type, factory.priority);
+                registry.computeIfAbsent(factory.type, ignored -> new ArrayList<>()).add(handler);
+                collected.add(handler);
+                changedTypes.add(factory.type);
+            } catch (Throwable throwable) {
+                System.err.println("EventManager: cannot bind " + owner.getClass().getName()
+                        + '#' + factory.methodName);
+                throwable.printStackTrace();
             }
         }
-        rebuild();
+
+        if (!collected.isEmpty()) {
+            objectHandlers.put(owner, collected.toArray(Handler[]::new));
+            publish(changedTypes);
+        }
     }
 
-    public Event call(Event event) {
-        Handler[] handlers = dispatchTable.get(event.getClass());
-        if (handlers == null) return event;
+    /** Removes all listeners belonging to {@code owner}. */
+    public synchronized void unregister(Object owner) {
+        Handler[] handlers = objectHandlers.remove(owner);
+        if (handlers == null) {
+            return;
+        }
 
-        for (int i = 0, n = handlers.length; i < n; i++) {
-            Handler h = handlers[i];
+        HashSet<EventType<?>> changedTypes = new HashSet<>();
+        for (Handler handler : handlers) {
+            List<Handler> registered = registry.get(handler.type);
+            if (registered == null) {
+                continue;
+            }
+
+            registered.remove(handler);
+            if (registered.isEmpty()) {
+                registry.remove(handler.type);
+            }
+            changedTypes.add(handler.type);
+        }
+        publish(changedTypes);
+    }
+
+    /**
+     * Publishes an event without hashing, reflection, iteration objects, or
+     * per-call allocation. The type/event pairing is checked by the compiler.
+     */
+    public <T extends Event> T post(EventType<T> type, T event) {
+        Dispatch[] table = dispatchTable;
+        int typeId = type.id();
+        if (typeId >= table.length) {
+            return event;
+        }
+
+        Dispatch dispatch = table[typeId];
+        if (dispatch == null) {
+            return event;
+        }
+
+        EventListener[] listeners = dispatch.listeners;
+        for (int index = 0, length = listeners.length; index < length; index++) {
             try {
-                h.handle.invokeExact(event);
-            } catch (Throwable t) {
-                System.err.println(
-                    "EventManager: error in " + event.getClass().getSimpleName() +
-                    " -> " + h.owner.getClass().getSimpleName());
-                t.printStackTrace();
+                listeners[index].invoke(event);
+            } catch (Throwable throwable) {
+                reportFailure(type, dispatch.owners[index], throwable);
             }
         }
         return event;
     }
 
-    // -------------------------------------------------------------------------
-    //  Internal
-    // -------------------------------------------------------------------------
+    private static ListenerFactory createFactory(
+            Class<?> ownerClass,
+            Method method,
+            Class<? extends Event> eventClass,
+            int priority
+    ) throws Throwable {
+        MethodHandles.Lookup privateLookup = MethodHandles.privateLookupIn(ownerClass, LOOKUP);
+        MethodHandle implementation = privateLookup.unreflect(method);
+        boolean isStatic = Modifier.isStatic(method.getModifiers());
+        MethodType factoryType = isStatic
+                ? MethodType.methodType(EventListener.class)
+                : MethodType.methodType(EventListener.class, ownerClass);
 
-    private boolean registerOne(Object obj) {
-        Class<?> clazz = obj.getClass();
-        List<Handler> collected = null;
-
-        for (Method method : clazz.getDeclaredMethods()) {
-            EventTarget ann = method.getAnnotation(EventTarget.class);
-            if (ann == null) continue;
-
-            Class<?>[] params = method.getParameterTypes();
-            if (params.length != 1) continue;
-            if (!Event.class.isAssignableFrom(params[0])) continue;
-
-            @SuppressWarnings("unchecked")
-            Class<? extends Event> eventClass = (Class<? extends Event>) params[0];
-
-            try {
-                MethodHandle mh = MethodHandles.privateLookupIn(clazz, LOOKUP)
-                    .unreflect(method)
-                    .bindTo(obj)
-                    .asType(EVENT_SINK);
-
-                Handler h = new Handler(mh, obj, eventClass, ann.value());
-                registry.computeIfAbsent(eventClass, k -> new ArrayList<>()).add(h);
-
-                if (collected == null) collected = new ArrayList<>();
-                collected.add(h);
-            } catch (Exception e) {
-                System.err.println("EventManager: cannot link " + method.getName());
-                e.printStackTrace();
-            }
+        CallSite factory = LambdaMetafactory.metafactory(
+                privateLookup,
+                "invoke",
+                factoryType,
+                ERASED_LISTENER_METHOD,
+                implementation,
+                MethodType.methodType(void.class, eventClass)
+        );
+        MethodHandle target = factory.getTarget();
+        if (!isStatic) {
+            target = target.asType(MethodType.methodType(EventListener.class, Object.class));
         }
-
-        if (collected != null && !collected.isEmpty()) {
-            objectHandlers.put(obj, collected.toArray(new Handler[0]));
-            return true;
-        }
-        return false;
+        return new ListenerFactory(
+                target, EventType.of(eventClass), priority, method.getName(), isStatic);
     }
 
-    private void rebuild() {
-        Map<Class<? extends Event>, Handler[]> table = new HashMap<>();
-
-        for (Map.Entry<Class<? extends Event>, List<Handler>> e : registry.entrySet()) {
-            List<Handler> list = e.getValue();
-            list.sort(Comparator.comparingInt(h -> h.priority));
-            table.put(e.getKey(), list.toArray(new Handler[0]));
+    /** Rebuilds only the event types affected by a registration change. */
+    private void publish(Set<EventType<?>> changedTypes) {
+        if (changedTypes.isEmpty()) {
+            return;
         }
 
-        dispatchTable = table; // volatile write — happens-before for call() reads
+        Dispatch[] previous = dispatchTable;
+        int requiredLength = previous.length;
+        for (EventType<?> type : changedTypes) {
+            requiredLength = Math.max(requiredLength, type.id() + 1);
+        }
+
+        Dispatch[] next = Arrays.copyOf(previous, requiredLength);
+        for (EventType<?> type : changedTypes) {
+            List<Handler> handlers = registry.get(type);
+            if (handlers == null || handlers.isEmpty()) {
+                next[type.id()] = null;
+                continue;
+            }
+
+            handlers.sort(Comparator.comparingInt(handler -> handler.priority));
+            EventListener[] listeners = new EventListener[handlers.size()];
+            Object[] owners = new Object[handlers.size()];
+            for (int index = 0; index < handlers.size(); index++) {
+                Handler handler = handlers.get(index);
+                listeners[index] = handler.listener;
+                owners[index] = handler.owner;
+            }
+            next[type.id()] = new Dispatch(listeners, owners);
+        }
+
+        dispatchTable = next;
+    }
+
+    private static void reportFailure(EventType<?> type, Object owner, Throwable throwable) {
+        System.err.println("EventManager: error in " + type.eventClass().getSimpleName()
+                + " -> " + owner.getClass().getSimpleName());
+        throwable.printStackTrace();
+    }
+
+    private record Handler(
+            EventListener listener,
+            Object owner,
+            EventType<?> type,
+            int priority
+    ) {}
+
+    private record Dispatch(EventListener[] listeners, Object[] owners) {}
+
+    private record ListenerFactory(
+            MethodHandle factory,
+            EventType<?> type,
+            int priority,
+            String methodName,
+            boolean isStatic
+    ) {
+        EventListener bind(Object owner) throws Throwable {
+            return isStatic
+                    ? (EventListener) factory.invokeExact()
+                    : (EventListener) factory.invokeExact(owner);
+        }
     }
 }

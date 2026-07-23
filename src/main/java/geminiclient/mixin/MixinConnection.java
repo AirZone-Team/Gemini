@@ -1,6 +1,7 @@
 package geminiclient.mixin;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.PacketEvent;
 import geminiclient.gemini.event.events.impl.enums.IOEnum;
 import io.netty.channel.ChannelHandlerContext;
@@ -16,7 +17,7 @@ public class MixinConnection {
     @Inject(method = "channelRead0(Lio/netty/channel/ChannelHandlerContext;Lnet/minecraft/network/protocol/Packet;)V",at = @At("HEAD"), cancellable = true)
     public void callPacket(ChannelHandlerContext ctx, Packet<?> packet, CallbackInfo ci) {
         PacketEvent packetEvent = new PacketEvent(packet, IOEnum.In);
-        Gemini.eventManager.call(packetEvent);
+        Gemini.eventManager.post(EventTypes.PACKET, packetEvent);
         if (packetEvent.isCancelled()) {
             ci.cancel();
         }
@@ -25,7 +26,7 @@ public class MixinConnection {
     @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;)V",at = @At("HEAD"), cancellable = true)
     public void callPacketS(Packet<?> packet, CallbackInfo ci) {
         PacketEvent packetEvent = new PacketEvent(packet,IOEnum.Out);
-        Gemini.eventManager.call(packetEvent);
+        Gemini.eventManager.post(EventTypes.PACKET, packetEvent);
         if (packetEvent.isCancelled()) {
             ci.cancel();
         }

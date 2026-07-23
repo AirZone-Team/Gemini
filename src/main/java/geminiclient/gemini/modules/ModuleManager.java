@@ -33,6 +33,8 @@ public class ModuleManager {
                 new Glow(),
                 new InvManager(),
                 new EffectDisplay(),
+                new WaterMark(),
+                new DynamicIsland(),
                 new InvMove(),
                 new NoJumpDelay(),
                 new Crit(),

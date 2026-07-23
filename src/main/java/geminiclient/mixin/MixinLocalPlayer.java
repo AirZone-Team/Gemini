@@ -1,6 +1,7 @@
 package geminiclient.mixin;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.MotionEvent;
 import geminiclient.gemini.event.events.impl.SendPositionEvent;
 import geminiclient.gemini.event.events.impl.SlowDownEvent;
@@ -75,7 +76,7 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
 
     @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/AbstractClientPlayer;tick()V", shift = At.Shift.BEFORE, ordinal = 0))
     private void registerUpdateEvent(CallbackInfo ci) {
-        Gemini.eventManager.call(new UpdateEvent());
+        Gemini.eventManager.post(EventTypes.UPDATE, new UpdateEvent());
     }
 
     /**
@@ -86,7 +87,7 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
     private void sendPosition() {
         MotionEvent motionEvent = new MotionEvent(this.position(), this.getYRot(), this.getXRot(), this.onGround(),
                 this.horizontalCollision, TimeEnum.Pre);
-        Gemini.eventManager.call(motionEvent);
+        Gemini.eventManager.post(EventTypes.MOTION, motionEvent);
 
         this.sendIsSprintingIfNeeded();
         if (this.isControlledCamera()) {
@@ -131,7 +132,7 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
             this.autoJumpEnabled = (Boolean) this.minecraft.options.autoJump().get();
         }
         MotionEvent motionEvent1 = new MotionEvent(this.getYRot(), this.getXRot(), TimeEnum.Post);
-        Gemini.eventManager.call(motionEvent1);
+        Gemini.eventManager.post(EventTypes.MOTION, motionEvent1);
 
     }
 
@@ -152,7 +153,7 @@ public abstract class MixinLocalPlayer extends AbstractClientPlayer {
             Vec2 vec2 = moveVector.scale(0.98F);
             if (this.isUsingItem() && !this.isPassenger()) {
                 SlowDownEvent slowDownEvent = new SlowDownEvent(0.2f);
-                Gemini.eventManager.call(slowDownEvent);
+                Gemini.eventManager.post(EventTypes.SLOW_DOWN, slowDownEvent);
                 vec2 = vec2.scale(slowDownEvent.getFactor());
             }
 

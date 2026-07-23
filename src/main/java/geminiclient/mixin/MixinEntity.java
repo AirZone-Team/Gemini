@@ -1,6 +1,7 @@
 package geminiclient.mixin;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.BlockingEvent;
 import geminiclient.gemini.event.events.impl.EntityRemoveEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.RayTraceEvent;
@@ -32,7 +33,7 @@ public abstract class MixinEntity {
     @ModifyArg(method = "moveRelative",at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getInputVector(Lnet/minecraft/world/phys/Vec3;FF)Lnet/minecraft/world/phys/Vec3;",ordinal = 0),index = 2)
     public float strafe(float motionScaler) {
         StrafeEvent strafeEvent = new StrafeEvent(motionScaler);
-        Gemini.eventManager.call(strafeEvent);
+        Gemini.eventManager.post(EventTypes.STRAFE, strafeEvent);
         return strafeEvent.getYaw();
     }
 
@@ -41,7 +42,7 @@ public abstract class MixinEntity {
         Entity thisEntity = (Entity)(Object)this;
         if (Minecraft.getInstance().player == thisEntity) {
             BlockingEvent event = new BlockingEvent(blockState, speedMultiplier);
-            Gemini.eventManager.call(event);
+            Gemini.eventManager.post(EventTypes.BLOCKING, event);
             if (event.isCancelled()) {
                 this.stuckSpeedMultiplier = Vec3.ZERO;
                 return;
@@ -61,7 +62,7 @@ public abstract class MixinEntity {
         Entity thisEntity = (Entity)(Object)this;
         if (thisEntity == Minecraft.getInstance().player) {
             RayTraceEvent lookEvent = new RayTraceEvent(thisEntity, yaw, pitch);
-            Gemini.eventManager.call(lookEvent);
+            Gemini.eventManager.post(EventTypes.RAY_TRACE, lookEvent);
             yaw = lookEvent.yaw;
             pitch = lookEvent.pitch;
         }
@@ -72,6 +73,7 @@ public abstract class MixinEntity {
     @Inject(method = "remove", at = @At("HEAD"))
     private void onRemove(Entity.RemovalReason reason, CallbackInfo ci) {
         Entity thisEntity = (Entity)(Object)this;
-        Gemini.eventManager.call(new EntityRemoveEvent(thisEntity, reason == Entity.RemovalReason.KILLED));
+        Gemini.eventManager.post(EventTypes.ENTITY_REMOVE,
+                new EntityRemoveEvent(thisEntity, reason == Entity.RemovalReason.KILLED));
     }
 }
