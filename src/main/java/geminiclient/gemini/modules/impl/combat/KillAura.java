@@ -688,9 +688,7 @@ public class KillAura extends Module {
         curr = null;
         for (Entity entity : mc.level.entitiesForRendering()) {
             if (isValidTarget(entity) && isInFov(entity) &&
-                    ReachUtils.getMinDistanceSquaredBetweenEntities(
-                            mc.player.getBoundingBox(), 0.1,
-                            entity.getBoundingBox(), 0.0) < range.getValue() * range.getValue()) {
+                    ReachUtils.distanceToSqr(entity) < range.getValue() * range.getValue()) {
                 entities.add(entity);
             }
         }

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="gemini.build.slang.SlangManifestTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-07-21T07:38:37.416Z" hostname="DESKTOP-VRU6I8I" time="0.007">
-  <properties/>
-  <testcase name="parsesVariantsInOrder()" classname="gemini.build.slang.SlangManifestTest" time="0.004"/>
-  <testcase name="rejectsInvalidAndDuplicateDefines()" classname="gemini.build.slang.SlangManifestTest" time="0.002"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>
