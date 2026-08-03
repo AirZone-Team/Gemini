@@ -33,7 +33,8 @@ jobs:
       uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6.0.0
 
     - name: Build with Gradle
-      run: ./gradlew build
+      # Keep CI memory usage bounded while NeoForm downloads and prepares assets.
+      run: ./gradlew build --no-daemon --no-parallel --max-workers=2
 
     # The USERNAME and TOKEN need to correspond to the credentials environment variables used in
     # the publishing section of your build.gradle
