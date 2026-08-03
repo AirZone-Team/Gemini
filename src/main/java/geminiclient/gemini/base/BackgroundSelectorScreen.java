@@ -1,6 +1,7 @@
 package geminiclient.gemini.base;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import geminiclient.gemini.Gemini;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
@@ -20,15 +21,12 @@ import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
 /**
  * Background selector popup screen.
@@ -77,7 +75,7 @@ public class BackgroundSelectorScreen extends Screen {
     // ========================
 
     private final Screen parent;
-    private final BackgroundConfig backgroundConfig;
+    private final FileSystem fileSystem;
     private final List<WallpaperEntry> wallpapers = new ArrayList<>();
     private final Map<Path, Identifier> thumbnailCache = new HashMap<>();
 
@@ -113,10 +111,10 @@ public class BackgroundSelectorScreen extends Screen {
     // Constructor
     // ========================
 
-    public BackgroundSelectorScreen(Screen parent, BackgroundConfig backgroundConfig) {
+    public BackgroundSelectorScreen(Screen parent) {
         super(Component.literal("Background Selector"));
         this.parent = parent;
-        this.backgroundConfig = backgroundConfig;
+        this.fileSystem = Gemini.fileSystem;
     }
 
     @Override
@@ -159,13 +157,7 @@ public class BackgroundSelectorScreen extends Screen {
         thumbnailPreloader.start();
 
         // Find currently selected wallpaper
-        Path currentBg = backgroundConfig.getCustomBackgroundFile();
-        for (int i = 0; i < wallpapers.size(); i++) {
-            if (wallpapers.get(i).filePath().equals(currentBg)) {
-                selectedIndex = i;
-                break;
-            }
-        }
+        updateSelectedIndex();
     }
 
     private void loadFonts() {
@@ -184,30 +176,24 @@ public class BackgroundSelectorScreen extends Screen {
 
     private void scanWallpapers() {
         wallpapers.clear();
-        Path dir = backgroundConfig.getConfigDirectory();
-
-        try (Stream<Path> files = Files.list(dir)) {
-            files.filter(Files::isRegularFile)
-                    .filter(this::isSupportedFile)
-                    .sorted()
-                    .forEach(path -> {
-                        try {
-                            long size = Files.size(path);
-                            WallpaperEntry.WallpaperType type = WallpaperEntry.getTypeFromPath(path);
-                            wallpapers.add(new WallpaperEntry(path, path.getFileName().toString(), type, size));
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    });
-        } catch (IOException e) {
-            e.printStackTrace();
+        if (fileSystem != null) {
+            wallpapers.addAll(fileSystem.scanWallpaperEntries());
         }
     }
 
-    private boolean isSupportedFile(Path path) {
-        String name = path.getFileName().toString().toLowerCase();
-        return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg")
-                || name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".gif");
+    private void updateSelectedIndex() {
+        selectedIndex = -1;
+        if (fileSystem == null) {
+            return;
+        }
+
+        Path currentBg = fileSystem.getCustomBackgroundFile();
+        for (int i = 0; i < wallpapers.size(); i++) {
+            if (wallpapers.get(i).filePath().equals(currentBg)) {
+                selectedIndex = i;
+                break;
+            }
+        }
     }
 
     // ========================
@@ -761,12 +747,15 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void selectWallpaper(int index) {
+        if (fileSystem == null) {
+            return;
+        }
+
         selectedIndex = index;
         WallpaperEntry entry = wallpapers.get(index);
 
-        // Update BackgroundConfig
-        backgroundConfig.setSelectedWallpaper(entry.filePath());
-        backgroundConfig.setCustomBackgroundEnabled(true);
+        fileSystem.setSelectedWallpaper(entry.filePath());
+        fileSystem.setCustomBackgroundEnabled(true);
 
         // If parent is MainMenuScreen, trigger texture reload
         if (parent instanceof MainMenuScreen) {
@@ -778,6 +767,10 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void deleteWallpaper(int index) {
+        if (fileSystem == null) {
+            return;
+        }
+
         try {
             WallpaperEntry entry = wallpapers.get(index);
             Path filePath = entry.filePath();
@@ -786,11 +779,12 @@ public class BackgroundSelectorScreen extends Screen {
 
             // Check if this is the currently selected wallpaper
             boolean wasSelected = (index == selectedIndex);
-            Path currentBg = backgroundConfig.getCustomBackgroundFile();
+            Path currentBg = fileSystem.getCustomBackgroundFile();
             boolean isCurrentBg = filePath.equals(currentBg);
 
-            // Delete the file
-            Files.deleteIfExists(filePath);
+            if (!fileSystem.deleteWallpaper(filePath)) {
+                return;
+            }
             System.out.println("[BackgroundSelector] Wallpaper deleted successfully");
 
             // Remove from list
@@ -808,15 +802,7 @@ public class BackgroundSelectorScreen extends Screen {
 
             // Update selected index
             if (wasSelected || isCurrentBg) {
-                // If deleted wallpaper was selected, select the first one if available
-                if (!wallpapers.isEmpty()) {
-                    selectedIndex = 0;
-                    backgroundConfig.setSelectedWallpaper(wallpapers.get(0).filePath());
-                    backgroundConfig.setCustomBackgroundEnabled(true);
-                } else {
-                    selectedIndex = -1;
-                    backgroundConfig.setCustomBackgroundEnabled(false);
-                }
+                updateSelectedIndex();
 
                 // Reload parent background
                 if (parent instanceof MainMenuScreen) {
@@ -834,6 +820,10 @@ public class BackgroundSelectorScreen extends Screen {
     }
 
     private void openFileChooser() {
+        if (fileSystem == null) {
+            return;
+        }
+
         // Use LWJGL's TinyFileDialogs for native file chooser (works without AWT/Swing)
         try {
             System.out.println("[BackgroundSelector] Opening file chooser...");
@@ -855,44 +845,20 @@ public class BackgroundSelectorScreen extends Screen {
                     System.out.println("[BackgroundSelector] Selected path: " + selectedPath);
 
                     if (selectedPath != null && !selectedPath.isEmpty()) {
-                        File selectedFile = new File(selectedPath);
-                        System.out.println("[BackgroundSelector] File selected: " + selectedFile.getAbsolutePath());
+                        Path selectedFile = Path.of(selectedPath);
+                        System.out.println("[BackgroundSelector] File selected: " + selectedFile.toAbsolutePath());
 
-                        // Copy file to wallpapers directory
-                        Path targetDir = backgroundConfig.getBackgroundsDirectory();
-                        System.out.println("[BackgroundSelector] Target directory: " + targetDir);
-
-                        Path targetPath = targetDir.resolve(selectedFile.getName());
-
-                        // Handle duplicate filenames
-                        int counter = 1;
-                        String baseName = selectedFile.getName();
-                        String extension = "";
-                        int dotIndex = baseName.lastIndexOf('.');
-                        if (dotIndex > 0) {
-                            extension = baseName.substring(dotIndex);
-                            baseName = baseName.substring(0, dotIndex);
+                        final Path finalTargetPath = fileSystem.importWallpaper(selectedFile).orElse(null);
+                        if (finalTargetPath == null) {
+                            System.out.println("[BackgroundSelector] Unsupported wallpaper file: " + selectedFile);
+                            return;
                         }
-
-                        while (Files.exists(targetPath)) {
-                            targetPath = targetDir.resolve(baseName + "_" + counter + extension);
-                            counter++;
-                        }
-
-                        final Path finalTargetPath = targetPath;
-
-                        // Copy file
-                        Files.copy(selectedFile.toPath(), finalTargetPath);
                         System.out.println("[BackgroundSelector] Wallpaper copied to: " + finalTargetPath);
 
                         // Execute on Minecraft thread to update UI
                         this.minecraft.execute(() -> {
                             try {
                                 System.out.println("[BackgroundSelector] Updating UI on Minecraft thread");
-
-                                // Set as current wallpaper
-                                backgroundConfig.setSelectedWallpaper(finalTargetPath);
-                                backgroundConfig.setCustomBackgroundEnabled(true);
 
                                 // Reload parent background
                                 if (parent instanceof MainMenuScreen) {
@@ -901,7 +867,7 @@ public class BackgroundSelectorScreen extends Screen {
 
                                 // Close and reopen selector to refresh list
                                 onClose();
-                                this.minecraft.gui.setScreen(new BackgroundSelectorScreen(parent, backgroundConfig));
+                                this.minecraft.gui.setScreen(new BackgroundSelectorScreen(parent));
 
                                 System.out.println("[BackgroundSelector] UI update complete");
                             } catch (Exception e) {
@@ -925,6 +891,20 @@ public class BackgroundSelectorScreen extends Screen {
             System.err.println("[BackgroundSelector] Error launching file chooser: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    @Override
+    public void onFilesDrop(List<Path> files) {
+        if (fileSystem == null) {
+            return;
+        }
+
+        fileSystem.importFirstWallpaper(files).ifPresent(path -> {
+            if (parent instanceof MainMenuScreen) {
+                ((MainMenuScreen) parent).reloadCustomBackground();
+            }
+            this.minecraft.gui.setScreen(new BackgroundSelectorScreen(parent));
+        });
     }
 
     @Override

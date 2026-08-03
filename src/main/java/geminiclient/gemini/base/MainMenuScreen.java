@@ -2,10 +2,11 @@ package geminiclient.gemini.base;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.systems.RenderSystem;
+import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.alt.AltManagerScreen;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
-import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer.GlyphFont;
 import geminiclient.gemini.customRenderer.glsl.InfiniteGridRenderer;
@@ -25,6 +26,7 @@ import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.NotNull;
 
 import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -33,18 +35,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Layered glass main menu built around the fullscreen perspective grid.
+ * Minimal left-column main menu that puts the wallpaper first.
  *
- * <p>Typography remains the visual anchor while frosted navigation surfaces,
- * soft accent blooms, rounded focus cards and restrained shadows add depth.
- * All surfaces share the same cyan-tinted dark material and staggered motion.</p>
+ * <p>Typography is the visual anchor: a staggered white→cyan title, a thin
+ * accent rule and a quiet vertical menu hug the left edge, while the rest of
+ * the screen is left open so the custom wallpaper stays unobstructed.
+ * A barely-there left scrim keeps text readable over bright wallpapers
+ * without ever reading as a panel.</p>
  */
 public class MainMenuScreen extends Screen {
 
     // ========================
     // Layout Constants
     // ========================
-    private static final int MENU_SPACING = 32;
+    private static final int MENU_SPACING = 34;
     private static final int NAV_RIGHT_PAD = 40;
     private static final int FOOTER_RIGHT_PAD = 40;
     private static final int FOOTER_BOTTOM_PAD = 30;
@@ -63,17 +67,12 @@ public class MainMenuScreen extends Screen {
     private static final int VERSION_COLOR   = 0xFF666666;
     private static final int SEPARATOR_COLOR = 0xFF444444;
     private static final int HINT_COLOR      = 0xFF4A4A4A;
-    private static final int GLASS_TOP       = 0xA0161D28;
-    private static final int GLASS_BOTTOM    = 0xC00A0E15;
-    private static final int GLASS_OUTLINE   = 0x5A9CC9DD;
-    private static final int ROW_FILL        = 0xB01B2936;
-    private static final int ROW_OUTLINE     = 0x6689DDFF;
+    private static final int SCRIM_COLOR     = 0x3006080D; // left readability scrim
+    private static final int ROW_FILL        = 0x4A1B2936;
+    private static final int ROW_FILL_EDGE   = 0x1415222D;
 
-    private static final int MENU_PANEL_W = 320;
-    private static final int MENU_PANEL_RADIUS = 14;
     private static final int MIN_EDGE_PAD = 8;
-    private static final int NORMAL_EDGE_PAD = 24;
-    private static final int MIN_MENU_SPACING = 20;
+    private static final int MIN_MENU_SPACING = 22;
 
     // ========================
     // Fonts
@@ -133,8 +132,11 @@ public class MainMenuScreen extends Screen {
     // ========================
     // Custom Background
     // ========================
-    private static BackgroundConfig backgroundConfig;
+    private static FileSystem fileSystem;
     private static Identifier customBackgroundTexture;
+    private static DynamicTexture customBackgroundDynamicTexture;
+    private static Path customBackgroundFile;
+    private static JavaCvVideoBackground customBackgroundVideo;
     private static boolean customBackgroundLoadFailed = false;
 
     // ========================
@@ -146,13 +148,12 @@ public class MainMenuScreen extends Screen {
     private record Layout(
             String titleText,
             float titleX, float titleY, float titleWidth, float titleSpacing,
-            float accentY, float subtitleX, float subtitleY,
-            int panelX, int panelY, int panelW, int panelH,
-            float menuStartY, float menuSpacing, int rowX, int rowW, int rowH,
+            float accentY, float subtitleY,
+            float menuX, float menuStartY, float menuSpacing, int rowX, int rowW, int rowH,
             float navStartX, float navY, float githubW, float separatorW, float discordW,
-            int navSurfaceX, int navSurfaceY, int navSurfaceW, int navSurfaceH,
             float footerNameX, float footerVersionX, float footerNameY, float footerVersionY,
-            float hintsX, boolean showSubtitle, boolean showAtmosphere, boolean showNavigation,
+            float hintsX, int scrimW,
+            boolean showSubtitle, boolean showAtmosphere, boolean showNavigation,
             boolean showFooter, boolean showHints,
             int bgToggleX, int bgToggleY, int bgToggleW, int bgToggleH,
             int bgCycleX, int bgCycleY, int bgCycleW, int bgCycleH) {
@@ -212,9 +213,12 @@ public class MainMenuScreen extends Screen {
 
     @Override
     protected void init() {
-        // Initialize background config
-        if (backgroundConfig == null) {
-            backgroundConfig = new BackgroundConfig();
+        // Initialize background storage
+        if (fileSystem == null) {
+            fileSystem = Gemini.fileSystem;
+        }
+        if (fileSystem != null) {
+            fileSystem.refreshBackgrounds();
         }
 
         // Initialize particle system
@@ -264,7 +268,7 @@ public class MainMenuScreen extends Screen {
         this.mouseY = mouseY;
 
         // Update particle system
-        if (particleSystem != null && backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
+        if (particleSystem != null && fileSystem != null && fileSystem.isCustomBackgroundEnabled()) {
             particleSystem.updateMousePosition(mouseX, mouseY);
             particleSystem.update(dt);
         }
@@ -279,7 +283,7 @@ public class MainMenuScreen extends Screen {
         renderBackground(gui, elapsed);
 
         // ── 1.5. Particle System (only with custom background) ─────
-        if (particleSystem != null && backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
+        if (particleSystem != null && fileSystem != null && fileSystem.isCustomBackgroundEnabled()) {
             particleSystem.render(gui, partialTicks);
         }
 
@@ -289,9 +293,9 @@ public class MainMenuScreen extends Screen {
         updateBgToggleHover(layout, mouseX, mouseY, dt);
         updateBgCycleHover(layout, mouseX, mouseY, dt);
 
-        // ── 3. Frosted surfaces + ambient lighting ─────────
+        // ── 3. Readability scrim + ambient lighting ──────
+        drawLeftScrim(gui, layout);
         drawAtmosphere(gui, layout, elapsed);
-        drawGlassSurfaces(gui, layout, elapsed);
 
         // ── 4. Title ───────────────────────────────────────
         drawTitle(gui, layout, elapsed);
@@ -326,22 +330,22 @@ public class MainMenuScreen extends Screen {
         float navRight = Math.min(NAV_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f));
         float navStartX = Math.max(MIN_EDGE_PAD, this.width - navRight - navW);
 
-        int edgePad = Math.min(NORMAL_EDGE_PAD, Math.max(MIN_EDGE_PAD, this.width / 12));
-        int panelW = Math.max(1, Math.min(MENU_PANEL_W, this.width - edgePad * 2));
-        int panelX = Math.max(0, (this.width - panelW) / 2);
+        // Left column: wide enough to breathe, narrow enough to keep the wallpaper open
+        float menuX = Math.clamp(this.width * 0.09f, 28f, 96f);
 
         boolean showSubtitle = this.height >= 340;
         boolean showAtmosphere = this.height >= 260;
         boolean showNavigation = this.height >= 210 && navW <= this.width - MIN_EDGE_PAD * 2f;
         boolean showFooter = this.height >= 420;
-        boolean showHints = this.height >= 480 && panelW >= 210;
+        boolean showHints = this.height >= 480;
 
         String titleText = "G E M I N I";
         float rawTitleWidth = titleFont == null ? 0f
                 : computeSpacedWidth(titleFont, titleText, TITLE_SPACING_PX);
         int titleGaps = titleText.codePointCount(0, titleText.length()) - 1;
         float glyphWidth = Math.max(0f, rawTitleWidth - titleGaps * TITLE_SPACING_PX);
-        if (glyphWidth > this.width - MIN_EDGE_PAD * 2f) {
+        float titleAvail = this.width - menuX - MIN_EDGE_PAD;
+        if (glyphWidth > titleAvail) {
             titleText = "GEMINI";
             rawTitleWidth = titleFont == null ? 0f
                     : computeSpacedWidth(titleFont, titleText, TITLE_SPACING_PX);
@@ -349,43 +353,36 @@ public class MainMenuScreen extends Screen {
             glyphWidth = Math.max(0f, rawTitleWidth - titleGaps * TITLE_SPACING_PX);
         }
         float titleSpacing = titleGaps <= 0 ? TITLE_SPACING_PX
-                : Math.clamp((this.width - MIN_EDGE_PAD * 2f - glyphWidth) / titleGaps, 1f, TITLE_SPACING_PX);
+                : Math.clamp((titleAvail - glyphWidth) / titleGaps, 1f, TITLE_SPACING_PX);
         float titleWidth = titleFont == null ? 0f
                 : computeSpacedWidth(titleFont, titleText, titleSpacing);
 
-        float titleY = Math.max(44f, this.height * 0.25f);
-        float panelBottom = this.height - (showFooter ? 64f : MIN_EDGE_PAD);
-        float compactTitleGap = showSubtitle ? 50f : 22f;
-        float desiredMenuY = Math.max(this.height * 0.43f, titleY + TITLE_FONT_SIZE + 98f);
-        float availableSpacing = (panelBottom - (desiredMenuY - 15f) - 18f) / menuItems.size();
-
-        if (availableSpacing < MIN_MENU_SPACING) {
-            titleY = Math.max(34f, Math.min(titleY,
-                    panelBottom - TITLE_FONT_SIZE - compactTitleGap
-                            - menuItems.size() * MIN_MENU_SPACING - 3f));
-            desiredMenuY = titleY + TITLE_FONT_SIZE + compactTitleGap;
-            availableSpacing = (panelBottom - (desiredMenuY - 15f) - 18f) / menuItems.size();
+        // Uniform row width from the widest label so hover cards line up
+        float maxLabelW = 0f;
+        if (menuFont != null) {
+            for (MenuItem item : menuItems) {
+                maxLabelW = Math.max(maxLabelW, CustomFontRenderer.stringWidth(menuFont, item.label()));
+            }
         }
-
-        float menuSpacing = Math.clamp(availableSpacing, 16f, MENU_SPACING);
-        float menuStartY = desiredMenuY;
-        int panelY = Math.round(menuStartY - 15f);
-        int panelH = Math.round(menuItems.size() * menuSpacing + 18f);
-        if (panelY + panelH > this.height - MIN_EDGE_PAD) {
-            panelY = Math.max(0, this.height - MIN_EDGE_PAD - panelH);
-            menuStartY = panelY + 15f;
-        }
-
-        int rowX = panelX + Math.min(12, Math.max(4, panelW / 20));
-        int rowW = Math.max(1, panelW - (rowX - panelX) * 2);
+        int rowX = Math.round(menuX - 14f);
+        int rowW = Math.max(40, Math.round(maxLabelW) + 48);
         int rowH = Math.round((menuFont == null ? MENU_FONT_SIZE : menuFont.lineHeight) + 14f);
 
-        String subtitle = "Modern Minecraft Client";
-        float subtitleW = subtitleFont == null ? 0f : CustomFontRenderer.stringWidth(subtitleFont, subtitle);
-        float subtitleY = titleY + TITLE_FONT_SIZE + 22f;
+        // Vertical stack: title → rule → subtitle → menu, anchored to the left
+        float titleY = Math.max(52f, this.height * 0.20f);
+        float menuTop = Math.max(this.height - (showFooter ? 64f : MIN_EDGE_PAD), titleY + 120f);
+        float desiredMenuY = titleY + TITLE_FONT_SIZE + (showSubtitle ? 78f : 52f);
+        float availableSpacing = (menuTop - desiredMenuY) / menuItems.size();
 
-        int navSurfaceX = Math.max(0, Math.round(navStartX - 13f));
-        int navSurfaceW = Math.max(1, this.width - navSurfaceX - Math.round(navRight) + 13);
+        if (availableSpacing < MIN_MENU_SPACING) {
+            titleY = Math.max(30f, menuTop - (showSubtitle ? 78f : 52f)
+                    - TITLE_FONT_SIZE - menuItems.size() * MIN_MENU_SPACING);
+            desiredMenuY = titleY + TITLE_FONT_SIZE + (showSubtitle ? 78f : 52f);
+            availableSpacing = (menuTop - desiredMenuY) / menuItems.size();
+        }
+
+        float menuSpacing = Math.clamp(availableSpacing, 18f, MENU_SPACING);
+        float menuStartY = desiredMenuY;
 
         String line1 = "Gemini Client";
         String line2 = "v" + MOD_VERSION;
@@ -394,16 +391,12 @@ public class MainMenuScreen extends Screen {
         float footerRight = Math.min(FOOTER_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f));
         float footerVersionY = this.height - Math.min(FOOTER_BOTTOM_PAD, Math.max(12, this.height / 12));
         float footerNameY = footerVersionY - VERSION_FONT_SIZE - 4f;
-        String hints = "↑↓  Select    Enter  Open";
-        float hintsW = versionFont == null ? 0f : CustomFontRenderer.stringWidth(versionFont, hints);
 
         // Background toggle button (right side, below navigation)
         int bgToggleW = 28;
         int bgToggleH = 28;
         int bgToggleX = this.width - (int) Math.min(NAV_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f)) - bgToggleW;
-        int navSurfaceY = 10;
-        int navSurfaceH = 31;
-        int bgToggleY = showNavigation ? navSurfaceY + navSurfaceH + 12 : 52;
+        int bgToggleY = showNavigation ? 53 : 52;
 
         // Background cycle button (left of toggle button)
         int bgCycleW = 28;
@@ -412,16 +405,15 @@ public class MainMenuScreen extends Screen {
         int bgCycleY = bgToggleY;
 
         return new Layout(
-                titleText, (this.width - titleWidth) / 2f, titleY, titleWidth, titleSpacing,
+                titleText, menuX, titleY, titleWidth, titleSpacing,
                 titleY + TITLE_FONT_SIZE + 10f,
-                (this.width - subtitleW) / 2f, subtitleY,
-                panelX, panelY, panelW, panelH,
-                menuStartY, menuSpacing, rowX, rowW, rowH,
+                titleY + TITLE_FONT_SIZE + 24f,
+                menuX, menuStartY, menuSpacing, rowX, rowW, rowH,
                 navStartX, 20f, githubW, separatorW, discordW,
-                navSurfaceX, 10, navSurfaceW, 31,
                 this.width - footerRight - w1, this.width - footerRight - w2,
                 footerNameY, footerVersionY,
-                panelX + (panelW - hintsW) / 2f,
+                menuX,
+                Math.round(menuX + rowW + 96f),
                 showSubtitle, showAtmosphere, showNavigation, showFooter, showHints,
                 bgToggleX, bgToggleY, bgToggleW, bgToggleH,
                 bgCycleX, bgCycleY, bgCycleW, bgCycleH);
@@ -430,8 +422,8 @@ public class MainMenuScreen extends Screen {
     private void drawAtmosphere(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         if (!layout.showAtmosphere) return;
         // Don't show atmosphere when custom background is active
-        if (backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()
-                && backgroundConfig.customBackgroundFileExists()) {
+        if (fileSystem != null && fileSystem.isCustomBackgroundEnabled()
+                && fileSystem.customBackgroundFileExists()) {
             return;
         }
 
@@ -439,45 +431,22 @@ public class MainMenuScreen extends Screen {
         if (reveal <= 0.01f) return;
 
         float pulse = 0.88f + 0.12f * (float) Math.sin(elapsed * 0.8f);
-        SdfUIRenderer.drawCircle(gui, this.width - 88f, 92f, 196,
-                scaleAlpha(0x1889DDFF, reveal * pulse));
-        SdfUIRenderer.drawCircle(gui, 52f, this.height - 72f, 148,
-                scaleAlpha(0x105C7CFF, reveal));
+        SdfUIRenderer.drawCircle(gui, this.width - 88f, 92f, 150,
+                scaleAlpha(0x0C89DDFF, reveal * pulse));
+        SdfUIRenderer.drawCircle(gui, 52f, this.height - 72f, 110,
+                scaleAlpha(0x085C7CFF, reveal));
     }
 
-    private void drawGlassSurfaces(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
-        float reveal = easeOutCubic(clamp01((elapsed - 0.18f) * 2.8f)) * entryAlpha;
-        if (reveal <= 0.01f) return;
-
-        int panelX = layout.panelX;
-        int panelY = Math.round(layout.panelY + (1f - reveal) * 10f);
-        int panelW = layout.panelW;
-        int panelH = layout.panelH;
-
-        SdfUIRenderer.drawShadow(gui, panelX, panelY, panelW, panelH,
-                MENU_PANEL_RADIUS, 0, 8, 24, scaleAlpha(0x78000000, reveal));
-        CustomBlurRenderer.render(panelX, panelY, panelW, panelH,
-                MENU_PANEL_RADIUS, scaleAlpha(0x52101922, reveal), 8f);
-        CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui, panelX, panelY, panelW, panelH,
-                MENU_PANEL_RADIUS, scaleAlpha(GLASS_TOP, reveal), scaleAlpha(GLASS_BOTTOM, reveal));
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, panelX, panelY, panelW, panelH,
-                MENU_PANEL_RADIUS, scaleAlpha(GLASS_OUTLINE, reveal), 1);
-
-        CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui,
-                panelX + 1, panelY + 18, 2, Math.max(8, panelH - 36), 1,
-                scaleAlpha(ACCENT, reveal * 0.85f), scaleAlpha(0x0089DDFF, reveal));
-
-        if (!layout.showNavigation) return;
-        int navY = layout.navSurfaceY;
-        int navH = layout.navSurfaceH;
-        SdfUIRenderer.drawShadow(gui, layout.navSurfaceX, navY, layout.navSurfaceW, navH,
-                10, 0, 4, 12, scaleAlpha(0x50000000, reveal));
-        CustomBlurRenderer.render(layout.navSurfaceX, navY, layout.navSurfaceW, navH, 10,
-                scaleAlpha(0x42101820, reveal), 6f);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, layout.navSurfaceX, navY,
-                layout.navSurfaceW, navH, 10, scaleAlpha(0x7210151D, reveal));
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, layout.navSurfaceX, navY,
-                layout.navSurfaceW, navH, 10, scaleAlpha(0x3EFFFFFF, reveal), 1);
+    /**
+     * A whisper-thin gradient scrim along the left edge. It only exists to
+     * keep the column text legible over bright wallpapers — it is far too
+     * faint to ever read as a panel, so the wallpaper stays in charge.
+     */
+    private void drawLeftScrim(GuiGraphicsExtractor gui, Layout layout) {
+        if (entryAlpha <= 0.01f) return;
+        int color = scaleAlpha(SCRIM_COLOR, entryAlpha);
+        CustomRectRenderer.drawRectHorizGrad(gui, 0, 0, Math.min(layout.scrimW, this.width),
+                this.height, color, color & 0x00FFFFFF);
     }
 
     // ========================
@@ -570,7 +539,7 @@ public class MainMenuScreen extends Screen {
         if (progress <= 0.01f) return;
 
         float lineW = layout.titleWidth * 0.32f * progress;
-        float x = (this.width - lineW) / 2f;
+        float x = layout.titleX;
         float y = layout.accentY;
 
         int alpha = (int) (entryAlpha * progress * 255);
@@ -588,7 +557,7 @@ public class MainMenuScreen extends Screen {
         if (subtitleFont == null) return;
 
         String subtitle = "Modern Minecraft Client";
-        float subX = layout.subtitleX;
+        float subX = layout.menuX;
         float subY = layout.subtitleY;
 
         float reveal = easeOutCubic(clamp01((elapsed - 0.55f) * 2.5f));
@@ -624,22 +593,16 @@ public class MainMenuScreen extends Screen {
             int alpha = (int) (entryAlpha * reveal * dim * 255);
             if (alpha <= 0) continue;
 
-            int panelX = layout.panelX;
             int rowX = layout.rowX;
             int rowY = Math.round(y - 7f);
             int rowW = layout.rowW;
             int rowH = layout.rowH;
             float active = Math.max(hp, i == focusedIndex ? 0.75f : 0f);
             if (active > 0.01f) {
-                SdfUIRenderer.drawShadow(gui, rowX, rowY, rowW, rowH,
-                        8, 0, 3, 10, scaleAlpha(0x48000000, reveal * active));
                 CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui,
                         rowX, rowY, rowW, rowH, 8,
                         scaleAlpha(ROW_FILL, reveal * active),
-                        scaleAlpha(0x5415222D, reveal * active));
-                CustomRoundedRectRenderer.drawRoundedOutline(gui,
-                        rowX, rowY, rowW, rowH, 8,
-                        scaleAlpha(ROW_OUTLINE, reveal * active), 1);
+                        scaleAlpha(ROW_FILL_EDGE, reveal * active));
             }
 
             // Accent indicator bar: grows vertically on hover
@@ -650,7 +613,7 @@ public class MainMenuScreen extends Screen {
                 int barAlpha = (int) (alpha * hp);
                 int barColor = (barAlpha << 24) | (ACCENT & 0x00FFFFFF);
                 CustomRoundedRectRenderer.drawRoundedRect(gui,
-                        panelX + 17 + (int) slideIn, (int) barY,
+                        rowX + 6 + (int) slideIn, (int) barY,
                         3, Math.max(2, (int) barH), 1, barColor);
             }
 
@@ -659,23 +622,8 @@ public class MainMenuScreen extends Screen {
             int hoverColor = (alpha << 24) | (TEXT_HOVER & 0x00FFFFFF);
             int textColor = lerpColor(idleColor, hoverColor, hp);
 
-            float textX = Math.min(panelX + 46f, panelX + Math.max(22f, layout.panelW * 0.14f))
-                    + slideIn + hp * HOVER_SLIDE_PX;
+            float textX = layout.menuX + 4f + slideIn + hp * HOVER_SLIDE_PX;
             CustomFontRenderer.drawString(gui, menuFont, item.label, textX, y, textColor);
-
-            String shortcut = switch (i) {
-                case 0 -> "S";
-                case 1 -> "M";
-                case 2 -> "O";
-                case 3 -> "A";
-                default -> "E";
-            };
-            float shortcutW = CustomFontRenderer.stringWidth(versionFont, shortcut);
-            int shortcutColor = scaleAlpha(hp > 0.01f ? ACCENT : VERSION_COLOR,
-                    entryAlpha * reveal * (0.65f + hp * 0.35f));
-            CustomFontRenderer.drawString(gui, versionFont, shortcut,
-                    panelX + layout.panelW - Math.min(28f, Math.max(12f, layout.panelW * 0.09f)) - shortcutW,
-                    y + 1f, shortcutColor);
         }
     }
 
@@ -789,80 +737,147 @@ public class MainMenuScreen extends Screen {
     // ========================
 
     private void renderBackground(GuiGraphicsExtractor gui, float elapsed) {
-        if (backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled()) {
+        if (fileSystem != null && fileSystem.isCustomBackgroundEnabled()) {
             renderCustomBackground(gui);
         }
         // Render grid particles if enabled
-        if (backgroundConfig != null && backgroundConfig.isParticlesEnabled()) {
+        if (fileSystem != null && fileSystem.isParticlesEnabled()) {
             InfiniteGridRenderer.render(elapsed);
-        } else if (backgroundConfig != null) {
+        } else if (fileSystem != null) {
             // Particles disabled - skip rendering
         }
     }
 
     private void renderCustomBackground(GuiGraphicsExtractor gui) {
-        if (!backgroundConfig.customBackgroundFileExists()) {
+        if (!fileSystem.customBackgroundFileExists()) {
             return;
         }
 
+        Path bgFile = fileSystem.getCustomBackgroundFile();
+        if (bgFile != null) {
+            bgFile = bgFile.toAbsolutePath().normalize();
+        }
+        if (bgFile == null || !Files.exists(bgFile)) {
+            customBackgroundLoadFailed = true;
+            return;
+        }
+
+        if (customBackgroundFile == null || !customBackgroundFile.equals(bgFile)) {
+            releaseCustomBackground();
+            customBackgroundFile = bgFile;
+        }
+
+        if (JavaCvVideoBackground.isSupportedVideo(bgFile)) {
+            renderVideoBackground(gui, bgFile);
+            return;
+        }
+
+        if (customBackgroundLoadFailed || customBackgroundTexture == null) {
+            loadStaticBackground(bgFile);
+        }
+
+        drawCustomBackground(gui);
+    }
+
+    private void loadStaticBackground(Path bgFile) {
+        if (customBackgroundLoadFailed || customBackgroundTexture != null) {
+            return;
+        }
+
+        try {
+            NativeImage image = readBackgroundImage(bgFile);
+            if (image == null) {
+                customBackgroundLoadFailed = true;
+                return;
+            }
+
+            customBackgroundDynamicTexture = new DynamicTexture(() -> "custom_background", image);
+            customBackgroundTexture = Identifier.fromNamespaceAndPath("gemini", "custom_background");
+            minecraft.getTextureManager().register(customBackgroundTexture, customBackgroundDynamicTexture);
+        } catch (Exception e) {
+            customBackgroundLoadFailed = true;
+        }
+    }
+
+    private NativeImage readBackgroundImage(Path bgFile) {
+        try (FileInputStream fis = new FileInputStream(bgFile.toFile())) {
+            return NativeImage.read(fis);
+        } catch (IOException readError) {
+            return readBackgroundImageWithImageIo(bgFile);
+        }
+    }
+
+    private NativeImage readBackgroundImageWithImageIo(Path bgFile) {
+        try {
+            BufferedImage bufferedImage = ImageIO.read(bgFile.toFile());
+            if (bufferedImage == null) {
+                return null;
+            }
+
+            int width = bufferedImage.getWidth();
+            int height = bufferedImage.getHeight();
+            NativeImage image = new NativeImage(width, height, false);
+
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    image.setPixel(x, y, bufferedImage.getRGB(x, y));
+                }
+            }
+            return image;
+        } catch (Exception fallbackError) {
+            return null;
+        }
+    }
+
+    private void renderVideoBackground(GuiGraphicsExtractor gui, Path bgFile) {
         if (customBackgroundLoadFailed) {
             return;
         }
 
-        // Load texture if not already loaded
-        if (customBackgroundTexture == null) {
+        if (customBackgroundVideo == null || !customBackgroundVideo.isFor(bgFile)) {
+            releaseCustomBackground();
+            customBackgroundFile = bgFile;
+            customBackgroundVideo = new JavaCvVideoBackground(bgFile);
+            customBackgroundVideo.start();
+        }
+
+        NativeImage frame = customBackgroundVideo.pollFrame();
+        if (frame != null) {
             try {
-                Path bgFile = backgroundConfig.getCustomBackgroundFile();
-                if (!Files.exists(bgFile)) {
-                    customBackgroundLoadFailed = true;
-                    return;
-                }
-
-                // Load image from file using NativeImage
-                // NativeImage.read() supports both PNG and JPEG formats
-                NativeImage image = null;
-                try (FileInputStream fis = new FileInputStream(bgFile.toFile())) {
-                    image = NativeImage.read(fis);
-                } catch (IOException readError) {
-                    // If NativeImage fails, try using ImageIO as fallback for JPEG
-                    try {
-                        java.awt.image.BufferedImage bufferedImage = ImageIO.read(bgFile.toFile());
-                        if (bufferedImage == null) {
-                            customBackgroundLoadFailed = true;
-                            return;
-                        }
-
-                        // Convert BufferedImage to NativeImage
-                        int width = bufferedImage.getWidth();
-                        int height = bufferedImage.getHeight();
-                        image = new NativeImage(width, height, false);
-
-                        for (int y = 0; y < height; y++) {
-                            for (int x = 0; x < width; x++) {
-                                int argb = bufferedImage.getRGB(x, y);
-                                image.setPixel(x, y, argb);
-                            }
-                        }
-                    } catch (Exception fallbackError) {
-                        customBackgroundLoadFailed = true;
-                        return;
-                    }
-                }
-
-                if (image == null) {
-                    customBackgroundLoadFailed = true;
-                    return;
-                }
-
-                // Create dynamic texture from NativeImage
-                DynamicTexture texture = new DynamicTexture(() -> "custom_background", image);
-                customBackgroundTexture = Identifier.fromNamespaceAndPath("gemini", "custom_background");
-                minecraft.getTextureManager().register(customBackgroundTexture, texture);
-
-            } catch (Exception e) {
-                customBackgroundLoadFailed = true;
-                return;
+                uploadVideoFrame(frame);
+            } finally {
+                customBackgroundVideo.releaseFrame(frame);
             }
+        }
+
+        if (customBackgroundVideo.hasFailed()) {
+            customBackgroundLoadFailed = true;
+            return;
+        }
+
+        drawCustomBackground(gui);
+    }
+
+    private void uploadVideoFrame(NativeImage frame) {
+        if (customBackgroundDynamicTexture == null
+                || customBackgroundDynamicTexture.getPixels().getWidth() != frame.getWidth()
+                || customBackgroundDynamicTexture.getPixels().getHeight() != frame.getHeight()) {
+            releaseCustomBackgroundTexture();
+            customBackgroundDynamicTexture = new DynamicTexture(
+                    () -> "custom_background_video", frame.getWidth(), frame.getHeight(), false);
+            customBackgroundTexture = Identifier.fromNamespaceAndPath("gemini", "custom_background");
+            minecraft.getTextureManager().register(customBackgroundTexture, customBackgroundDynamicTexture);
+        }
+
+        // Upload the decoder buffer directly. Keeping DynamicTexture's backing image
+        // stable avoids closing/allocating a NativeImage on every rendered frame.
+        RenderSystem.getDevice().createCommandEncoder()
+                .writeToTexture(customBackgroundDynamicTexture.getTexture(), frame);
+    }
+
+    private void drawCustomBackground(GuiGraphicsExtractor gui) {
+        if (customBackgroundTexture == null) {
+            return;
         }
 
         // Render the custom background with parallax effect
@@ -893,18 +908,33 @@ public class MainMenuScreen extends Screen {
      * Called when a new wallpaper is selected from the selector screen.
      */
     public void reloadCustomBackground() {
-        // Clear existing texture
-        if (customBackgroundTexture != null) {
-            AbstractTexture texture = minecraft.getTextureManager().getTexture(customBackgroundTexture);
-            if (texture != null) {
-                texture.close();
-            }
-            minecraft.getTextureManager().release(customBackgroundTexture);
-            customBackgroundTexture = null;
+        releaseCustomBackground();
+        customBackgroundLoadFailed = false;
+    }
+
+    private void releaseCustomBackground() {
+        if (customBackgroundVideo != null) {
+            customBackgroundVideo.close();
+            customBackgroundVideo = null;
+        }
+        releaseCustomBackgroundTexture();
+        customBackgroundFile = null;
+        customBackgroundLoadFailed = false;
+    }
+
+    private void releaseCustomBackgroundTexture() {
+        if (customBackgroundTexture == null) {
+            customBackgroundDynamicTexture = null;
+            return;
         }
 
-        // Reset flags to trigger reload on next render
-        customBackgroundLoadFailed = false;
+        AbstractTexture texture = minecraft.getTextureManager().getTexture(customBackgroundTexture);
+        if (texture != null) {
+            texture.close();
+        }
+        minecraft.getTextureManager().release(customBackgroundTexture);
+        customBackgroundTexture = null;
+        customBackgroundDynamicTexture = null;
     }
 
     // ========================
@@ -924,23 +954,18 @@ public class MainMenuScreen extends Screen {
         int w = layout.bgToggleW;
         int h = layout.bgToggleH;
 
-        boolean enabled = backgroundConfig != null && backgroundConfig.isCustomBackgroundEnabled();
-        boolean fileExists = backgroundConfig != null && backgroundConfig.customBackgroundFileExists();
+        boolean enabled = fileSystem != null && fileSystem.isCustomBackgroundEnabled();
+        boolean fileExists = fileSystem != null && fileSystem.customBackgroundFileExists();
 
-        // Button background with hover effect
+        // Button background with hover effect (ghost style: fill + hairline only)
         float hoverScale = 1f + bgToggleHover * 0.08f;
         int hoverW = (int) (w * hoverScale);
         int hoverH = (int) (h * hoverScale);
         int hoverX = x - (hoverW - w) / 2;
         int hoverY = y - (hoverH - h) / 2;
 
-        // Shadow
-        SdfUIRenderer.drawShadow(gui, hoverX, hoverY, hoverW, hoverH,
-                8, 0, 3, 10, scaleAlpha(0x48000000, reveal * (0.5f + bgToggleHover * 0.5f)));
-
-        // Background
-        int bgFill = enabled ? scaleAlpha(0xB01B2936, reveal) : scaleAlpha(0x80161D28, reveal);
-        int bgOutline = enabled ? scaleAlpha(ROW_OUTLINE, reveal) : scaleAlpha(0x4089DDFF, reveal);
+        int bgFill = enabled ? scaleAlpha(0x581B2936, reveal) : scaleAlpha(0x3A161D28, reveal);
+        int bgOutline = enabled ? scaleAlpha(0x4489DDFF, reveal) : scaleAlpha(0x2489DDFF, reveal);
         CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
         CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
 
@@ -984,8 +1009,8 @@ public class MainMenuScreen extends Screen {
         ensureFontsLoaded();
         if (versionFont == null) return;
 
-        // Only show when custom backgrounds are enabled
-        if (backgroundConfig == null || !backgroundConfig.isCustomBackgroundEnabled()) {
+        // The selector stays visible so wallpapers can be added before enabling the background.
+        if (fileSystem == null) {
             return;
         }
 
@@ -998,20 +1023,15 @@ public class MainMenuScreen extends Screen {
         int w = layout.bgCycleW;
         int h = layout.bgCycleH;
 
-        // Button background with hover effect
+        // Button background with hover effect (ghost style: fill + hairline only)
         float hoverScale = 1f + bgCycleHover * 0.08f;
         int hoverW = (int) (w * hoverScale);
         int hoverH = (int) (h * hoverScale);
         int hoverX = x - (hoverW - w) / 2;
         int hoverY = y - (hoverH - h) / 2;
 
-        // Shadow
-        SdfUIRenderer.drawShadow(gui, hoverX, hoverY, hoverW, hoverH,
-                8, 0, 3, 10, scaleAlpha(0x48000000, reveal * (0.5f + bgCycleHover * 0.5f)));
-
-        // Background
-        int bgFill = scaleAlpha(0x80161D28, reveal);
-        int bgOutline = scaleAlpha(0x4089DDFF, reveal);
+        int bgFill = scaleAlpha(0x581B2936, reveal);
+        int bgOutline = scaleAlpha(0x4489DDFF, reveal);
         CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
         CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
 
@@ -1021,7 +1041,7 @@ public class MainMenuScreen extends Screen {
         float iconX = x + (w - iconW) / 2f;
         float iconY = y + (h - VERSION_FONT_SIZE) / 2f - 3;
 
-        int iconColor = scaleAlpha(NAV_IDLE, entryAlpha * reveal);
+        int iconColor = scaleAlpha(ACCENT, entryAlpha * reveal);
         CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);
     }
 
@@ -1035,9 +1055,9 @@ public class MainMenuScreen extends Screen {
 
         // Background toggle button
         if (isBgToggleHover(layout, mouse.x(), mouse.y())) {
-            if (backgroundConfig != null) {
-                if (backgroundConfig.customBackgroundFileExists()) {
-                    backgroundConfig.toggle();
+            if (fileSystem != null) {
+                if (fileSystem.customBackgroundFileExists()) {
+                    fileSystem.toggleCustomBackground();
                     // No need to reload texture on every toggle - just switch rendering
                 }
             }
@@ -1046,9 +1066,9 @@ public class MainMenuScreen extends Screen {
 
         // Background selector button (gear icon, opens GUI)
         if (isBgCycleHover(layout, mouse.x(), mouse.y())) {
-            if (backgroundConfig != null) {
+            if (fileSystem != null) {
                 // Open background selector screen
-                this.minecraft.gui.setScreen(new BackgroundSelectorScreen(this, backgroundConfig));
+                this.minecraft.gui.setScreen(new BackgroundSelectorScreen(this));
             }
             return true;
         }
@@ -1071,6 +1091,18 @@ public class MainMenuScreen extends Screen {
             }
         }
         return super.mouseClicked(mouse, idk);
+    }
+
+    @Override
+    public void onFilesDrop(List<Path> files) {
+        if (fileSystem == null) {
+            fileSystem = Gemini.fileSystem;
+        }
+        if (fileSystem == null) {
+            return;
+        }
+
+        fileSystem.importFirstWallpaper(files).ifPresent(path -> reloadCustomBackground());
     }
 
     @Override

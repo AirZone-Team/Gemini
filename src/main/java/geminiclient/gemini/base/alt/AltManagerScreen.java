@@ -24,11 +24,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 /**
- * Alt Manager —— 与主菜单同一套玻璃质感视觉语言的账号管理界面。
+ * Alt Manager —— 与主菜单同一套视觉语言的账号管理界面（轻盈化玻璃风）。
  *
- * <p>GLSL 透视网格上叠加区域模糊、渐变玻璃面板、账号状态胶囊及滑动/
- * 聚焦动效。模态框使用更高层级的磨砂材质与 SDF 柔和阴影，遮罩淡入时
- * 整体上浮。</p>
+ * <p>GLSL 透视网格上叠加低透明度的区域模糊、淡渐变玻璃面板与账号状态
+ * 胶囊；阴影、描边与托盘均减淡，界面更干净通透。模态框使用轻柔遮罩
+ * 与 SDF 柔和阴影，遮罩淡入时整体上浮。</p>
  *
  * <p>功能：账号列表（名称 / 类型 / 应用状态）、Microsoft 登录（自动 +
  * 手动两种模式）、离线账号、删除、应用为当前会话账号。</p>
@@ -61,13 +61,13 @@ public class AltManagerScreen extends Screen {
     private static final int VERSION_COLOR   = 0xFF666666;
     private static final int ERROR_COLOR     = 0xFFFF8080;
     private static final int WARN_COLOR      = 0xFFFFC87A;
-    private static final int PANEL_FILL      = 0xFA121216;
+    private static final int PANEL_FILL      = 0xE8121216;
     private static final int PLACEHOLDER     = 0xFF5A5A5A;
-    private static final int GLASS_TOP       = 0x9C17202A;
-    private static final int GLASS_BOTTOM    = 0xC20A0E15;
-    private static final int GLASS_OUTLINE   = 0x5A8CC9DD;
-    private static final int ROW_HOVER_FILL  = 0xA21A2B39;
-    private static final int ROW_SELECTED    = 0xB3213442;
+    private static final int GLASS_TOP       = 0x6E17202A;
+    private static final int GLASS_BOTTOM    = 0x920A0E15;
+    private static final int GLASS_OUTLINE   = 0x388CC9DD;
+    private static final int ROW_HOVER_FILL  = 0x6E1A2B39;
+    private static final int ROW_SELECTED    = 0x7E213442;
 
     private static final String MOD_VERSION = "0.1.0";
 
@@ -287,16 +287,13 @@ public class AltManagerScreen extends Screen {
         int r = 14;
 
         SdfUIRenderer.drawShadow(gui, x, y, w, h, r,
-                0, 7, 22, scaleAlpha(0x72000000, reveal));
+                0, 5, 16, scaleAlpha(0x3C000000, reveal));
         CustomBlurRenderer.render(x, y, w, h, r,
-                scaleAlpha(0x54101820, reveal), 8f);
+                scaleAlpha(0x2E101820, reveal), 6f);
         CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui, x, y, w, h, r,
                 scaleAlpha(GLASS_TOP, reveal), scaleAlpha(GLASS_BOTTOM, reveal));
         CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, r,
                 scaleAlpha(GLASS_OUTLINE, reveal), 1);
-
-        SdfUIRenderer.drawCircle(gui, screenLayout().contentRight() + 34f, 54f, 118,
-                scaleAlpha(0x1489DDFF, reveal));
     }
 
     // ========================
@@ -448,7 +445,7 @@ public class AltManagerScreen extends Screen {
                 CustomRoundedRectRenderer.drawRoundedOutline(gui,
                         cardX, cardY, cardW, cardH, 8,
                         scaleAlpha(isSelected ? ACCENT : GLASS_OUTLINE,
-                                reveal * cardStrength * (isSelected ? 0.55f : 0.7f)), 1);
+                                reveal * cardStrength * (isSelected ? 0.42f : 0.55f)), 1);
             }
 
             // 指示条：悬停生长；选中常驻
@@ -507,9 +504,9 @@ public class AltManagerScreen extends Screen {
         int chipW = Math.round(w + 25f);
         int chipH = Math.round(hintFont.lineHeight + 10f);
         CustomRoundedRectRenderer.drawRoundedRect(gui, chipX, chipY, chipW, chipH,
-                chipH / 2, scaleAlpha(color, a / 255f * 0.14f));
+                chipH / 2, scaleAlpha(color, a / 255f * 0.10f));
         CustomRoundedRectRenderer.drawRoundedOutline(gui, chipX, chipY, chipW, chipH,
-                chipH / 2, scaleAlpha(color, a / 255f * 0.48f), 1);
+                chipH / 2, scaleAlpha(color, a / 255f * 0.38f), 1);
         CustomFontRenderer.drawString(gui, hintFont, text, x, y, (a << 24) | (color & 0x00FFFFFF));
         if (AltManager.isCurrent(acc)) {
             float sqY = y + (hintFont.lineHeight - 3f) / 2f;
@@ -582,11 +579,11 @@ public class AltManagerScreen extends Screen {
         int trayY = Math.round(y - 12f);
         int trayH = Math.round(linkLayout.height() + 14f);
         CustomBlurRenderer.render(trayX, trayY, trayW, trayH, 10,
-                scaleAlpha(0x48101820, reveal), 5f);
+                scaleAlpha(0x26101820, reveal), 4f);
         CustomRoundedRectRenderer.drawRoundedRect(gui, trayX, trayY,
-                Math.round(trayW), trayH, 10, scaleAlpha(0x7A101720, reveal));
+                Math.round(trayW), trayH, 10, scaleAlpha(0x50101720, reveal));
         CustomRoundedRectRenderer.drawRoundedOutline(gui, trayX, trayY,
-                Math.round(trayW), trayH, 10, scaleAlpha(GLASS_OUTLINE, reveal * 0.75f), 1);
+                Math.round(trayW), trayH, 10, scaleAlpha(GLASS_OUTLINE, reveal * 0.5f), 1);
 
         drawLinks(gui, links, actionHover, interactive ? mouseX : -1, interactive ? mouseY : -1,
                 dt, linkLayout, alpha);
@@ -1013,7 +1010,7 @@ public class AltManagerScreen extends Screen {
         void extractWithChrome(GuiGraphicsExtractor gui, int mouseX, int mouseY, float dt, long now) {
             float a = modalAlpha;
             // 遮罩
-            int overlayA = (int) (a * 150);
+            int overlayA = (int) (a * 110);
             CustomRectRenderer.drawRect(gui, 0, 0, AltManagerScreen.this.width,
                     AltManagerScreen.this.height, overlayA << 24);
 
@@ -1021,13 +1018,13 @@ public class AltManagerScreen extends Screen {
 
             // 区域模糊 + 阴影 + 分层渐变面板
             CustomBlurRenderer.render(p.x(), p.y(), p.w(), p.h(), 14,
-                    scaleAlpha(0xA0141922, a), 10f);
-            int shadowA = (int) (a * 0x60);
+                    scaleAlpha(0x6A141922, a), 8f);
+            int shadowA = (int) (a * 0x40);
             SdfUIRenderer.drawShadow(gui, (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(),
-                    14, 0, 8, 24, (shadowA << 24));
+                    14, 0, 6, 18, (shadowA << 24));
             CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui,
                     (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(), 14,
-                    scaleAlpha(0xEE19212B, a), scaleAlpha(PANEL_FILL, a));
+                    scaleAlpha(0xD819212B, a), scaleAlpha(PANEL_FILL, a));
             SdfUIRenderer.drawOutline(gui, (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(),
                     14, scaleAlpha(0xFF3B5261, a), 1);
 

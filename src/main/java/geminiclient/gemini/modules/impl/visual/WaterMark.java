@@ -30,6 +30,8 @@ public class WaterMark extends Module {
 
     @EventTarget
     public void onRender2D(Render2DEvent event) {
+        if (mc.player == null) return;
+
         GuiGraphicsExtractor g = event.guiGraphics();
         Layout layout = calculateLayout();
 

@@ -27,6 +27,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 /**
  * Manages Gemini configuration, account and font files.
@@ -42,21 +43,34 @@ public final class FileSystem {
     private static final String ALTS_CONFIG_NAME = "alts";
     private static final String DEFAULT_FONT_NAME = "Default";
     private static final String TTF_EXTENSION = ".ttf";
+    private static final String BACKGROUND_CONFIG_FILE_NAME = "background.json";
+    private static final Set<String> SUPPORTED_BACKGROUND_EXTENSIONS = Set.of(
+            ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".webm");
 
     private static final String JSON_MODULES = "modules";
     private static final String JSON_VALUES = "values";
     private static final String JSON_NAME = "name";
     private static final String JSON_TYPE = "type";
     private static final String JSON_VALUE = "value";
+    private static final String JSON_CUSTOM_BACKGROUND_ENABLED = "customBackgroundEnabled";
+    private static final String JSON_PARTICLES_ENABLED = "particlesEnabled";
+    private static final String JSON_CURRENT_BACKGROUND_INDEX = "currentBackgroundIndex";
+    private static final String JSON_SELECTED_BACKGROUND = "selectedBackground";
 
     private final ModuleManager moduleManager;
     private final Path configDirectory;
     private final Path configNameFile;
     private final Path altsFile;
     private final Path ttfDirectory;
+    private final Path backgroundDirectory;
+    private final Path backgroundConfigFile;
 
     /** Case-insensitive module lookup, rebuilt before loading a configuration. */
     private Map<String, Module> modulesByName = Map.of();
+    private boolean customBackgroundEnabled = false;
+    private boolean particlesEnabled = true;
+    private int currentBackgroundIndex = 0;
+    private List<Path> availableBackgrounds = new ArrayList<>();
 
     public FileSystem(ModuleManager moduleManager) {
         this.moduleManager = java.util.Objects.requireNonNull(moduleManager, "moduleManager");
@@ -67,8 +81,13 @@ public final class FileSystem {
         this.configNameFile = geminiDirectory.resolve("configName.txt");
         this.altsFile = configDirectory.resolve("alts.json");
         this.ttfDirectory = geminiDirectory.resolve("ttf");
+        this.backgroundDirectory = geminiDirectory.resolve("background");
+        this.backgroundConfigFile = backgroundDirectory.resolve(BACKGROUND_CONFIG_FILE_NAME);
 
         ensureDirectoriesExist();
+        migrateLegacyBackgroundFiles(geminiDirectory);
+        refreshBackgrounds();
+        loadBackgroundConfig();
         rebuildModuleIndex();
     }
 
@@ -79,6 +98,7 @@ public final class FileSystem {
     private void ensureDirectoriesExist() {
         ensureDirectory(configDirectory, "config");
         ensureDirectory(ttfDirectory, "TTF");
+        ensureDirectory(backgroundDirectory, "background");
     }
 
     private boolean ensureDirectory(Path directory, String description) {
@@ -165,6 +185,303 @@ public final class FileSystem {
                 }
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Backgrounds
+    // -------------------------------------------------------------------------
+
+    private void migrateLegacyBackgroundFiles(Path geminiDirectory) {
+        Path legacyDirectory = geminiDirectory.getParent().resolve("config").resolve("gemini");
+        if (!Files.isDirectory(legacyDirectory)) {
+            return;
+        }
+
+        try (Stream<Path> files = Files.list(legacyDirectory)) {
+            files.filter(Files::isRegularFile)
+                    .filter(this::isSupportedBackgroundFile)
+                    .forEach(path -> {
+                        try {
+                            Path target = backgroundDirectory.resolve(path.getFileName().toString());
+                            if (!Files.exists(target)) {
+                                Files.copy(path, target, StandardCopyOption.COPY_ATTRIBUTES);
+                            }
+                        } catch (IOException e) {
+                            LOGGER.log(Level.WARNING, "Failed to migrate background file: " + path, e);
+                        }
+                    });
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to scan legacy background directory: " + legacyDirectory, e);
+        }
+
+        Path legacyConfig = legacyDirectory.resolve(BACKGROUND_CONFIG_FILE_NAME);
+        if (!Files.isRegularFile(backgroundConfigFile) && Files.isRegularFile(legacyConfig)) {
+            try {
+                Files.copy(legacyConfig, backgroundConfigFile, StandardCopyOption.COPY_ATTRIBUTES);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to migrate background config: " + legacyConfig, e);
+            }
+        }
+    }
+
+    public void refreshBackgrounds() {
+        availableBackgrounds = scanBackgroundPaths();
+        normalizeCurrentBackgroundIndex();
+    }
+
+    public List<WallpaperEntry> scanWallpaperEntries() {
+        refreshBackgrounds();
+        List<WallpaperEntry> entries = new ArrayList<>(availableBackgrounds.size());
+        for (Path path : availableBackgrounds) {
+            try {
+                entries.add(new WallpaperEntry(
+                        path,
+                        path.getFileName().toString(),
+                        WallpaperEntry.getTypeFromPath(path),
+                        Files.size(path)));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to inspect wallpaper: " + path, e);
+            }
+        }
+        return List.copyOf(entries);
+    }
+
+    private List<Path> scanBackgroundPaths() {
+        if (!Files.isDirectory(backgroundDirectory)) {
+            return List.of();
+        }
+
+        try (Stream<Path> files = Files.list(backgroundDirectory)) {
+            return files.filter(Files::isRegularFile)
+                    .filter(this::isSupportedBackgroundFile)
+                    .sorted()
+                    .toList();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to scan backgrounds in: " + backgroundDirectory, e);
+            return List.of();
+        }
+    }
+
+    public boolean isSupportedBackgroundFile(Path file) {
+        String filename = file.getFileName().toString().toLowerCase(Locale.ROOT);
+        return SUPPORTED_BACKGROUND_EXTENSIONS.stream().anyMatch(filename::endsWith);
+    }
+
+    public void loadBackgroundConfig() {
+        if (!Files.isRegularFile(backgroundConfigFile)) {
+            saveBackgroundConfig();
+            return;
+        }
+
+        try (InputStream input = Files.newInputStream(backgroundConfigFile)) {
+            JSONObject json = new JSONObject(new JSONTokener(input));
+            customBackgroundEnabled = json.optBoolean(JSON_CUSTOM_BACKGROUND_ENABLED, false);
+            particlesEnabled = json.optBoolean(JSON_PARTICLES_ENABLED, true);
+            currentBackgroundIndex = json.optInt(JSON_CURRENT_BACKGROUND_INDEX, 0);
+
+            String selectedBackground = json.optString(JSON_SELECTED_BACKGROUND, "").trim();
+            if (!selectedBackground.isEmpty()) {
+                selectBackgroundByFileName(selectedBackground);
+            } else {
+                normalizeCurrentBackgroundIndex();
+            }
+        } catch (IOException | RuntimeException e) {
+            LOGGER.log(Level.SEVERE, "Failed to load background config from: " + backgroundConfigFile, e);
+            customBackgroundEnabled = false;
+            particlesEnabled = true;
+            currentBackgroundIndex = 0;
+        }
+    }
+
+    public void saveBackgroundConfig() {
+        JSONObject json = new JSONObject()
+                .put(JSON_CUSTOM_BACKGROUND_ENABLED, customBackgroundEnabled)
+                .put(JSON_PARTICLES_ENABLED, particlesEnabled)
+                .put(JSON_CURRENT_BACKGROUND_INDEX, currentBackgroundIndex);
+
+        Path current = getCustomBackgroundFile();
+        if (current != null && customBackgroundFileExists()) {
+            json.put(JSON_SELECTED_BACKGROUND, current.getFileName().toString());
+        }
+
+        writeStringAtomically(backgroundConfigFile, json.toString(4));
+    }
+
+    public boolean isCustomBackgroundEnabled() {
+        return customBackgroundEnabled;
+    }
+
+    public void setCustomBackgroundEnabled(boolean enabled) {
+        customBackgroundEnabled = enabled;
+        saveBackgroundConfig();
+    }
+
+    public void toggleCustomBackground() {
+        customBackgroundEnabled = !customBackgroundEnabled;
+        saveBackgroundConfig();
+    }
+
+    public boolean isParticlesEnabled() {
+        return particlesEnabled;
+    }
+
+    public void setParticlesEnabled(boolean enabled) {
+        particlesEnabled = enabled;
+        saveBackgroundConfig();
+    }
+
+    public void toggleParticles() {
+        particlesEnabled = !particlesEnabled;
+        saveBackgroundConfig();
+    }
+
+    public void nextBackground() {
+        refreshBackgrounds();
+        if (availableBackgrounds.isEmpty()) {
+            currentBackgroundIndex = 0;
+            saveBackgroundConfig();
+            return;
+        }
+
+        currentBackgroundIndex = (currentBackgroundIndex + 1) % availableBackgrounds.size();
+        saveBackgroundConfig();
+    }
+
+    public void setSelectedWallpaper(Path wallpaperPath) {
+        refreshBackgrounds();
+        Path normalizedWallpaper = wallpaperPath.toAbsolutePath().normalize();
+        for (int i = 0; i < availableBackgrounds.size(); i++) {
+            if (availableBackgrounds.get(i).toAbsolutePath().normalize().equals(normalizedWallpaper)) {
+                currentBackgroundIndex = i;
+                saveBackgroundConfig();
+                return;
+            }
+        }
+
+        currentBackgroundIndex = 0;
+        saveBackgroundConfig();
+    }
+
+    public Optional<Path> importFirstWallpaper(List<Path> files) {
+        for (Path file : files) {
+            Optional<Path> imported = importWallpaper(file);
+            if (imported.isPresent()) {
+                return imported;
+            }
+        }
+        return Optional.empty();
+    }
+
+    public Optional<Path> importWallpaper(Path source) {
+        if (source == null || !Files.isRegularFile(source) || !isSupportedBackgroundFile(source)) {
+            return Optional.empty();
+        }
+        if (!ensureDirectory(backgroundDirectory, "background")) {
+            return Optional.empty();
+        }
+
+        try {
+            Path target = uniqueBackgroundPath(source.getFileName().toString());
+            Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
+            refreshBackgrounds();
+            setSelectedWallpaper(target);
+            setCustomBackgroundEnabled(true);
+            return Optional.of(target);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Failed to import wallpaper: " + source, e);
+            return Optional.empty();
+        }
+    }
+
+    public boolean deleteWallpaper(Path wallpaperPath) {
+        Path backgroundRoot = backgroundDirectory.toAbsolutePath().normalize();
+        Path target = wallpaperPath.toAbsolutePath().normalize();
+        if (!target.startsWith(backgroundRoot)) {
+            LOGGER.warning(() -> "Refusing to delete wallpaper outside background directory: " + wallpaperPath);
+            return false;
+        }
+
+        boolean wasCurrent = Objects.equals(getCustomBackgroundFile(), wallpaperPath);
+        try {
+            boolean deleted = Files.deleteIfExists(target);
+            if (!deleted) {
+                return false;
+            }
+
+            refreshBackgrounds();
+            if (availableBackgrounds.isEmpty()) {
+                currentBackgroundIndex = 0;
+                customBackgroundEnabled = false;
+            } else if (wasCurrent) {
+                currentBackgroundIndex = 0;
+                customBackgroundEnabled = true;
+            }
+            saveBackgroundConfig();
+            return true;
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Failed to delete wallpaper: " + wallpaperPath, e);
+            return false;
+        }
+    }
+
+    public int getBackgroundCount() {
+        return availableBackgrounds.size();
+    }
+
+    public int getCurrentBackgroundNumber() {
+        return availableBackgrounds.isEmpty() ? 0 : currentBackgroundIndex + 1;
+    }
+
+    public boolean customBackgroundFileExists() {
+        return !availableBackgrounds.isEmpty();
+    }
+
+    public Path getBackgroundsDirectory() {
+        return backgroundDirectory;
+    }
+
+    public Path getCustomBackgroundFile() {
+        if (availableBackgrounds.isEmpty()) {
+            return backgroundDirectory.resolve("custom_bg.png");
+        }
+        normalizeCurrentBackgroundIndex();
+        return availableBackgrounds.get(currentBackgroundIndex);
+    }
+
+    private void selectBackgroundByFileName(String fileName) {
+        for (int i = 0; i < availableBackgrounds.size(); i++) {
+            if (availableBackgrounds.get(i).getFileName().toString().equals(fileName)) {
+                currentBackgroundIndex = i;
+                return;
+            }
+        }
+        normalizeCurrentBackgroundIndex();
+    }
+
+    private void normalizeCurrentBackgroundIndex() {
+        if (availableBackgrounds.isEmpty()) {
+            currentBackgroundIndex = 0;
+        } else if (currentBackgroundIndex < 0 || currentBackgroundIndex >= availableBackgrounds.size()) {
+            currentBackgroundIndex = 0;
+        }
+    }
+
+    private Path uniqueBackgroundPath(String fileName) {
+        String baseName = fileName;
+        String extension = "";
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex > 0) {
+            baseName = fileName.substring(0, dotIndex);
+            extension = fileName.substring(dotIndex);
+        }
+
+        Path target = backgroundDirectory.resolve(fileName);
+        int counter = 1;
+        while (Files.exists(target)) {
+            target = backgroundDirectory.resolve(baseName + "_" + counter + extension);
+            counter++;
+        }
+        return target;
     }
 
     // -------------------------------------------------------------------------

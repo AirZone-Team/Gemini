@@ -72,6 +72,9 @@ public final class DynamicIsland extends Module {
     @SuppressWarnings("unused")
     @EventTarget
     public void onRender2D(Render2DEvent event) {
+        if (mc.player == null)
+            return;
+
         GuiGraphicsExtractor g = event.guiGraphics();
         int screenWidth = mc.getWindow().getGuiScaledWidth();
         if (hudX < 0) {

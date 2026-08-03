@@ -1,0 +1,7 @@
+run/
+buildSrc/.gradle
+buildSrc/build
+build
+.idea
+.claude
+.agents

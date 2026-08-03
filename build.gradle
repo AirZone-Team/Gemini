@@ -50,6 +50,11 @@ base {
     archivesName = mod_id
 }
 
+def videoNativeClassifier = providers.gradleProperty('videoNativeClassifier').getOrElse(
+        slangNativeClassifierFor(System.getProperty('os.name'), System.getProperty('os.arch'), null)
+                .replace('macos-', 'macosx-')
+                .replace('-aarch64', '-arm64'))
+
 // Mojang ships Java 25 to end users in 26.1.2, so mods should target Java 25.
 java.toolchain.languageVersion = JavaLanguageVersion.of(25)
 
@@ -121,15 +126,32 @@ configurations {
         canBeResolved = true
         transitive = false
     }
+    javaCvVideoClasses {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
 }
 
 dependencies {
     implementation "net.neoforged:neoforge:${neo_version}"
 
-    // org.json is the sole runtime dependency installed inside the mod JAR.
-    // NeoForge's JarJar keeps it nested and emits loader metadata.
+    // Runtime libraries are kept nested so their packages do not leak into the mod JAR.
     implementation "org.json:json:${json_version}"
     jarJar "org.json:json:${json_version}"
+
+    // Video-only JavaCV stack. Do not use javacv-platform: it also pulls OpenCV and
+    // native binaries for every supported platform.
+    implementation("org.bytedeco:javacv:${javacv_version}") { transitive = false }
+    javaCvVideoClasses("org.bytedeco:javacv:${javacv_version}") { transitive = false }
+    implementation("org.bytedeco:javacpp:${javacv_version}") { transitive = false }
+    jarJar("org.bytedeco:javacpp:${javacv_version}") { transitive = false }
+    implementation("org.bytedeco:javacpp:${javacv_version}:${videoNativeClassifier}") { transitive = false }
+    jarJar("org.bytedeco:javacpp:${javacv_version}:${videoNativeClassifier}") { transitive = false }
+    implementation("org.bytedeco:ffmpeg:${ffmpeg_version}") { transitive = false }
+    jarJar("org.bytedeco:ffmpeg:${ffmpeg_version}") { transitive = false }
+    implementation("org.bytedeco:ffmpeg:${ffmpeg_version}:${videoNativeClassifier}") { transitive = false }
+    jarJar("org.bytedeco:ffmpeg:${ffmpeg_version}:${videoNativeClassifier}") { transitive = false }
 
     slangBuildkitRuntime "io.github.refux:slang-java:${slang_java_version}"
     slangBuildkitNatives "io.github.refux:slang-java-natives:${slang_java_version}:${slangNativeClassifierFor(System.getProperty('os.name'), System.getProperty('os.arch'), findProperty('slangNativeClassifier'))}"
@@ -140,6 +162,14 @@ dependencies {
 // development JAR cannot be mistaken for the installable distribution.
 tasks.named('jar', Jar) {
     archiveClassifier = 'dev'
+    from({ zipTree(configurations.javaCvVideoClasses.singleFile) }) {
+        include 'org/bytedeco/javacv/Frame.class'
+        include 'org/bytedeco/javacv/Frame$*.class'
+        include 'org/bytedeco/javacv/FrameGrabber.class'
+        include 'org/bytedeco/javacv/FrameGrabber$*.class'
+        include 'org/bytedeco/javacv/FFmpegFrameGrabber.class'
+        include 'org/bytedeco/javacv/FFmpegFrameGrabber$*.class'
+    }
 }
 
 def installableJar = tasks.named('jarJar', JarJar) {
