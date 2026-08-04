@@ -209,10 +209,43 @@ tasks.withType(ProcessResources).configureEach {
 
 // Example configuration to allow publishing using the maven-publish plugin
 publishing {
+    publications {
+        github(MavenPublication) {
+            groupId = project.group.toString()
+            artifactId = mod_id.toString()
+            version = project.version.toString()
+
+            // 发布可直接安装的 JarJar 文件，而不是 dev JAR
+            artifact(installableJar.flatMap { it.archiveFile }) {
+                classifier = null
+                builtBy installableJar
+            }
+
+            pom {
+                name = mod_name.toString()
+                description = "Gemini NeoForge mod"
+                url = "https://github.com/AirZone-Team/Gemini"
+
+                licenses {
+                    license {
+                        name = mod_license.toString()
+                    }
+                }
+
+                scm {
+                    connection = "scm:git:https://github.com/AirZone-Team/Gemini.git"
+                    developerConnection = "scm:git:ssh://git@github.com/AirZone-Team/Gemini.git"
+                    url = "https://github.com/AirZone-Team/Gemini"
+                }
+            }
+        }
+    }
+
     repositories {
         maven {
             name = "GitHubPackages"
-            url = "https://maven.pkg.github.com/AirZone-Team/Gemini"
+            url = uri("https://maven.pkg.github.com/AirZone-Team/Gemini")
+
             credentials {
                 username = System.getenv("USERNAME")
                 password = System.getenv("TOKEN")
