@@ -1,7 +1,14 @@
 run/
+.gradle/
+.gradle-*/
 buildSrc/.gradle
 buildSrc/build
 build
 .idea
 .claude
 .agents
+.zcode
+.gradle-local
+.gradle-local-dsh
+.gradle-local-dsh2
+.gradle-local-dsh-empty

@@ -40,6 +40,10 @@ public class NoSlow extends Module {
             return;
         Item item = mc.player.getUseItem().getItem();
 
+        if (item.toString().toLowerCase().contains("spear"))
+            return;
+
+
         // 食物 / 药水
         if (isFoodOrPotion(item)) {
             if (foodMode.is("Vanilla")) {

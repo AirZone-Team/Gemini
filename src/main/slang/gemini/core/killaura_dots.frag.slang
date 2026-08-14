@@ -48,22 +48,22 @@ void main() {
     float whiteHot = 0.0;
 
     if (material == 0) {
-        // Lit energy pearl.
+        // Lit energy pearl: small hot core, wide gentle halo.
         if (radius > 1.0) discard;
         float z = sqrt(max(0.0, 1.0 - radius * radius));
         vec3 normal = normalize(vec3(p, z));
         float diffuse = max(dot(normal, normalize(vec3(-0.38, 0.52, 0.76))), 0.0);
-        core = (1.0 - smoothstep(0.70, 0.90, radius)) * (0.72 + diffuse * 0.52);
-        glow = exp(-radius * 3.2) * 0.46;
-        whiteHot = pow(max(z, 0.0), 9.0) * 0.38;
+        core = (1.0 - smoothstep(0.70, 0.90, radius)) * (0.68 + diffuse * 0.46);
+        glow = exp(-radius * 2.6) * 0.40;
+        whiteHot = pow(max(z, 0.0), 9.0) * 0.26;
     } else if (material == 1) {
         // Four-point comet flare with a diamond nucleus.
         float vertical = exp(-abs(p.x) * 25.0) * exp(-abs(p.y) * 2.2);
         float horizontal = exp(-abs(p.y) * 31.0) * exp(-abs(p.x) * 4.2);
         float diamond = fillMask(abs(p.x) + abs(p.y) - 0.25);
         core = max(diamond, max(vertical, horizontal) * 0.82);
-        glow = exp(-radius * 3.8) * 0.42 + max(vertical, horizontal) * 0.22;
-        whiteHot = diamond * 0.72;
+        glow = exp(-radius * 3.8) * 0.36 + max(vertical, horizontal) * 0.22;
+        whiteHot = diamond * 0.55;
     } else if (material == 2) {
         // Faceted crystal diamond.
         float diamondDistance = abs(p.x) * 0.82 + abs(p.y) - 0.66;
@@ -72,8 +72,8 @@ void main() {
         float facets = lineMask(abs(p.x) - abs(p.y) * 0.66, 0.018)
             * fillMask(diamondDistance);
         core = max(shell, max(inner * 0.78, facets * 0.56));
-        glow = exp(-abs(diamondDistance) * 7.5) * 0.42;
-        whiteHot = shell * 0.46;
+        glow = exp(-abs(diamondDistance) * 7.5) * 0.36;
+        whiteHot = shell * 0.34;
     } else if (material == 3) {
         // Arcane rune: broken rings, spokes and a glowing core.
         float outer = lineMask(radius - 0.67, 0.040)
@@ -87,7 +87,7 @@ void main() {
         core = max(max(outer, inner), max(spokes, center));
         glow = exp(-abs(radius - 0.55) * 6.0) * 0.25
             + exp(-radius * 5.5) * 0.30;
-        whiteHot = center * 0.65;
+        whiteHot = center * 0.50;
     } else if (material == 4) {
         // Crescent blade.
         float outer = fillMask(radius - 0.73);
@@ -96,7 +96,7 @@ void main() {
         float edge = lineMask(radius - 0.73, 0.035) * (1.0 - cutout);
         core = max(crescent * 0.88, edge);
         glow = exp(-abs(radius - 0.64) * 5.5) * crescent * 0.55;
-        whiteHot = edge * 0.42;
+        whiteHot = edge * 0.32;
     } else if (material == 5) {
         // Large horizontal summoning array.
         float rings = max(lineMask(radius - 0.83, 0.020),
@@ -111,9 +111,9 @@ void main() {
         float center = max(lineMask(abs(p.x) + abs(p.y) - 0.18, 0.018),
             fillMask(radius - 0.035));
         core = max(max(rings, hex * 0.86), max(spokes * 0.78, max(runeBand, center)));
-        glow = exp(-abs(radius - 0.78) * 12.0) * 0.28
-            + exp(-abs(radius - 0.48) * 9.0) * 0.18;
-        whiteHot = center * 0.82 + rings * 0.16;
+        glow = exp(-abs(radius - 0.78) * 12.0) * 0.24
+            + exp(-abs(radius - 0.48) * 9.0) * 0.16;
+        whiteHot = center * 0.60 + rings * 0.12;
     } else {
         // Watcher eye used at the heart of the Arcane Array.
         float lensDistance = abs(p.y) - (0.38 - p.x * p.x * 0.34);
@@ -126,13 +126,13 @@ void main() {
         core = max(lens, max(iris, max(pupil, lashes * 0.72)));
         glow = exp(-abs(lensDistance) * 8.0) * 0.25
             + exp(-radius * 4.0) * 0.25;
-        whiteHot = pupil * 0.86;
+        whiteHot = pupil * 0.60;
     }
 
     float alpha = clamp(core + glow, 0.0, 1.0) * vertexColor.a;
     if (alpha < 0.004) discard;
 
-    vec3 color = vertexColor.rgb * (core * 1.36 + glow * 0.78);
-    color += vec3(1.0) * (whiteHot + core * core * 0.22);
+    vec3 color = vertexColor.rgb * (core * 1.16 + glow * 0.70);
+    color += vec3(1.0) * (whiteHot + core * core * 0.14);
     fragColor = vec4(color, alpha) * ColorModulator;
 }

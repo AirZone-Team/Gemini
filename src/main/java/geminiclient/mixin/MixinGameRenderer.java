@@ -6,6 +6,7 @@ import geminiclient.gemini.customRenderer.glsl.CustomRendererRegistry;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectInstance;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectPostProcessor;
 import geminiclient.gemini.event.EventTypes;
+import geminiclient.gemini.event.events.impl.FrameEvent;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import geminiclient.gemini.modules.impl.visual.ClickGui;
 import geminiclient.gemini.modules.impl.visual.KillEffect;
@@ -33,6 +34,16 @@ public class MixinGameRenderer {
 
     @Shadow @Final
     private final GameRenderState gameRenderState = new GameRenderState();
+
+    /**
+     * Real-time frame update: fires once per rendered frame, regardless of the
+     * game tick rate — the frame-rate counterpart of UpdateEvent (per tick).
+     */
+    @Inject(method = "render", at = @At("HEAD"))
+    public void postFrameEvent(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
+        Gemini.eventManager.post(EventTypes.FRAME,
+                new FrameEvent(deltaTracker.getGameTimeDeltaTicks(), deltaTracker.getRealtimeDeltaTicks()));
+    }
 
     /**
      * While a ClickGui screen is open, override the blur radius used by the

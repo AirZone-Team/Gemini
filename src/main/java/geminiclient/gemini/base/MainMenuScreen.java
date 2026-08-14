@@ -2,6 +2,8 @@ package geminiclient.gemini.base;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderSystem;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.alt.AltManagerScreen;
@@ -135,6 +137,9 @@ public class MainMenuScreen extends Screen {
     private static FileSystem fileSystem;
     private static Identifier customBackgroundTexture;
     private static DynamicTexture customBackgroundDynamicTexture;
+    private static GpuVideoTexture customBackgroundVideoTexture;
+    /** Reused PBO-equivalent: CPU writes once, then the device copies it to the texture. */
+    private static GpuBuffer customBackgroundUploadBuffer;
     private static Path customBackgroundFile;
     private static JavaCvVideoBackground customBackgroundVideo;
     private static boolean customBackgroundLoadFailed = false;
@@ -841,7 +846,7 @@ public class MainMenuScreen extends Screen {
             customBackgroundVideo.start();
         }
 
-        NativeImage frame = customBackgroundVideo.pollFrame();
+        JavaCvVideoBackground.VideoFrame frame = customBackgroundVideo.pollFrame();
         if (frame != null) {
             try {
                 uploadVideoFrame(frame);
@@ -858,21 +863,37 @@ public class MainMenuScreen extends Screen {
         drawCustomBackground(gui);
     }
 
-    private void uploadVideoFrame(NativeImage frame) {
-        if (customBackgroundDynamicTexture == null
-                || customBackgroundDynamicTexture.getPixels().getWidth() != frame.getWidth()
-                || customBackgroundDynamicTexture.getPixels().getHeight() != frame.getHeight()) {
+    private void uploadVideoFrame(JavaCvVideoBackground.VideoFrame frame) {
+        if (customBackgroundVideoTexture == null
+                || customBackgroundVideoTexture.width() != frame.width()
+                || customBackgroundVideoTexture.height() != frame.height()) {
             releaseCustomBackgroundTexture();
-            customBackgroundDynamicTexture = new DynamicTexture(
-                    () -> "custom_background_video", frame.getWidth(), frame.getHeight(), false);
+            customBackgroundVideoTexture = new GpuVideoTexture(
+                    () -> "custom_background_video", frame.width(), frame.height());
             customBackgroundTexture = Identifier.fromNamespaceAndPath("gemini", "custom_background");
-            minecraft.getTextureManager().register(customBackgroundTexture, customBackgroundDynamicTexture);
+            minecraft.getTextureManager().register(customBackgroundTexture, customBackgroundVideoTexture);
         }
 
-        // Upload the decoder buffer directly. Keeping DynamicTexture's backing image
-        // stable avoids closing/allocating a NativeImage on every rendered frame.
-        RenderSystem.getDevice().createCommandEncoder()
-                .writeToTexture(customBackgroundDynamicTexture.getTexture(), frame);
+        int byteCount = Math.multiplyExact(Math.multiplyExact(frame.width(), frame.height()), 4);
+        if (customBackgroundUploadBuffer == null || customBackgroundUploadBuffer.isClosed()
+                || customBackgroundUploadBuffer.size() < byteCount) {
+            closeVideoUploadBuffer();
+            customBackgroundUploadBuffer = RenderSystem.getDevice().createBuffer(
+                    () -> "custom_background_video_upload",
+                    GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_COPY_SRC,
+                    byteCount);
+        }
+
+        // FFmpeg's direct RGBA bytes are copied to one persistent upload buffer, then
+        // copied entirely on the GPU into a GpuTexture. This removes NativeImage's
+        // per-frame full-frame CPU copy from the video path.
+        CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+        encoder.writeToBuffer(customBackgroundUploadBuffer.slice(0L, byteCount), frame.pixels().duplicate());
+        encoder.copyBufferToTexture(
+                customBackgroundUploadBuffer.slice(0L, byteCount),
+                0, 0, frame.width(), frame.height(),
+                customBackgroundVideoTexture.getTexture(),
+                0, 0, frame.width(), frame.height(), 0, 0);
     }
 
     private void drawCustomBackground(GuiGraphicsExtractor gui) {
@@ -923,8 +944,10 @@ public class MainMenuScreen extends Screen {
     }
 
     private void releaseCustomBackgroundTexture() {
+        closeVideoUploadBuffer();
         if (customBackgroundTexture == null) {
             customBackgroundDynamicTexture = null;
+            customBackgroundVideoTexture = null;
             return;
         }
 
@@ -935,6 +958,14 @@ public class MainMenuScreen extends Screen {
         minecraft.getTextureManager().release(customBackgroundTexture);
         customBackgroundTexture = null;
         customBackgroundDynamicTexture = null;
+        customBackgroundVideoTexture = null;
+    }
+
+    private static void closeVideoUploadBuffer() {
+        if (customBackgroundUploadBuffer != null && !customBackgroundUploadBuffer.isClosed()) {
+            customBackgroundUploadBuffer.close();
+        }
+        customBackgroundUploadBuffer = null;
     }
 
     // ========================
@@ -1058,7 +1089,14 @@ public class MainMenuScreen extends Screen {
             if (fileSystem != null) {
                 if (fileSystem.customBackgroundFileExists()) {
                     fileSystem.toggleCustomBackground();
-                    // No need to reload texture on every toggle - just switch rendering
+                    if (fileSystem.isCustomBackgroundEnabled()) {
+                        // Re-create the background on the next render.
+                        customBackgroundLoadFailed = false;
+                    } else {
+                        // Stop the video decoder; it would otherwise keep decoding
+                        // at full speed while nothing consumes its frames.
+                        releaseCustomBackground();
+                    }
                 }
             }
             return true;
@@ -1150,6 +1188,15 @@ public class MainMenuScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    @Override
+    public void removed() {
+        super.removed();
+        // Stop the background decoder when the menu closes (sub-screens, joining a
+        // world). It is a daemon thread, so it would otherwise keep decoding at
+        // full speed forever while nothing consumes its frames.
+        releaseCustomBackground();
     }
 
     // ========================

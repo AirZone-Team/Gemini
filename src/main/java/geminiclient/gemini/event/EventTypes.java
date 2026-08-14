@@ -5,6 +5,7 @@ import geminiclient.gemini.event.events.impl.AttackSlowDownEvent;
 import geminiclient.gemini.event.events.impl.BlockingEvent;
 import geminiclient.gemini.event.events.impl.ChatEvent;
 import geminiclient.gemini.event.events.impl.EntityRemoveEvent;
+import geminiclient.gemini.event.events.impl.FrameEvent;
 import geminiclient.gemini.event.events.impl.KeyInputEvent;
 import geminiclient.gemini.event.events.impl.MotionEvent;
 import geminiclient.gemini.event.events.impl.MoveInputEvent;
@@ -29,6 +30,7 @@ public final class EventTypes {
     public static final EventType<BlockingEvent> BLOCKING = EventType.of(BlockingEvent.class);
     public static final EventType<ChatEvent> CHAT = EventType.of(ChatEvent.class);
     public static final EventType<EntityRemoveEvent> ENTITY_REMOVE = EventType.of(EntityRemoveEvent.class);
+    public static final EventType<FrameEvent> FRAME = EventType.of(FrameEvent.class);
     public static final EventType<KeyInputEvent> KEY_INPUT = EventType.of(KeyInputEvent.class);
     public static final EventType<MotionEvent> MOTION = EventType.of(MotionEvent.class);
     public static final EventType<MoveInputEvent> MOVE_INPUT = EventType.of(MoveInputEvent.class);

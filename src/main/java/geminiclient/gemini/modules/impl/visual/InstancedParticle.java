@@ -15,54 +15,53 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Instanced Particle System (实例化粒子海).
+ * Instanced particle system (实例化粒子海): thousands of particles orbiting
+ * the player in a cylindrical volume, drifting upward with randomized velocities.
  *
- * <h3>5000+ particles with 5 visual types</h3>
+ * Five visual types, selected per particle from the enabled toggles:
  * <ul>
- *   <li>RUNE      — glowing runic diamonds in gold/purple</li>
- *   <li>HEXAGON   — geometric cyan/teal tiles</li>
- *   <li>TRIANGLE  — sharp orange/red shards</li>
- *   <li>FEATHER   — soft pink/purple ethereal wisps</li>
- *   <li>STARLIGHT — bright white/silver 4-point stars</li>
+ *     <li>Rune: glowing runic diamonds in gold/purple.</li>
+ *     <li>Hexagon: geometric cyan/teal tiles.</li>
+ *     <li>Triangle: sharp orange/red shards.</li>
+ *     <li>Feather: soft pink/purple ethereal wisps.</li>
+ *     <li>Starlight: bright white/silver 4-point stars.</li>
  * </ul>
  *
- * <h3>Emission pattern</h3>
- * <p>Particles orbit the player in a cylindrical volume,
- * slowly drifting upward with randomized velocities.</p>
- *
- * <h3>Performance</h3>
- * <p>All particles batched into a single vertex buffer per frame
- * → one draw call.  Target: 5000 particles @ 60fps.</p>
+ * All particles are batched into a single vertex buffer per frame, so the whole
+ * system costs one draw call.
  */
-public class InstancedParticle extends Module {
+public final class InstancedParticle extends Module {
 
-    // ── Config ────────────────────────────────────────────────────
+    private static final float TICK_DT = 0.05f;
+    private static final float TWO_PI = (float) (Math.PI * 2.0);
 
+    // Emission
     private final FloatValue maxParticles = new FloatValue("Max Particles", 3000f, 500f, 6000f);
-    private final FloatValue spawnRate    = new FloatValue("Spawn Rate", 150f, 20f, 500f);
+    private final FloatValue spawnRate = new FloatValue("Spawn Rate", 150f, 20f, 500f);
+    private final FloatValue orbitRadius = new FloatValue("Orbit Radius", 2.5f, 0.5f, 6.0f);
+    private final FloatValue orbitHeight = new FloatValue("Orbit Height", 2.0f, 0.5f, 5.0f);
+
+    // Appearance
     private final FloatValue particleLife = new FloatValue("Life", 1.5f, 0.3f, 4.0f);
     private final FloatValue particleSize = new FloatValue("Size", 0.15f, 0.03f, 0.6f);
-    private final FloatValue orbitRadius  = new FloatValue("Orbit Radius", 2.5f, 0.5f, 6.0f);
-    private final FloatValue orbitHeight  = new FloatValue("Orbit Height", 2.0f, 0.5f, 5.0f);
-    private final FloatValue intensity    = new FloatValue("Intensity", 1.0f, 0.1f, 1.0f);
-    private final BoolValue  runes       = new BoolValue("Runes", true);
-    private final BoolValue  hexagons    = new BoolValue("Hexagons", true);
-    private final BoolValue  triangles   = new BoolValue("Triangles", true);
-    private final BoolValue  feathers    = new BoolValue("Feathers", true);
-    private final BoolValue  starlights  = new BoolValue("Starlights", true);
+    private final FloatValue intensity = new FloatValue("Intensity", 1.0f, 0.1f, 1.0f);
 
-    // ── State ─────────────────────────────────────────────────────
+    // Particle types
+    private final BoolValue runes = new BoolValue("Runes", true);
+    private final BoolValue hexagons = new BoolValue("Hexagons", true);
+    private final BoolValue triangles = new BoolValue("Triangles", true);
+    private final BoolValue feathers = new BoolValue("Feathers", true);
+    private final BoolValue starlights = new BoolValue("Starlights", true);
 
+    // State
     private final List<ParticleData> particles = new ArrayList<>();
     private final Random rand = new Random();
     private float spawnAccum;
 
-    // ── Constructor ────────────────────────────────────────────────
-
     public InstancedParticle() {
         super("InstancedParticle", ModuleEnum.Visual);
-        addValue(maxParticles, spawnRate, particleLife, particleSize,
-                orbitRadius, orbitHeight, intensity,
+        addValue(maxParticles, spawnRate, orbitRadius, orbitHeight,
+                particleLife, particleSize, intensity,
                 runes, hexagons, triangles, feathers, starlights);
     }
 
@@ -72,23 +71,20 @@ public class InstancedParticle extends Module {
         spawnAccum = 0f;
     }
 
-    // ── Update ──────────────────────────────────────────────────────
-
+    @SuppressWarnings("unused")
     @EventTarget
     public void onUpdate(UpdateEvent event) {
         if (mc.player == null || mc.level == null) return;
 
-        float dt = 0.05f;
-
-        // ── Tick existing particles ──────────────────────────────
+        // Tick existing particles
         for (ParticleData p : particles) {
-            p.tick(dt);
+            p.tick(TICK_DT);
         }
         particles.removeIf(p -> !p.alive);
 
-        // ── Spawn new particles ──────────────────────────────────
+        // Spawn new particles
         int maxP = (int) maxParticles.getValue();
-        spawnAccum += spawnRate.getValue() * dt;
+        spawnAccum += spawnRate.getValue() * TICK_DT;
 
         while (spawnAccum >= 1f && particles.size() < maxP) {
             spawnAccum -= 1f;
@@ -97,23 +93,23 @@ public class InstancedParticle extends Module {
     }
 
     private void spawnParticle() {
-        var p = mc.player;
-        if (p == null) return;
+        var player = mc.player;
+        if (player == null) return;
 
-        // Cylindrical orbit volume around player
-        float angle = rand.nextFloat() * 6.2832f;
+        // Cylindrical orbit volume around the player
+        float angle = rand.nextFloat() * TWO_PI;
         float r = orbitRadius.getValue() * (0.3f + rand.nextFloat() * 0.7f);
         float h = (rand.nextFloat() - 0.5f) * 2f * orbitHeight.getValue();
 
-        float px = (float)(p.getX() + Math.cos(angle) * r);
-        float py = (float)(p.getY() + 1.0 + h);
-        float pz = (float)(p.getZ() + Math.sin(angle) * r);
+        float px = (float) (player.getX() + Math.cos(angle) * r);
+        float py = (float) (player.getY() + 1.0 + h);
+        float pz = (float) (player.getZ() + Math.sin(angle) * r);
 
         // Tangential velocity (orbit) + slight upward drift
         float speed = 1.5f + rand.nextFloat() * 3f;
-        float vx = (float)(-Math.sin(angle) * speed);
+        float vx = (float) (-Math.sin(angle) * speed);
         float vy = 0.3f + rand.nextFloat() * 1.5f;
-        float vz = (float)(Math.cos(angle) * speed);
+        float vz = (float) (Math.cos(angle) * speed);
 
         float life = particleLife.getValue() * (0.6f + rand.nextFloat() * 0.4f);
         float size = particleSize.getValue() * (0.5f + rand.nextFloat() * 0.5f);
@@ -123,36 +119,28 @@ public class InstancedParticle extends Module {
         float cg = 0.7f + rand.nextFloat() * 0.3f;
         float cb = 0.7f + rand.nextFloat() * 0.3f;
 
-        // Pick type from enabled types
-        byte type = pickType();
-
         particles.add(new ParticleData(
                 px, py, pz, vx, vy, vz,
-                life, size, cr, cg, cb, 1f, type));
+                life, size, cr, cg, cb, 1f, pickType()));
     }
 
     private byte pickType() {
-        // Build weighted list of enabled types
-        int count = 0;
-        if (runes.enabled) count++;
-        if (hexagons.enabled) count++;
-        if (triangles.enabled) count++;
-        if (feathers.enabled) count++;
-        if (starlights.enabled) count++;
+        BoolValue[] types = {runes, hexagons, triangles, feathers, starlights};
 
-        if (count == 0) return 0; // fallback to runes
+        int enabled = 0;
+        for (BoolValue type : types) {
+            if (type.enabled) enabled++;
+        }
+        if (enabled == 0) return 0; // fallback to runes
 
-        int pick = rand.nextInt(count);
-        int idx = 0;
-        if (runes.enabled && idx++ == pick) return 0;
-        if (hexagons.enabled && idx++ == pick) return 1;
-        if (triangles.enabled && idx++ == pick) return 2;
-        if (feathers.enabled && idx++ == pick) return 3;
-        return 4; // starlights
+        int pick = rand.nextInt(enabled);
+        for (byte i = 0; i < types.length; i++) {
+            if (types[i].enabled && pick-- == 0) return i;
+        }
+        return 0;
     }
 
-    // ── Render ──────────────────────────────────────────────────────
-
+    @SuppressWarnings("unused")
     @EventTarget
     public void onRender3D(Render3DEvent event) {
         if (mc.player == null || particles.isEmpty()) return;
