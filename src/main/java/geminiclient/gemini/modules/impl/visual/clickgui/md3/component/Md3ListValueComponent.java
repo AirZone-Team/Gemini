@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3.component;
 
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Anim;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Fonts;
@@ -34,10 +35,10 @@ public class Md3ListValueComponent extends Md3ValueComponent {
             drawHoverState(gui, mouseX, mouseY);
         }
 
-        Md3Fonts.drawText(gui, bodyFont, listValue.getName(), x, textY, Md3Theme.ON_SURFACE);
+        Md3Fonts.drawText(gui, bodyFont, listValue.getDisplayName(), x, textY, Md3Theme.ON_SURFACE);
 
         // Current value + chevron on the right (chevron tints primary on hover)
-        String current = listValue.get();
+        String current = I18n.option(listValue.get());
         var labelFont = Md3Fonts.label();
         float vw = Md3Fonts.width(labelFont, current);
         float right = x + width - 14;
@@ -115,7 +116,7 @@ public class Md3ListValueComponent extends Md3ValueComponent {
                             Md3Theme.ON_PRIMARY_CONTAINER);
                     textX = menuX + 36;
                 }
-                Md3Fonts.drawText(gui, font, mode, textX, itemY + (ITEM_HEIGHT - lh) / 2f, textColor);
+                Md3Fonts.drawText(gui, font, I18n.option(mode), textX, itemY + (ITEM_HEIGHT - lh) / 2f, textColor);
             }
         }
 

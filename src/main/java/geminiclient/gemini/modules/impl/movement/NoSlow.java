@@ -41,7 +41,7 @@ public class NoSlow extends Module {
         Item item = mc.player.getUseItem().getItem();
 
         if (item.toString().toLowerCase().contains("spear"))
-            return;
+            event.setFactor(1.0f);
 
 
         // 食物 / 药水

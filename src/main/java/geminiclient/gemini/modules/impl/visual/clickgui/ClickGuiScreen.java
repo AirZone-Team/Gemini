@@ -115,6 +115,13 @@ public class ClickGuiScreen extends AbstractClickGuiScreen {
         int glfwKey = keyCode.input();
         int mods = keyCode.modifiers();
 
+        // 绑定模式优先：正在等待按键的模块行先消费（Esc 由其取消绑定）
+        if (ModuleComponent.hasActiveBinding()) {
+            if (ModuleComponent.dispatchKeyPress(glfwKey)) {
+                return true;
+            }
+        }
+
         // ESC closes the GUI (or clears search if filter active)
         if (glfwKey == GLFW.GLFW_KEY_ESCAPE) {
             if (searchWidget.hasFilter()) {

@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.component;
 
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.modules.impl.visual.clickgui.ClassicTheme;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.utils.animation.SpringAnimation;
@@ -69,9 +70,9 @@ public class ListValueComponent extends ValueComponent {
         ClassicTheme.drawRow(guiGraphics, x, y, width, height, hoverT);
 
         // Label (left) + current mode (right) + chevron
-        guiGraphics.text(mc.font, this.value.getName(), x + 7, y + 4, ClassicTheme.TEXT, true);
+        guiGraphics.text(mc.font, this.value.getDisplayName(), x + 7, y + 4, ClassicTheme.TEXT, true);
 
-        String current = listValue.get();
+        String current = I18n.option(listValue.get());
         int chevronX = x + width - 12;
         guiGraphics.text(mc.font, current, chevronX - 4 - mc.font.width(current), y + 4,
                 ClassicTheme.TEXT_DIM, true);
@@ -122,7 +123,7 @@ public class ListValueComponent extends ValueComponent {
             }
 
             int modeTextColor = isSelected ? ClassicTheme.TEXT : ClassicTheme.TEXT_DIM;
-            guiGraphics.text(mc.font, mode, listX + 8, currentY + 2, modeTextColor, true);
+            guiGraphics.text(mc.font, I18n.option(mode), listX + 8, currentY + 2, modeTextColor, true);
 
             currentY += MODE_HEIGHT;
         }

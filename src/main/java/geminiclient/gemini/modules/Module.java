@@ -1,6 +1,7 @@
 package geminiclient.gemini.modules;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.base.MinecraftInstance;
 import geminiclient.gemini.modules.impl.visual.notice.ModuleNotification;
 import geminiclient.gemini.values.ValueParent;
@@ -79,12 +80,12 @@ public class Module implements MinecraftInstance {
             Gemini.eventManager.register(this);
             onEnabled();
             Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.INFO,
-                    "Module", "Enabled: " + this.name, 2000);
+                    I18n.tr("Module"), I18n.tr("Enabled: ") + I18n.module(this.name), 2000);
         } else {
             Gemini.eventManager.unregister(this);
             onDisabled();
             Gemini.notificationManager.addNotification(ModuleNotification.NotificationLevel.ERROR,
-                    "Module", "Disabled: " + this.name, 2000);
+                    I18n.tr("Module"), I18n.tr("Disabled: ") + I18n.module(this.name), 2000);
         }
     }
 

@@ -1,7 +1,10 @@
 package geminiclient.gemini.modules.impl.visual.clickgui;
 
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.modules.Module;
 import org.lwjgl.glfw.GLFW;
+
+import java.util.Locale;
 
 /**
  * Render-free search/filter state shared by the classic {@link SearchWidget}
@@ -122,6 +125,9 @@ public class SearchFilterModel {
     /** Case-insensitive "name contains filter" match used by both GUI modes. */
     public static boolean matches(Module module, String filter) {
         if (filter == null || filter.isEmpty()) return true;
-        return module.getName().toLowerCase().contains(filter.toLowerCase());
+        // 同时匹配英文原名与本地化显示名，保证中英文搜索都能命中
+        return module.getName().toLowerCase(Locale.ROOT).contains(filter.toLowerCase(Locale.ROOT))
+                || I18n.module(module.getName()).toLowerCase(Locale.ROOT)
+                        .contains(filter.toLowerCase(Locale.ROOT));
     }
 }

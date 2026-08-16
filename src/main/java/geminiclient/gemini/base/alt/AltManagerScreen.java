@@ -1,6 +1,7 @@
 package geminiclient.gemini.base.alt;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
@@ -19,6 +20,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -74,12 +76,14 @@ public class AltManagerScreen extends Screen {
     // ========================
     // Fonts
     // ========================
+    // 全部面取自 MiSans-Bold：资源中唯一含完整中文字形的 MiSans 文件（Source
+    // Han Sans 子集不含 CJK，无法渲染中文，已弃用）。
     private static final Identifier FONT_BOLD =
-            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-bold.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
     private static final Identifier FONT_MEDIUM =
-            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-medium.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
     private static final Identifier FONT_LIGHT =
-            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-light.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
 
     private static GlyphFont titleFont;      // bold 24
     private static GlyphFont bodyFont;       // light 12 — 副标题 / 正文 / 状态
@@ -99,6 +103,37 @@ public class AltManagerScreen extends Screen {
         if (hintFont == null)       hintFont = CustomFontRenderer.loadFont(FONT_LIGHT, 11f);
         if (modalTitleFont == null) modalTitleFont = CustomFontRenderer.loadFont(FONT_BOLD, 17f);
         if (fieldFont == null)      fieldFont = CustomFontRenderer.loadFont(FONT_MEDIUM, 13f);
+    }
+
+    /**
+     * 预热 AltManager 字体，由 {@code UiShaderWarmup} 在加载界面调用。调用方
+     * 需随后执行 {@code CustomFontRenderer.flushAllPages()}。
+     *
+     * <p>仅预热 ASCII 与常用符号：中文文案按需惰性栅格化（约 17ms/字形），
+     * 全量预热会让加载界面卡顿。缺失字形有 vanilla 字体兜底。</p>
+     */
+    public static void warmup() {
+        try {
+            ensureFontsLoaded();
+            String warmupText = "1234567890.-+×▶←→·";
+            GlyphFont[] faces = { titleFont, bodyFont, nameFont, tinyFont,
+                    linkFont, hintFont, modalTitleFont, fieldFont };
+            for (GlyphFont face : faces) {
+                if (face == null) {
+                    continue;
+                }
+                for (int cp = 0x20; cp <= 0x7E; cp++) {
+                    face.getGlyph(cp);
+                }
+                for (int i = 0; i < warmupText.length(); ) {
+                    int cp = warmupText.codePointAt(i);
+                    face.getGlyph(cp);
+                    i += Character.charCount(cp);
+                }
+            }
+        } catch (Throwable t) {
+            // 预热失败不影响运行：字形仍会惰性栅格化。
+        }
     }
 
     // ========================
@@ -340,8 +375,8 @@ public class AltManagerScreen extends Screen {
         float reveal = easeOutCubic(clamp01((elapsed - 0.45f) * 2.5f));
         int subAlpha = (int) (entryAlpha * reveal * 255);
         if (subAlpha > 0) {
-            String sub = "共 " + accounts.size() + " 个账号    ·    当前会话："
-                    + AltManager.currentSessionName();
+            String sub = I18n.trf("AltManagerSubtitle", accounts.size(),
+                    AltManager.currentSessionName());
             sub = ellipsize(bodyFont, sub, screenLayout().contentWidth());
             CustomFontRenderer.drawString(gui, bodyFont, sub, left, screenLayout().subtitleY(),
                     (subAlpha << 24) | (SUBTITLE_COLOR & 0x00FFFFFF));
@@ -487,10 +522,10 @@ public class AltManagerScreen extends Screen {
         String text;
         int color;
         if (AltManager.isCurrent(acc)) {
-            text = "使用中";
+            text = I18n.tr("使用中");
             color = ACCENT;
         } else if (acc.isActive()) {
-            text = "上次使用";
+            text = I18n.tr("上次使用");
             color = VERSION_COLOR;
         } else {
             return;
@@ -532,8 +567,8 @@ public class AltManagerScreen extends Screen {
         int alpha = (int) (entryAlpha * reveal * 255);
         if (alpha <= 0) return;
         float cy = screenLayout().listTop() + screenLayout().listViewportH() / 2f - 20f;
-        String line1 = "列表为空";
-        String line2 = "使用下方链接添加 Microsoft 或离线账号";
+        String line1 = I18n.tr("列表为空");
+        String line2 = I18n.tr("使用下方链接添加 Microsoft 或离线账号");
         float w1 = CustomFontRenderer.stringWidth(nameFont, line1);
         float w2 = CustomFontRenderer.stringWidth(bodyFont, line2);
         float centerX = screenLayout().contentLeft() + screenLayout().contentWidth() / 2f;
@@ -553,12 +588,12 @@ public class AltManagerScreen extends Screen {
         boolean busy = applyingFuture != null && !applyingFuture.isDone();
         boolean hasSel = selected >= 0 && selected < accounts.size() && !busy;
         return new Link[]{
-                new Link("+ Microsoft 账号", TEXT_IDLE, !busy,
+                new Link(I18n.tr("+ Microsoft 账号"), TEXT_IDLE, !busy,
                         () -> openModal(new MicrosoftModal())),
-                new Link("+ 离线账号", TEXT_IDLE, !busy,
+                new Link(I18n.tr("+ 离线账号"), TEXT_IDLE, !busy,
                         () -> openModal(new OfflineModal())),
-                new Link("应用", TEXT_IDLE, hasSel, this::applySelected),
-                new Link("删除", TEXT_IDLE, hasSel,
+                new Link(I18n.tr("应用"), TEXT_IDLE, hasSel, this::applySelected),
+                new Link(I18n.tr("删除"), TEXT_IDLE, hasSel,
                         () -> openModal(new DeleteModal(accounts.get(selected)))),
         };
     }
@@ -622,12 +657,12 @@ public class AltManagerScreen extends Screen {
         if (screenLayout().compact() && this.height < 250) return;
         float y = screenLayout().footerY();
 
-        String hints = "↑↓  选择    Enter  应用    Delete  删除    Esc  返回";
+        String hints = I18n.tr("↑↓  选择    Enter  应用    Delete  删除    Esc  返回");
         hints = ellipsize(hintFont, hints, Math.max(1f, screenLayout().contentWidth() - 110f));
         CustomFontRenderer.drawString(gui, hintFont, hints, screenLayout().contentLeft(), y,
                 (alpha << 24) | (HINT_COLOR & 0x00FFFFFF));
 
-        String line1 = "Gemini Client";
+        String line1 = I18n.tr("Gemini Client");
         String line2 = "v" + MOD_VERSION;
         float w1 = CustomFontRenderer.stringWidth(hintFont, line1);
         float w2 = CustomFontRenderer.stringWidth(hintFont, line2);
@@ -736,23 +771,23 @@ public class AltManagerScreen extends Screen {
     private void applySelected() {
         if (selected < 0 || selected >= accounts.size()) return;
         if (applyingFuture != null && !applyingFuture.isDone()) {
-            showStatus("正在应用账号，请稍候…", WARN_COLOR);
+            showStatus(I18n.tr("正在应用账号，请稍候…"), WARN_COLOR);
             return;
         }
         AltAccount acc = accounts.get(selected);
         if (acc.getType() == AltAccount.Type.OFFLINE) {
             AltManager.apply(acc, accounts);
-            showStatus("已应用离线账号：" + acc.getName(), ACCENT);
+            showStatus(I18n.trf("已应用离线账号：%s", acc.getName()), ACCENT);
             return;
         }
         // Microsoft：优先用 refreshToken 静默刷新，失败则回退本地令牌
         if (acc.getRefreshToken().isEmpty()) {
             AltManager.apply(acc, accounts);
-            showStatus("已应用 Microsoft 账号：" + acc.getName() + "（本地令牌）", ACCENT);
+            showStatus(I18n.trf("已应用 Microsoft 账号：%s（本地令牌）", acc.getName()), ACCENT);
             return;
         }
         applyingTarget = acc;
-        applyingStatus = "正在刷新 " + acc.getName() + " 的令牌…";
+        applyingStatus = I18n.trf("正在刷新 %s 的令牌…", acc.getName());
         applyingFuture = MicrosoftAuthService.refresh(acc.getRefreshToken(),
                         s -> applyingStatus = s)
                 .thenApply(result -> {
@@ -768,14 +803,14 @@ public class AltManagerScreen extends Screen {
         try {
             AltAccount acc = applyingFuture.get();
             AltManager.apply(acc, accounts);
-            showStatus("已应用 Microsoft 账号：" + acc.getName() + "（令牌已刷新）", ACCENT);
+            showStatus(I18n.trf("已应用 Microsoft 账号：%s（令牌已刷新）", acc.getName()), ACCENT);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            fallbackApply(target, "刷新被中断");
+            fallbackApply(target, I18n.tr("刷新被中断"));
         } catch (ExecutionException e) {
             fallbackApply(target, extractMessage(e.getCause()));
         } catch (Exception e) {
-            fallbackApply(target, "未知错误");
+            fallbackApply(target, I18n.tr("未知错误"));
         }
         applyingFuture = null;
     }
@@ -784,9 +819,9 @@ public class AltManagerScreen extends Screen {
     private void fallbackApply(AltAccount target, String reason) {
         if (target != null && accounts.contains(target)) {
             AltManager.apply(target, accounts);
-            showStatus("刷新失败（" + reason + "），已使用本地令牌应用", WARN_COLOR);
+            showStatus(I18n.trf("刷新失败（%s），已使用本地令牌应用", reason), WARN_COLOR);
         } else {
-            showStatus("刷新失败：" + reason, ERROR_COLOR);
+            showStatus(I18n.trf("刷新失败：%s", reason), ERROR_COLOR);
         }
     }
 
@@ -799,7 +834,7 @@ public class AltManagerScreen extends Screen {
                 AltManager.save(accounts);
                 selected = i;
                 ensureRowVisible(i);
-                showStatus("已更新 Microsoft 账号：" + result.name(), ACCENT);
+                showStatus(I18n.trf("已更新 Microsoft 账号：%s", result.name()), ACCENT);
                 return;
             }
         }
@@ -809,7 +844,7 @@ public class AltManagerScreen extends Screen {
         AltManager.save(accounts);
         selected = accounts.size() - 1;
         ensureRowVisible(selected);
-        showStatus("已添加 Microsoft 账号：" + result.name(), ACCENT);
+        showStatus(I18n.trf("已添加 Microsoft 账号：%s", result.name()), ACCENT);
     }
 
     private void addOfflineAccount(String name) {
@@ -818,7 +853,7 @@ public class AltManagerScreen extends Screen {
         AltManager.save(accounts);
         selected = accounts.size() - 1;
         ensureRowVisible(selected);
-        showStatus("已添加离线账号：" + name, ACCENT);
+        showStatus(I18n.trf("已添加离线账号：%s", name), ACCENT);
     }
 
     private boolean hasDuplicateName(String name) {
@@ -1173,11 +1208,11 @@ public class AltManagerScreen extends Screen {
         private final HoverSet hHover = new HoverSet();
         private final TextField urlField = new TextField(cp -> cp >= 32 && cp != 127)
                 .maxLength(512)
-                .placeholder("粘贴重定向 URL 或授权码…");
+                .placeholder(I18n.tr("粘贴重定向 URL 或授权码…"));
 
         @Override
         String title() {
-            return "Microsoft 登录";
+            return I18n.tr("Microsoft 登录");
         }
 
         @Override
@@ -1196,7 +1231,7 @@ public class AltManagerScreen extends Screen {
             for (String s : errorText.split("\n")) {
                 if (!s.isBlank()) lines.add(s.trim());
             }
-            if (lines.isEmpty()) lines.add("未知错误");
+            if (lines.isEmpty()) lines.add(I18n.tr("未知错误"));
             return lines;
         }
 
@@ -1218,9 +1253,9 @@ public class AltManagerScreen extends Screen {
         private void extractChoice(GuiGraphicsExtractor gui, PanelRect p,
                                    int mouseX, int mouseY, float dt, float a) {
             drawBodyLines(gui, p, a, 58f,
-                    "自动模式：打开浏览器并在本地接收登录回调（推荐）。",
-                    "手动模式：自行完成登录后粘贴浏览器重定向链接。");
-            String[] items = {"自动登录（推荐）", "手动粘贴链接", "取消"};
+                    I18n.tr("自动模式：打开浏览器并在本地接收登录回调（推荐）。"),
+                    I18n.tr("手动模式：自行完成登录后粘贴浏览器重定向链接。"));
+            String[] items = {I18n.tr("自动登录（推荐）"), I18n.tr("手动粘贴链接"), I18n.tr("取消")};
             vHover.ensure(items.length);
             for (int i = 0; i < items.length; i++) {
                 float itemY = contentY(p, 108f + i * 26f);
@@ -1247,17 +1282,17 @@ public class AltManagerScreen extends Screen {
                 setState(MsState.PROGRESS);
                 return;
             }
-            String status = statusText.isEmpty() ? "等待浏览器回调" : statusText;
+            String status = statusText.isEmpty() ? I18n.tr("等待浏览器回调") : statusText;
             status = ellipsize(bodyFont, status, Math.max(1f, p.w() - inset(p) * 2f - 18f));
             CustomFontRenderer.drawString(gui, bodyFont, status + dots(now),
                     p.x() + inset(p), contentY(p, 62f), scaleAlpha(TEXT_HOVER, a));
 
             long remain = Math.max(0, 300 - (now - waitStartMs) / 1000);
-            String countdown = String.format("剩余 %d:%02d", remain / 60, remain % 60);
+            String countdown = String.format(Locale.ROOT, I18n.tr("剩余 %d:%02d"), remain / 60, remain % 60);
             CustomFontRenderer.drawString(gui, bodyFont, countdown,
                     p.x() + inset(p), contentY(p, 82f), scaleAlpha(SUBTITLE_COLOR, a));
 
-            CustomFontRenderer.drawString(gui, bodyFont, "页面没有打开？可以改用手动模式自行复制链接。",
+            CustomFontRenderer.drawString(gui, bodyFont, I18n.tr("页面没有打开？可以改用手动模式自行复制链接。"),
                     p.x() + inset(p), contentY(p, 102f), scaleAlpha(SUBTITLE_COLOR, a));
 
             Link[] links = waitingLinks();
@@ -1268,8 +1303,8 @@ public class AltManagerScreen extends Screen {
         private void extractManual(GuiGraphicsExtractor gui, PanelRect p,
                                    int mouseX, int mouseY, float dt, long now, float a) {
             drawBodyLines(gui, p, a, 58f,
-                    "在浏览器中完成登录后，地址栏会跳转到 localhost 链接",
-                    "（页面可能无法打开）——复制完整链接粘贴到下方：");
+                    I18n.tr("在浏览器中完成登录后，地址栏会跳转到 localhost 链接"),
+                    I18n.tr("（页面可能无法打开）——复制完整链接粘贴到下方："));
 
             float fieldY = contentY(p, 100f);
             urlField.render(gui, fieldFont, p.x() + inset(p), fieldY, Math.max(1f, p.w() - inset(p) * 2f), now, a);
@@ -1285,14 +1320,14 @@ public class AltManagerScreen extends Screen {
 
         private void extractProgress(GuiGraphicsExtractor gui, PanelRect p,
                                      int mouseX, int mouseY, float dt, long now, float a) {
-            String status = statusText.isEmpty() ? "正在与微软服务器通信" : statusText;
+            String status = statusText.isEmpty() ? I18n.tr("正在与微软服务器通信") : statusText;
             status = ellipsize(bodyFont, status, Math.max(1f, p.w() - inset(p) * 2f - 18f));
             CustomFontRenderer.drawString(gui, bodyFont, status + dots(now),
                     p.x() + inset(p), contentY(p, 66f), scaleAlpha(TEXT_HOVER, a));
-            CustomFontRenderer.drawString(gui, bodyFont, "请稍候，正在完成令牌交换…",
+            CustomFontRenderer.drawString(gui, bodyFont, I18n.tr("请稍候，正在完成令牌交换…"),
                     p.x() + inset(p), contentY(p, 88f), scaleAlpha(SUBTITLE_COLOR, a));
 
-            Link[] links = {new Link("取消", TEXT_IDLE, true, this::cancelLogin)};
+            Link[] links = {new Link(I18n.tr("取消"), TEXT_IDLE, true, this::cancelLogin)};
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
                     p.x() + inset(p), contentY(p, 122f), (int) (a * 255));
         }
@@ -1310,8 +1345,8 @@ public class AltManagerScreen extends Screen {
                 y = contentY(p, 58f + lineIndex * 16f);
             }
             Link[] links = {
-                    new Link("返回", TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
-                    new Link("关闭", TEXT_IDLE, true, AltManagerScreen.this::closeModal),
+                    new Link(I18n.tr("返回"), TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
+                    new Link(I18n.tr("关闭"), TEXT_IDLE, true, AltManagerScreen.this::closeModal),
             };
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
                     p.x() + inset(p), contentY(p, 58f + lines.size() * 16f + 14f),
@@ -1332,26 +1367,26 @@ public class AltManagerScreen extends Screen {
 
         private Link[] waitingLinks() {
             return new Link[]{
-                    new Link("改用手动模式", TEXT_IDLE, true, () -> {
+                    new Link(I18n.tr("改用手动模式"), TEXT_IDLE, true, () -> {
                         cancelLogin();
                         setState(MsState.MANUAL);
                     }),
-                    new Link("取消", TEXT_IDLE, true, this::cancelLogin),
+                    new Link(I18n.tr("取消"), TEXT_IDLE, true, this::cancelLogin),
             };
         }
 
         private Link[] manualLinks() {
             boolean hasInput = !urlField.text().isBlank();
             return new Link[]{
-                    new Link("打开授权页面", TEXT_IDLE, true, () -> {
+                    new Link(I18n.tr("打开授权页面"), TEXT_IDLE, true, () -> {
                         try {
                             MicrosoftAuthService.openAuthorizationPage();
                         } catch (MicrosoftAuthService.AuthException e) {
                             fail(e.getMessage());
                         }
                     }),
-                    new Link("开始登录", TEXT_IDLE, hasInput, this::startManualLogin),
-                    new Link("返回", TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
+                    new Link(I18n.tr("开始登录"), TEXT_IDLE, hasInput, this::startManualLogin),
+                    new Link(I18n.tr("返回"), TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
             };
         }
 
@@ -1387,7 +1422,7 @@ public class AltManagerScreen extends Screen {
         }
 
         private void fail(String message) {
-            errorText = message == null || message.isBlank() ? "未知错误" : message;
+            errorText = message == null || message.isBlank() ? I18n.tr("未知错误") : message;
             setState(MsState.ERROR);
         }
 
@@ -1419,7 +1454,7 @@ public class AltManagerScreen extends Screen {
             PanelRect p = panel();
             switch (state) {
                 case CHOICE -> {
-                    String[] items = {"自动登录（推荐）", "手动粘贴链接", "取消"};
+                    String[] items = {I18n.tr("自动登录（推荐）"), I18n.tr("手动粘贴链接"), I18n.tr("取消")};
                     float y = contentY(p, 108f);
                     for (int i = 0; i < items.length; i++) {
                         float itemY = contentY(p, 108f + i * 26f);
@@ -1443,7 +1478,7 @@ public class AltManagerScreen extends Screen {
                     if (idx >= 0 && links[idx].enabled()) links[idx].action().run();
                 }
                 case PROGRESS -> {
-                    Link[] links = {new Link("取消", TEXT_IDLE, true, this::cancelLogin)};
+                    Link[] links = {new Link(I18n.tr("取消"), TEXT_IDLE, true, this::cancelLogin)};
                     int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 122f), mx, my);
                     if (idx >= 0) links[idx].action().run();
                 }
@@ -1451,8 +1486,8 @@ public class AltManagerScreen extends Screen {
                     List<String> lines = errorLines();
                     float y = contentY(p, 58f + lines.size() * 16f + 14f);
                     Link[] links = {
-                            new Link("返回", TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
-                            new Link("关闭", TEXT_IDLE, true, AltManagerScreen.this::closeModal),
+                            new Link(I18n.tr("返回"), TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
+                            new Link(I18n.tr("关闭"), TEXT_IDLE, true, AltManagerScreen.this::closeModal),
                     };
                     int idx = hLinkAt(links, p.x() + inset(p), y, mx, my);
                     if (idx >= 0) links[idx].action().run();
@@ -1517,13 +1552,13 @@ public class AltManagerScreen extends Screen {
         private final TextField nameField = new TextField(
                 cp -> Character.isLetterOrDigit(cp) || cp == '_')
                 .maxLength(16)
-                .placeholder("用户名（3-16 位字母、数字、下划线）");
+                .placeholder(I18n.tr("用户名（3-16 位字母、数字、下划线）"));
         private final HoverSet hHover = new HoverSet();
         private String errorText = "";
 
         @Override
         String title() {
-            return "添加离线账号";
+            return I18n.tr("添加离线账号");
         }
 
         @Override
@@ -1533,23 +1568,23 @@ public class AltManagerScreen extends Screen {
 
         private Link[] links() {
             return new Link[]{
-                    new Link("添加", TEXT_IDLE, true, this::submit),
-                    new Link("取消", TEXT_IDLE, true, AltManagerScreen.this::closeModal),
+                    new Link(I18n.tr("添加"), TEXT_IDLE, true, this::submit),
+                    new Link(I18n.tr("取消"), TEXT_IDLE, true, AltManagerScreen.this::closeModal),
             };
         }
 
         private void submit() {
             String name = nameField.text().trim();
             if (name.isEmpty()) {
-                errorText = "请输入用户名";
+                errorText = I18n.tr("请输入用户名");
                 return;
             }
             if (name.length() < 3) {
-                errorText = "用户名至少 3 个字符";
+                errorText = I18n.tr("用户名至少 3 个字符");
                 return;
             }
             if (hasDuplicateName(name)) {
-                errorText = "已存在同名账号";
+                errorText = I18n.tr("已存在同名账号");
                 return;
             }
             addOfflineAccount(name);
@@ -1560,7 +1595,7 @@ public class AltManagerScreen extends Screen {
         void extractContent(GuiGraphicsExtractor gui, PanelRect p,
                             int mouseX, int mouseY, float dt, long now, float a) {
             CustomFontRenderer.drawString(gui, bodyFont,
-                    "离线账号无需联网验证，仅适用于离线模式服务器。",
+                    I18n.tr("离线账号无需联网验证，仅适用于离线模式服务器。"),
                     p.x() + inset(p), contentY(p, 58f), scaleAlpha(SUBTITLE_COLOR, a));
 
             float fieldY = contentY(p, 88f);
@@ -1620,7 +1655,7 @@ public class AltManagerScreen extends Screen {
 
         @Override
         String title() {
-            return "删除账号";
+            return I18n.tr("删除账号");
         }
 
         @Override
@@ -1630,15 +1665,15 @@ public class AltManagerScreen extends Screen {
 
         private Link[] links() {
             return new Link[]{
-                    new Link("删除", ERROR_COLOR, true, () -> {
+                    new Link(I18n.tr("删除"), ERROR_COLOR, true, () -> {
                         int idx = accounts.indexOf(target);
                         AltManager.remove(target, accounts);
                         if (selected >= accounts.size()) selected = accounts.size() - 1;
                         if (idx >= 0 && selected > idx) selected--;
-                        showStatus("已删除账号：" + target.getName(), ACCENT);
+                        showStatus(I18n.trf("已删除账号：%s", target.getName()), ACCENT);
                         closeModal();
                     }),
-                    new Link("取消", TEXT_IDLE, true, AltManagerScreen.this::closeModal),
+                    new Link(I18n.tr("取消"), TEXT_IDLE, true, AltManagerScreen.this::closeModal),
             };
         }
 
@@ -1646,9 +1681,9 @@ public class AltManagerScreen extends Screen {
         void extractContent(GuiGraphicsExtractor gui, PanelRect p,
                             int mouseX, int mouseY, float dt, long now, float a) {
             CustomFontRenderer.drawString(gui, bodyFont,
-                    "确定删除账号 " + target.getName() + "（" + target.typeLabel() + "）？",
+                    I18n.trf("确定删除账号 %s（%s）？", target.getName(), target.typeLabel()),
                     p.x() + inset(p), contentY(p, 62f), scaleAlpha(TEXT_HOVER, a));
-            CustomFontRenderer.drawString(gui, bodyFont, "此操作不可撤销。",
+            CustomFontRenderer.drawString(gui, bodyFont, I18n.tr("此操作不可撤销。"),
                     p.x() + inset(p), contentY(p, 80f), scaleAlpha(SUBTITLE_COLOR, a));
 
             drawHLinks(gui, links(), hHover, mouseX, mouseY, dt,
@@ -1685,10 +1720,11 @@ public class AltManagerScreen extends Screen {
     }
 
     private static String extractMessage(Throwable t) {
-        if (t == null) return "未知错误";
+        if (t == null) return I18n.tr("未知错误");
         if (t instanceof MicrosoftAuthService.AuthException ae) return ae.getMessage();
         String msg = t.getMessage();
-        return msg == null || msg.isBlank() ? "未知错误（" + t.getClass().getSimpleName() + "）" : msg;
+        return msg == null || msg.isBlank()
+                ? I18n.trf("未知错误（%s）", t.getClass().getSimpleName()) : msg;
     }
 
     private static int scaleAlpha(int argb, float scale) {

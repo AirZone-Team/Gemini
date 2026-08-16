@@ -7,10 +7,6 @@ import java.util.concurrent.ThreadLocalRandom;
  * 独立于 Minecraft 类型的纯状态机，参数通过 {@link Config} 注入，便于模块侧实时调节。
  */
 public final class HumanClickPattern {
-    /** 每次点击的基础间隔范围（毫秒），兜底防止极端值。 */
-    private static final double MIN_INTERVAL_SCALE = 0.7;
-    private static final double MAX_INTERVAL_SCALE = 1.3;
-
     private final Config config;
 
     private int clickStreak;
@@ -48,6 +44,10 @@ public final class HumanClickPattern {
                     + random.nextDouble() * (config.doubleClickGapMax - config.doubleClickGapMin));
         }
 
+        // 配置 CPS 范围对应的点击间隔界限（毫秒）
+        double minInterval = 1000.0 / Math.max(config.maxCps, 1); // 最快（最高 CPS）
+        double maxInterval = 1000.0 / Math.min(config.minCps, 1); // 最慢（最低 CPS）
+
         // 三角形分布：CPS 偏向区间中部，而不是均匀噪声
         double pickedCps = config.minCps
                 + (random.nextDouble() + random.nextDouble()) * 0.5
@@ -64,7 +64,10 @@ public final class HumanClickPattern {
             interval *= 1.0 + config.adrenaline;
         }
 
-        // 周期性呼吸停顿（调整握持/鼠标手势）
+        // 基础点击严格落在配置的 CPS 范围内（波动/肾上腺素只在范围内抖动）
+        interval = Math.max(minInterval, Math.min(maxInterval, interval));
+
+        // 周期性呼吸停顿（调整握持/鼠标手势）：独立叠加在基础间隔之上，不受 CPS 范围约束
         if (++clickStreak >= nextPauseAfterClicks) {
             clickStreak = 0;
             nextPauseAfterClicks = randomPauseEvery();
@@ -79,11 +82,7 @@ public final class HumanClickPattern {
             pendingDoubleClick = true;
         }
 
-        // 兜底限制，避免极端值
-        double minInterval = 1000.0 / Math.max(config.maxCps, 1);
-        double maxInterval = 1000.0 / Math.min(config.minCps, 1);
-        return (long) Math.max(minInterval * MIN_INTERVAL_SCALE,
-                Math.min(maxInterval * MAX_INTERVAL_SCALE, interval));
+        return (long) interval;
     }
 
     private int randomPauseEvery() {

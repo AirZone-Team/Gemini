@@ -56,6 +56,11 @@ public class KillAura extends Module {
         indicators.reset();
     }
 
+    /** 当前锁定目标（供 BackTrack 等模块跟随），无目标时为 null。 */
+    public Entity currentTarget() {
+        return targetManager.current();
+    }
+
     @SuppressWarnings("unused")
     @EventTarget(5)
     public void onMotion(MotionEvent event) {

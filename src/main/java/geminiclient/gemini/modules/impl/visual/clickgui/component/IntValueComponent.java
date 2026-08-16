@@ -33,7 +33,7 @@ public class IntValueComponent extends ValueComponent {
         ClassicTheme.drawRow(guiGraphics, x, y, width, height, hoverT);
 
         // Label (left) + current value (right)
-        guiGraphics.text(mc.font, intValue.getName(), x + 7, y + 3, ClassicTheme.TEXT, true);
+        guiGraphics.text(mc.font, intValue.getDisplayName(), x + 7, y + 3, ClassicTheme.TEXT, true);
         String valueText = String.valueOf(intValue.getValue());
         guiGraphics.text(mc.font, valueText, x + width - 7 - mc.font.width(valueText), y + 3,
                 ClassicTheme.TEXT_DIM, true);

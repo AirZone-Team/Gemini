@@ -1,5 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3.component;
 
+import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Anim;
@@ -7,8 +9,10 @@ import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Fonts;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3ModuleDescriptions;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3RenderUtils;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Theme;
+import geminiclient.gemini.utils.KeyUtils;
 import geminiclient.gemini.values.ValueParent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +28,10 @@ public class Md3ModuleComponent {
     private static final int VALUE_PADDING = 12;
     private static final int VALUE_SPACING = 4;
     private static final int EXPAND_GAP = 8;
+    private static final int BIND_ROW_HEIGHT = 30;
+
+    /** 当前处于"按下按键..."绑定模式的模块行（全局唯一）。 */
+    private static Md3ModuleComponent activeBinding = null;
 
     public final Module module;
     public int x, y, width;
@@ -72,10 +80,9 @@ public class Md3ModuleComponent {
     }
 
     private int computeContentHeight() {
-        List<Md3ValueComponent> visible = getVisibleComponents();
-        if (visible.isEmpty()) return 0;
-        int height = VALUE_PADDING * 2;
-        for (Md3ValueComponent component : visible) {
+        // 展开区顶部固定有一个按键绑定行，即使没有其他设置项也始终显示
+        int height = VALUE_PADDING * 2 + BIND_ROW_HEIGHT + VALUE_SPACING;
+        for (Md3ValueComponent component : getVisibleComponents()) {
             height += component.getTotalHeight() + VALUE_SPACING;
         }
         return height - VALUE_SPACING;
@@ -138,12 +145,12 @@ public class Md3ModuleComponent {
         var titleFont = Md3Fonts.title();
         var labelFont = Md3Fonts.label();
 
-        Md3Fonts.drawText(gui, titleFont, module.getName(), textX, y + 12,
+        Md3Fonts.drawText(gui, titleFont, I18n.module(module.getName()), textX, y + 12,
                 Md3Theme.ON_SURFACE);
 
         int settingCount = getVisibleComponents().size();
-        String supporting = formatCategory() + " · " + settingCount
-                + (settingCount == 1 ? " setting" : " settings");
+        String supporting = I18n.category(module.getModuleEnum()) + " · " + settingCount
+                + (settingCount == 1 ? I18n.tr("setting") : I18n.tr("settings"));
         String description = Md3ModuleDescriptions.get(module.getName());
         if (!description.isEmpty()) {
             supporting += " — " + description;
@@ -153,10 +160,9 @@ public class Md3ModuleComponent {
     }
 
     private void renderTrailingActions(GuiGraphicsExtractor gui, int mouseX, int mouseY) {
-        if (!valueComponents.isEmpty()) {
-            Md3RenderUtils.drawChevron(gui, heartCenterX() - 25, y + ROW_HEIGHT / 2,
-                    7, !expanded, Md3Theme.ON_SURFACE_VARIANT);
-        }
+        // 展开区始终包含按键绑定行，所有模块都可展开
+        Md3RenderUtils.drawChevron(gui, heartCenterX() - 25, y + ROW_HEIGHT / 2,
+                7, !expanded, Md3Theme.ON_SURFACE_VARIANT);
 
         float favoriteT = favAnim.getValue();
         int idle = isOverHeart(mouseX, mouseY)
@@ -186,7 +192,10 @@ public class Md3ModuleComponent {
         CustomRoundedRectRenderer.drawRoundedRect(gui, x + 8, areaY, width - 16,
                 contentHeight, Md3Theme.R_MEDIUM, Md3Theme.SURFACE_CONTAINER);
 
-        int currentY = areaY + VALUE_PADDING;
+        int bindRowY = areaY + VALUE_PADDING;
+        renderBindRow(gui, bindRowY, mouseX, mouseY);
+
+        int currentY = bindRowY + BIND_ROW_HEIGHT + VALUE_SPACING;
         for (Md3ValueComponent component : getVisibleComponents()) {
             layoutComponent(component, currentY);
             component.render(gui, mouseX, mouseY, partialTicks);
@@ -195,15 +204,77 @@ public class Md3ModuleComponent {
         gui.disableScissor();
     }
 
+    // ── 按键绑定行 ──────────────────────────────────────
+
+    /** 绑定行内键名 pill 的边界 [x, y, w, h]，渲染与命中测试共用。 */
+    private int[] bindPillBounds(int bindRowY) {
+        boolean binding = activeBinding == this;
+        String keyName = binding
+                ? I18n.tr("Press a key...")
+                : (module.key != 0 ? KeyUtils.getKeyName(module.key) : I18n.tr("None"));
+        int pillW = (int) Md3Fonts.width(Md3Fonts.label(), keyName) + 20;
+        int pillRight = x + width - 16 - VALUE_PADDING - 12;
+        return new int[]{pillRight - pillW, bindRowY + 4, pillW, BIND_ROW_HEIGHT - 8};
+    }
+
+    private void renderBindRow(GuiGraphicsExtractor gui, int bindRowY, int mouseX, int mouseY) {
+        boolean binding = activeBinding == this;
+        var labelFont = Md3Fonts.label();
+
+        int rowLeft = x + 8 + VALUE_PADDING;
+        int rowW = width - 16 - VALUE_PADDING * 2;
+        CustomRoundedRectRenderer.drawRoundedRect(gui, rowLeft, bindRowY, rowW, BIND_ROW_HEIGHT,
+                Md3Theme.R_SMALL, Md3Theme.SURFACE_CONTAINER_HIGH);
+
+        Md3Fonts.drawText(gui, labelFont, I18n.tr("Keybind"),
+                rowLeft + 12, bindRowY + (BIND_ROW_HEIGHT - Md3Fonts.lineHeight(labelFont)) / 2,
+                Md3Theme.ON_SURFACE_VARIANT);
+
+        int[] pill = bindPillBounds(bindRowY);
+        int pillBg = binding ? Md3Theme.PRIMARY_CONTAINER : Md3Theme.SURFACE_CONTAINER_HIGHEST;
+        CustomRoundedRectRenderer.drawRoundedRect(gui, pill[0], pill[1], pill[2], pill[3],
+                pill[3] / 2, pillBg);
+        if (binding) {
+            CustomRoundedRectRenderer.drawRoundedOutline(gui, pill[0], pill[1], pill[2], pill[3],
+                    pill[3] / 2, Md3Theme.PRIMARY, 1);
+        }
+        String keyName = binding
+                ? I18n.tr("Press a key...")
+                : (module.key != 0 ? KeyUtils.getKeyName(module.key) : I18n.tr("None"));
+        int textColor = binding ? Md3Theme.ON_PRIMARY_CONTAINER : Md3Theme.ON_SURFACE_VARIANT;
+        Md3Fonts.drawText(gui, labelFont, keyName, pill[0] + 10,
+                pill[1] + (pill[3] - Md3Fonts.lineHeight(labelFont)) / 2, textColor);
+    }
+
+    /** 是否有模块行正在等待按键。 */
+    public static boolean hasActiveBinding() {
+        return activeBinding != null;
+    }
+
+    /** 转发按键给绑定中的模块行；已消费返回 true。 */
+    public static boolean dispatchKeyPress(int glfwKey) {
+        return activeBinding != null && activeBinding.keyPressed(glfwKey);
+    }
+
+    /** 绑定模式下的按键捕获：Esc 取消，其余键立即绑定。 */
+    private boolean keyPressed(int glfwKey) {
+        if (activeBinding != this) {
+            return false;
+        }
+        if (glfwKey == GLFW.GLFW_KEY_ESCAPE) {
+            activeBinding = null;
+            return true;
+        }
+        module.key = glfwKey;
+        activeBinding = null;
+        Gemini.fileSystem.saveConfig();
+        return true;
+    }
+
     private void layoutComponent(Md3ValueComponent component, int componentY) {
         component.x = x + 8 + VALUE_PADDING;
         component.y = componentY;
         component.width = width - 16 - VALUE_PADDING * 2;
-    }
-
-    private String formatCategory() {
-        String name = module.getModuleEnum().name();
-        return name.charAt(0) + name.substring(1).toLowerCase();
     }
 
     private int switchX() {
@@ -245,17 +316,34 @@ public class Md3ModuleComponent {
             module.favorite = !module.favorite;
             return true;
         }
-        if (button == 0 && isOverRow(mouseX, mouseY)) {
-            if (!valueComponents.isEmpty()) {
-                expanded = !expanded;
-                ripples.add(new Md3RenderUtils.Ripple((float) mouseX, (float) mouseY));
+
+        // 展开区内的按键绑定行
+        if (expandProgress() > 0.01f) {
+            int areaY = y + ROW_HEIGHT + EXPAND_GAP / 2;
+            int bindRowY = areaY + VALUE_PADDING;
+            if (isOverBindPill(bindRowY, mouseX, mouseY)) {
+                if (button == 0) {
+                    activeBinding = activeBinding == this ? null : this;
+                } else if (button == 1) {
+                    module.key = 0;
+                    if (activeBinding == this) {
+                        activeBinding = null;
+                    }
+                    Gemini.fileSystem.saveConfig();
+                }
+                return true;
             }
+        }
+
+        if (button == 0 && isOverRow(mouseX, mouseY)) {
+            expanded = !expanded;
+            ripples.add(new Md3RenderUtils.Ripple((float) mouseX, (float) mouseY));
             return true;
         }
 
         if (expandProgress() > 0.01f) {
             int areaY = y + ROW_HEIGHT + EXPAND_GAP / 2;
-            int currentY = areaY + VALUE_PADDING;
+            int currentY = areaY + VALUE_PADDING + BIND_ROW_HEIGHT + VALUE_SPACING;
             for (Md3ValueComponent component : getVisibleComponents()) {
                 layoutComponent(component, currentY);
                 if (component.mouseClicked(mouseX, mouseY, button)) return true;
@@ -263,6 +351,12 @@ public class Md3ModuleComponent {
             }
         }
         return false;
+    }
+
+    private boolean isOverBindPill(int bindRowY, double mouseX, double mouseY) {
+        int[] pill = bindPillBounds(bindRowY);
+        return mouseX >= pill[0] && mouseX <= pill[0] + pill[2]
+                && mouseY >= pill[1] && mouseY <= pill[1] + pill[3];
     }
 
     public boolean mouseReleased(double mouseX, double mouseY, int button) {

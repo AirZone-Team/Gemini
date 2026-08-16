@@ -16,6 +16,7 @@ import geminiclient.gemini.customRenderer.glsl.modules.InstancedParticleRenderer
 import geminiclient.gemini.customRenderer.glsl.modules.MipBloomProcessor;
 import geminiclient.gemini.customRenderer.glsl.modules.SweepAttackRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.TrajectoriesRenderer;
+import geminiclient.gemini.customRenderer.glsl.modules.Osu4kNoteRenderer;
 import geminiclient.gemini.modules.impl.visual.effectDisplay.Md3ShadowRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.GlowRenderer;
@@ -86,5 +87,6 @@ public final class CustomRendererRegistry {
         SweepAttackRenderer.registerPipeline(registry);
         VFXManager.registerPipeline(registry);
         InfiniteGridRenderer.registerPipeline(registry);
+        Osu4kNoteRenderer.registerPipeline(registry);
     }
 }

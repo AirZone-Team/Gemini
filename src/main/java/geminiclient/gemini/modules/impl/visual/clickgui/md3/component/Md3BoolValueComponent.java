@@ -37,7 +37,7 @@ public class Md3BoolValueComponent extends Md3ValueComponent {
         // Row label
         var font = Md3Fonts.body();
         float lh = Md3Fonts.lineHeight(font);
-        Md3Fonts.drawText(gui, font, boolValue.getName(), x, y + (height - lh) / 2f,
+        Md3Fonts.drawText(gui, font, boolValue.getDisplayName(), x, y + (height - lh) / 2f,
                 Md3Theme.ON_SURFACE);
 
         // Trailing switch

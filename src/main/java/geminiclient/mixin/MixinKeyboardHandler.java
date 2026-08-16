@@ -15,6 +15,6 @@ public class MixinKeyboardHandler {
     @Inject(method = "keyPress",at = @At("HEAD"))
     public void callKey(long p_90894_, int p_90895_, KeyEvent p_446050_, CallbackInfo ci) {
         Gemini.eventManager.post(EventTypes.KEY_INPUT,
-                new KeyInputEvent(p_446050_.key(), p_446050_.scancode(), p_446050_.modifiers()));
+                new KeyInputEvent(p_446050_.key(), p_446050_.scancode(), p_446050_.modifiers(), p_90895_));
     }
 }

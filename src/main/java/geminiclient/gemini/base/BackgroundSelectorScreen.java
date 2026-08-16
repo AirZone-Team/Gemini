@@ -2,6 +2,7 @@ package geminiclient.gemini.base;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
@@ -47,13 +48,13 @@ public class BackgroundSelectorScreen extends Screen {
     private static final int SCROLL_SPEED = 20;
     private static final int SCROLLBAR_WIDTH = 6;
 
-    // Fonts - All using googlesans-regular.ttf (lowercase for Minecraft compatibility)
+    // Fonts - All using misans-bold.ttf (the only bundled CJK-capable font)
     private static final Identifier FONT_BOLD =
-            Identifier.fromNamespaceAndPath("gemini", "font/googlesans-regular.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
     private static final Identifier FONT_MEDIUM =
-            Identifier.fromNamespaceAndPath("gemini", "font/googlesans-regular.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
     private static final Identifier FONT_LIGHT =
-            Identifier.fromNamespaceAndPath("gemini", "font/googlesans-regular.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
 
     // Colors (matching MainMenuScreen style)
     private static final int PANEL_BG = 0xE8161D28;
@@ -449,7 +450,7 @@ public class BackgroundSelectorScreen extends Screen {
         if (titleFont == null || itemFont == null) return;
 
         // Title on the left
-        String title = "BackGround";
+        String title = I18n.tr("BackGround");
         float titleX = panelX + 20;
         float titleY = panelY + (TITLE_HEIGHT - TITLE_FONT_SIZE) / 2f;
         CustomFontRenderer.drawString(gui, titleFont, title, titleX, titleY, TITLE_COLOR);
@@ -560,7 +561,7 @@ public class BackgroundSelectorScreen extends Screen {
             // Animated label
             if (entry.isAnimated()) {
                 float subtitleY = textY + ITEM_FONT_SIZE + 4;
-                CustomFontRenderer.drawString(gui, subtitleFont, "Animated", textX, subtitleY, SUBTITLE_COLOR);
+                CustomFontRenderer.drawString(gui, subtitleFont, I18n.tr("Animated"), textX, subtitleY, SUBTITLE_COLOR);
             }
         }
 
@@ -620,7 +621,7 @@ public class BackgroundSelectorScreen extends Screen {
 
         // Draw hint text below the "+"
         if (itemFont != null) {
-            String hintText = "Add BackGround..";
+            String hintText = I18n.tr("Add BackGround..");
             float hintW = CustomFontRenderer.stringWidth(itemFont, hintText);
             float hintX = x + (w - hintW) / 2f;
             float hintY = plusY + plusSize + 12;
@@ -835,7 +836,7 @@ public class BackgroundSelectorScreen extends Screen {
 
                     // Use TinyFileDialogs for cross-platform native file dialog
                     String selectedPath = TinyFileDialogs.tinyfd_openFileDialog(
-                            "Select Wallpaper",
+                            I18n.tr("Select Wallpaper"),
                             System.getProperty("user.home"),
                             null,  // No filter patterns for simplicity
                             "Image Files (*.png, *.jpg, *.jpeg, *.gif, *.mp4, *.webm)",

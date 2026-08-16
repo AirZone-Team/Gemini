@@ -54,7 +54,7 @@ public class Md3CheckboxValueComponent extends Md3ValueComponent {
 
         var font = Md3Fonts.body();
         float lh = Md3Fonts.lineHeight(font);
-        Md3Fonts.drawText(gui, font, checkboxValue.getName(), x, y + (height - lh) / 2f,
+        Md3Fonts.drawText(gui, font, checkboxValue.getDisplayName(), x, y + (height - lh) / 2f,
                 Md3Theme.ON_SURFACE);
 
         // Chevron rotates with expansion and tints primary while hovered

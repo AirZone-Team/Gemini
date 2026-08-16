@@ -32,17 +32,22 @@ public class Stealer extends Module {
     private static final String LARGE_CHEST_KEY = "container.chestDouble";
     private static final String FALLBACK_CHEST_TITLE = "Chest";
 
+    private final IntRangeValue openDelay = new IntRangeValue("OpenDelay", 150, 300, 0, 500);
     private final IntRangeValue stealDelay = new IntRangeValue("StealDelay", 100, 200, 0, 500);
     private final IntRangeValue closeDelay = new IntRangeValue("CloseDelay", 100, 200, 0, 500);
 
+    private final TimerUtils openTimer = new TimerUtils();
     private final TimerUtils stealTimer = new TimerUtils();
     private final TimerUtils closeTimer = new TimerUtils();
     private Screen lastScreen;
     private final Set<ItemCategory> processedCategories = EnumSet.noneOf(ItemCategory.class);
     private boolean hasUpgradeableItems = false;
+    private boolean waitingForOpenDelay = true;
+    private int openDelayMs;
 
     public Stealer() {
         super("Stealer", ModuleEnum.Player);
+        addValue(openDelay);
         addValue(stealDelay);
         addValue(closeDelay);
     }
@@ -76,6 +81,15 @@ public class Stealer extends Module {
     // ========== Core Logic ==========
 
     private void processChest(ChestMenu menu) {
+        // Wait a configurable interval after opening before touching the container.
+        if (waitingForOpenDelay) {
+            if (openTimer.hasTimeElapsed(openDelayMs, false)) {
+                waitingForOpenDelay = false;
+            } else {
+                return;
+            }
+        }
+
         int stealDelayMs = getRandomDelay(stealDelay);
         int closeDelayMs = getRandomDelay(closeDelay);
 
@@ -412,6 +426,9 @@ public class Stealer extends Module {
     private void resetState() {
         stealTimer.reset();
         closeTimer.reset();
+        openTimer.reset();
+        waitingForOpenDelay = true;
+        openDelayMs = getRandomDelay(openDelay);
     }
 
     private int getRandomDelay(IntRangeValue delay) {

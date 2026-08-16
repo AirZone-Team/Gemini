@@ -2,6 +2,7 @@ package geminiclient.gemini.base.alt;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.AltHelper;
+import geminiclient.gemini.base.I18n;
 import net.minecraft.client.User;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -99,7 +100,7 @@ public final class AltManager {
     /** 当前会话的显示名（用于界面副标题）。 */
     public static String currentSessionName() {
         User user = mc.getUser();
-        return user == null ? "未知" : user.getName();
+        return user == null ? I18n.tr("未知") : user.getName();
     }
 
     /** 删除账号；若删除的是 active 账号则不改变当前会话，仅清除标记。 */

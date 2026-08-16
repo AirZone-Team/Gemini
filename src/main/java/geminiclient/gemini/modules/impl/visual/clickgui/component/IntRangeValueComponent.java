@@ -62,7 +62,7 @@ public class IntRangeValueComponent extends ValueComponent {
         ClassicTheme.drawRangeThumb(guiGraphics, maxHandleX, cy, isDraggingMax || hovered);
 
         // Label (left) + current range (right)
-        guiGraphics.text(mc.font, this.value.getName(), x + 7, y + 3, ClassicTheme.TEXT, true);
+        guiGraphics.text(mc.font, this.value.getDisplayName(), x + 7, y + 3, ClassicTheme.TEXT, true);
         String rangeText = rangeValue.getMinValue() + " / " + rangeValue.getMaxValue();
         guiGraphics.text(mc.font, rangeText, x + width - 7 - mc.font.width(rangeText), y + 3,
                 ClassicTheme.TEXT_DIM, true);

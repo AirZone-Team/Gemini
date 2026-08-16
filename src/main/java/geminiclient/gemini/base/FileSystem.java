@@ -56,6 +56,7 @@ public final class FileSystem {
     private static final String JSON_PARTICLES_ENABLED = "particlesEnabled";
     private static final String JSON_CURRENT_BACKGROUND_INDEX = "currentBackgroundIndex";
     private static final String JSON_SELECTED_BACKGROUND = "selectedBackground";
+    private static final String JSON_LANGUAGE = "language";
 
     private final ModuleManager moduleManager;
     private final Path configDirectory;
@@ -278,6 +279,7 @@ public final class FileSystem {
             customBackgroundEnabled = json.optBoolean(JSON_CUSTOM_BACKGROUND_ENABLED, false);
             particlesEnabled = json.optBoolean(JSON_PARTICLES_ENABLED, true);
             currentBackgroundIndex = json.optInt(JSON_CURRENT_BACKGROUND_INDEX, 0);
+            I18n.setLanguage(I18n.Language.fromCode(json.optString(JSON_LANGUAGE, "zh")));
 
             String selectedBackground = json.optString(JSON_SELECTED_BACKGROUND, "").trim();
             if (!selectedBackground.isEmpty()) {
@@ -297,7 +299,8 @@ public final class FileSystem {
         JSONObject json = new JSONObject()
                 .put(JSON_CUSTOM_BACKGROUND_ENABLED, customBackgroundEnabled)
                 .put(JSON_PARTICLES_ENABLED, particlesEnabled)
-                .put(JSON_CURRENT_BACKGROUND_INDEX, currentBackgroundIndex);
+                .put(JSON_CURRENT_BACKGROUND_INDEX, currentBackgroundIndex)
+                .put(JSON_LANGUAGE, I18n.getLanguage().code());
 
         Path current = getCustomBackgroundFile();
         if (current != null && customBackgroundFileExists()) {
@@ -332,6 +335,21 @@ public final class FileSystem {
 
     public void toggleParticles() {
         particlesEnabled = !particlesEnabled;
+        saveBackgroundConfig();
+    }
+
+    public I18n.Language getLanguage() {
+        return I18n.getLanguage();
+    }
+
+    public void setLanguage(I18n.Language language) {
+        I18n.setLanguage(language);
+        saveBackgroundConfig();
+    }
+
+    public void toggleLanguage() {
+        I18n.setLanguage(I18n.getLanguage() == I18n.Language.CHINESE
+                ? I18n.Language.ENGLISH : I18n.Language.CHINESE);
         saveBackgroundConfig();
     }
 

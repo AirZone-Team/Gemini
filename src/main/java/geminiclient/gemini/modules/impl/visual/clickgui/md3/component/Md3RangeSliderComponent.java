@@ -50,7 +50,7 @@ public abstract class Md3RangeSliderComponent extends Md3ValueComponent {
         var labelFont = Md3Fonts.label();
 
         // Label (left) + current range (right)
-        Md3Fonts.drawText(gui, bodyFont, value.getName(), x, y + 2, Md3Theme.ON_SURFACE);
+        Md3Fonts.drawText(gui, bodyFont, value.getDisplayName(), x, y + 2, Md3Theme.ON_SURFACE);
         String rangeText = formatRange();
         float vw = Md3Fonts.width(labelFont, rangeText);
         Md3Fonts.drawText(gui, labelFont, rangeText, x + width - vw, y + 4,

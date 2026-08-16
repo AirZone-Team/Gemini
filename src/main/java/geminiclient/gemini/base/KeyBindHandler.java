@@ -3,7 +3,10 @@ package geminiclient.gemini.base;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.events.impl.KeyInputEvent;
+import geminiclient.gemini.event.events.impl.MouseButtonInputEvent;
 import geminiclient.gemini.modules.Module;
+import geminiclient.gemini.utils.KeyUtils;
+import org.lwjgl.glfw.GLFW;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 
@@ -17,6 +20,28 @@ public class KeyBindHandler {
     @SuppressWarnings("unused")
     @EventTarget
     public void keyEvent(KeyInputEvent event) {
+        // 只在按下瞬间触发，忽略重复(REPEAT)与松开(RELEASE)，
+        // 避免按住 Shift 等键时每 180ms 反复切换模块
+        if (event.action() != GLFW.GLFW_PRESS) {
+            return;
+        }
+        checkBind(event.key());
+    }
+
+    @SuppressWarnings("unused")
+    @EventTarget
+    public void mouseEvent(MouseButtonInputEvent event) {
+        if (event.action() != GLFW.GLFW_PRESS) {
+            return;
+        }
+        checkBind(KeyUtils.mouseButtonToCode(event.button()));
+    }
+
+    /** 匹配并切换所有绑定了该键码（键盘码或鼠标负码）的模块。 */
+    private void checkBind(int code) {
+        if (code == 0) {
+            return;
+        }
         long currentTime = System.currentTimeMillis();
         final long MIN_INTERVAL_MS = 180;
         if (mc.gui.screen() != null || (currentTime - lastTriggerTime <= MIN_INTERVAL_MS)) {
@@ -24,7 +49,7 @@ public class KeyBindHandler {
         }
         boolean triggered = false;
         for (Module module : Gemini.moduleManager.getModules()) {
-            if (module.key == event.key()) {
+            if (module.key == code) {
                 module.toggle();
                 triggered = true;
             }

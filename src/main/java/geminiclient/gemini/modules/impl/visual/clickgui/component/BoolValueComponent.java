@@ -33,7 +33,7 @@ public class BoolValueComponent extends ValueComponent {
         ClassicTheme.drawRow(guiGraphics, x, y, width, height, hoverT);
 
         // ── Label ───────────────────────────────────────
-        guiGraphics.text(mc.font, boolValue.getName(), x + 7, y + 4, ClassicTheme.TEXT, true);
+        guiGraphics.text(mc.font, boolValue.getDisplayName(), x + 7, y + 4, ClassicTheme.TEXT, true);
 
         // ── iOS-style toggle ────────────────────────────
         int switchW = 26;

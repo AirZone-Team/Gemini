@@ -1,12 +1,14 @@
 package geminiclient.gemini.values.impl;
 
 
+import geminiclient.gemini.modules.impl.Mode;
 import geminiclient.gemini.values.ValueParent;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class ListValue extends ValueParent {
 
@@ -27,6 +29,22 @@ public class ListValue extends ValueParent {
     public ListValue(String name, String t, String[] list,Supplier<Boolean> visibility) {
         super(name, visibility);
         this.list = Arrays.asList(list);
+        this.setMode(t);
+    }
+
+    public ListValue(String name, String t, Mode[] list) {
+        super(name);
+        this.list = Arrays.stream(list)
+                .map(Mode::getName)
+                .collect(Collectors.toList());
+        this.setMode(t);
+    }
+
+    public ListValue(String name, String t, Mode[] list,Supplier<Boolean> visibility) {
+        super(name, visibility);
+        this.list = Arrays.stream(list)
+                .map(Mode::getName)
+                .collect(Collectors.toList());
         this.setMode(t);
     }
 

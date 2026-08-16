@@ -1,6 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.clickgui;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.base.MinecraftInstance;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.GlowRenderer;
@@ -11,6 +12,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.awt.Color;
 
 public class CategoryPanel implements MinecraftInstance {
@@ -184,7 +186,7 @@ public class CategoryPanel implements MinecraftInstance {
     }
 
     private void renderCategoryText(GuiGraphicsExtractor guiGraphics) {
-        String displayName = getFormattedCategoryName();
+        String displayName = I18n.category(category);
         int textWidth = mc.font.width(displayName);
         int textX = x + (width - textWidth) / 2;
         int textY = renderY + 8;
@@ -223,8 +225,11 @@ public class CategoryPanel implements MinecraftInstance {
      * Animation scaling is applied in renderPanel() to get animatedHeight.
      */
     private boolean matchesFilter(ModuleComponent comp) {
-        return filterText.isEmpty()
-                || comp.module.getName().toLowerCase().contains(filterText);
+        if (filterText.isEmpty()) return true;
+        String filter = filterText.toLowerCase(Locale.ROOT);
+        // 同时匹配英文原名与本地化显示名，保证中英文搜索都能命中
+        return comp.module.getName().toLowerCase(Locale.ROOT).contains(filter)
+                || I18n.module(comp.module.getName()).toLowerCase(Locale.ROOT).contains(filter);
     }
 
     private int getContentHeight() {
@@ -304,11 +309,5 @@ public class CategoryPanel implements MinecraftInstance {
     private boolean isMouseOverHeader(double mouseX, double mouseY) {
         return mouseX >= x && mouseX <= x + width &&
                 mouseY >= y && mouseY <= y + HEADER_HEIGHT;
-    }
-
-    private String getFormattedCategoryName() {
-        String name = category.name();
-        if (name.length() <= 1) return name;
-        return name.charAt(0) + name.substring(1).toLowerCase();
     }
 }

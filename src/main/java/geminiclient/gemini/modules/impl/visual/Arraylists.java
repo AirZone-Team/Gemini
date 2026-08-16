@@ -1,6 +1,7 @@
 package geminiclient.gemini.modules.impl.visual;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
@@ -338,7 +339,7 @@ public class Arraylists extends Module {
 
     /** Single source of truth for row text — used by sorting, measuring and drawing. */
     private String displayText(Module m) {
-        String base = changeCase(m.getName()) + getModuleTag(m);
+        String base = changeCase(I18n.module(m.getName())) + getModuleTag(m);
         return showIcons.enabled ? getModuleIcon(m.getName()) + " " + base : base;
     }
 
@@ -612,7 +613,7 @@ public class Arraylists extends Module {
         int modAlpha   = (int) (a.alpha * 255);
 
         String icon = showIcons.enabled ? getModuleIcon(m.getName()) : "";
-        String name = changeCase(m.getName());
+        String name = changeCase(I18n.module(m.getName()));
         String tag  = getModuleTag(m);
         String fullText = icon.isEmpty() ? name + tag : icon + " " + name + tag;
 
@@ -953,7 +954,7 @@ public class Arraylists extends Module {
         if (a == null || a.alpha < 0.01f) return;
 
         String icon = showIcons.enabled ? getModuleIcon(m.getName()) : "";
-        String name = changeCase(m.getName());
+        String name = changeCase(I18n.module(m.getName()));
         String tag  = getModuleTag(m);
 
         int textA = (int) (a.alpha * fontAlphaValue.getValue() * 255);

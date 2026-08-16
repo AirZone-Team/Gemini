@@ -11,18 +11,23 @@ import static geminiclient.gemini.base.MinecraftInstance.mc;
 import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
- * Lazy-loaded Google Sans {@link CustomFontRenderer.GlyphFont} holders for the
+ * Lazy-loaded MiSans {@link CustomFontRenderer.GlyphFont} holders for the
  * MD3 ClickGui. All MD3 text renders through the MSDF pipeline — never mc.font.
  *
  * <p>Holders are lazy because font loading needs the resource manager,
  * which is unavailable at class-load time.</p>
+ *
+ * <p>All faces derive from {@code MiSans-Bold.ttf}: it is the only MiSans
+ * weight bundled with the client and the only bundled font that carries CJK
+ * glyphs, so it backs every Latin size so Chinese text renders with matching
+ * metrics (full-width advance, larger line height).</p>
  */
 public final class Md3Fonts {
 
     private Md3Fonts() {
     }
 
-    private static final Identifier GOOGLE_SANS = getIdentifier("font/googlesans-regular.ttf");
+    private static final Identifier MI_SANS = getIdentifier("font/misans-bold.ttf");
 
     private static final float SIZE_DISPLAY = 22f;  // hero card headline
     private static final float SIZE_TITLE   = 12f;  // module/title medium
@@ -46,12 +51,12 @@ public final class Md3Fonts {
         try {
             return switch (which) {
                 case 0 -> display != null ? display : (display = CustomFontRenderer.loadFont(
-                        GOOGLE_SANS, SIZE_DISPLAY, Font.BOLD));
+                        MI_SANS, SIZE_DISPLAY, Font.BOLD));
                 case 1 -> title   != null ? title   : (title   = CustomFontRenderer.loadFont(
-                        GOOGLE_SANS, SIZE_TITLE, Font.BOLD));
-                case 2 -> body    != null ? body    : (body    = CustomFontRenderer.loadFont(GOOGLE_SANS, SIZE_BODY));
-                case 3 -> label   != null ? label   : (label   = CustomFontRenderer.loadFont(GOOGLE_SANS, SIZE_LABEL));
-                default -> search != null ? search : (search = CustomFontRenderer.loadFont(GOOGLE_SANS, SIZE_SEARCH));
+                        MI_SANS, SIZE_TITLE, Font.BOLD));
+                case 2 -> body    != null ? body    : (body    = CustomFontRenderer.loadFont(MI_SANS, SIZE_BODY));
+                case 3 -> label   != null ? label   : (label   = CustomFontRenderer.loadFont(MI_SANS, SIZE_LABEL));
+                default -> search != null ? search : (search = CustomFontRenderer.loadFont(MI_SANS, SIZE_SEARCH));
             };
         } catch (Throwable t) {
             return null;
@@ -74,6 +79,10 @@ public final class Md3Fonts {
      * callers must follow with {@code CustomFontRenderer.flushAllPages()} to
      * upload the pending atlas pages. Repeat calls are cheap — loaded faces
      * and rasterised glyphs are cached.
+     *
+     * <p>中文不在此预热：MSDF 生成约 17ms/字形，全量预热会让加载界面卡顿。
+     * 中文文字在首次绘制时惰性栅格化（缺失字形由 vanilla 字体兜底，不会
+     * 出现空白）。</p>
      */
     public static void warmup() {
         for (int which = 0; which <= 4; which++) {

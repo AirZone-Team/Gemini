@@ -126,7 +126,11 @@ configurations {
         canBeResolved = true
         transitive = false
     }
-    javaCvVideoClasses {
+    // The JavaCV/FFmpeg native + class stack, unpacked flat into the
+    // installable JAR. Nested jar-in-jar breaks JavaCPP's native resolution
+    // under NeoForge's modular classloader, so these are merged into the JAR
+    // root instead.
+    javaCvNatives {
         canBeConsumed = false
         canBeResolved = true
         transitive = false
@@ -143,18 +147,40 @@ dependencies {
     // Video-only JavaCV stack. Do not use javacv-platform: it also pulls OpenCV and
     // native binaries for every supported platform.
     implementation("org.bytedeco:javacv:${javacv_version}") { transitive = false }
-    javaCvVideoClasses("org.bytedeco:javacv:${javacv_version}") { transitive = false }
     implementation("org.bytedeco:javacpp:${javacv_version}") { transitive = false }
-    jarJar("org.bytedeco:javacpp:${javacv_version}") { transitive = false }
     implementation("org.bytedeco:javacpp:${javacv_version}:${videoNativeClassifier}") { transitive = false }
-    jarJar("org.bytedeco:javacpp:${javacv_version}:${videoNativeClassifier}") { transitive = false }
     implementation("org.bytedeco:ffmpeg:${ffmpeg_version}") { transitive = false }
-    jarJar("org.bytedeco:ffmpeg:${ffmpeg_version}") { transitive = false }
     implementation("org.bytedeco:ffmpeg:${ffmpeg_version}:${videoNativeClassifier}") { transitive = false }
-    jarJar("org.bytedeco:ffmpeg:${ffmpeg_version}:${videoNativeClassifier}") { transitive = false }
+
+    // Native + full JavaCV class stack for the installable JAR, unpacked flat
+    // (see installableJar). FFmpegFrameGrabber pulls in classes such as
+    // FFmpegLogCallback at runtime, so the complete javacv set must ship, not
+    // the slim video-subset used by the dev JAR.
+    javaCvNatives("org.bytedeco:javacpp:${javacv_version}") { transitive = false }
+    javaCvNatives("org.bytedeco:javacpp:${javacv_version}:${videoNativeClassifier}") { transitive = false }
+    javaCvNatives("org.bytedeco:ffmpeg:${ffmpeg_version}") { transitive = false }
+    javaCvNatives("org.bytedeco:ffmpeg:${ffmpeg_version}:${videoNativeClassifier}") { transitive = false }
+    javaCvNatives("org.bytedeco:javacv:${javacv_version}") { transitive = false }
 
     slangBuildkitRuntime "io.github.refux:slang-java:${slang_java_version}"
     slangBuildkitNatives "io.github.refux:slang-java-natives:${slang_java_version}:${slangNativeClassifierFor(System.getProperty('os.name'), System.getProperty('os.arch'), findProperty('slangNativeClassifier'))}"
+
+    // Unit tests for the pure-logic OSU4k core (parser + game state). Same
+    // JUnit BOM version the buildSrc plugin tests use, so it is already cached.
+    testImplementation platform("org.junit:junit-bom:6.0.3")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+// Enable JUnit 5 for the test source set. The `test` task stays out of the
+// `check`/`build` lifecycle so CI distribution verification is unaffected;
+// it can be invoked directly with `gradlew test`.
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+    }
 }
 
 // UserDev 7.1.38 provides `jarJar` as a Jar task and already wires it into
@@ -162,18 +188,16 @@ dependencies {
 // development JAR cannot be mistaken for the installable distribution.
 tasks.named('jar', Jar) {
     archiveClassifier = 'dev'
-    from({ zipTree(configurations.javaCvVideoClasses.singleFile) }) {
-        include 'org/bytedeco/javacv/Frame.class'
-        include 'org/bytedeco/javacv/Frame$*.class'
-        include 'org/bytedeco/javacv/FrameGrabber.class'
-        include 'org/bytedeco/javacv/FrameGrabber$*.class'
-        include 'org/bytedeco/javacv/FFmpegFrameGrabber.class'
-        include 'org/bytedeco/javacv/FFmpegFrameGrabber$*.class'
-    }
 }
 
 def installableJar = tasks.named('jarJar', JarJar) {
     archiveClassifier = 'installable'
+    // Unpack the JavaCV/FFmpeg native stack directly into the JAR root instead
+    // of nesting it under META-INF/jarjar/. JavaCPP's Loader resolves its
+    // classes and platform DLLs from plain JAR entries; a nested jar defeats
+    // that under the FML modular classloader and fails with
+    // NoClassDefFoundError on the avutil static initializer.
+    from({ project.configurations.javaCvNatives.collect { zipTree(it) } })
 }
 
 tasks.register('verifyDistribution', VerifyDistribution) {

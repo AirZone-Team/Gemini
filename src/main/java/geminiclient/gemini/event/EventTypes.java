@@ -8,6 +8,7 @@ import geminiclient.gemini.event.events.impl.EntityRemoveEvent;
 import geminiclient.gemini.event.events.impl.FrameEvent;
 import geminiclient.gemini.event.events.impl.KeyInputEvent;
 import geminiclient.gemini.event.events.impl.MotionEvent;
+import geminiclient.gemini.event.events.impl.MouseButtonInputEvent;
 import geminiclient.gemini.event.events.impl.MoveInputEvent;
 import geminiclient.gemini.event.events.impl.PacketEvent;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
@@ -32,6 +33,7 @@ public final class EventTypes {
     public static final EventType<EntityRemoveEvent> ENTITY_REMOVE = EventType.of(EntityRemoveEvent.class);
     public static final EventType<FrameEvent> FRAME = EventType.of(FrameEvent.class);
     public static final EventType<KeyInputEvent> KEY_INPUT = EventType.of(KeyInputEvent.class);
+    public static final EventType<MouseButtonInputEvent> MOUSE_BUTTON_INPUT = EventType.of(MouseButtonInputEvent.class);
     public static final EventType<MotionEvent> MOTION = EventType.of(MotionEvent.class);
     public static final EventType<MoveInputEvent> MOVE_INPUT = EventType.of(MoveInputEvent.class);
     public static final EventType<PacketEvent> PACKET = EventType.of(PacketEvent.class);

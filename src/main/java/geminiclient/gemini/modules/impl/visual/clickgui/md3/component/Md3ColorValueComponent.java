@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3.component;
 
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Anim;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Fonts;
@@ -35,7 +36,7 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
         boolean hovered = isHovered(mouseX, mouseY);
 
         drawHoverState(gui, mouseX, mouseY);
-        Md3Fonts.drawText(gui, bodyFont, colorValue.getName(), x,
+        Md3Fonts.drawText(gui, bodyFont, colorValue.getDisplayName(), x,
                 y + (height - lineHeight) / 2f, Md3Theme.ON_SURFACE);
 
         // Treat the swatch and value as one trailing action.
@@ -203,7 +204,7 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
 
         private void drawHeader(GuiGraphicsExtractor gui, int drawY) {
             var titleFont = Md3Fonts.title();
-            Md3Fonts.drawText(gui, titleFont, "Choose color", px + PAD, drawY + PAD,
+            Md3Fonts.drawText(gui, titleFont, I18n.tr("Choose color"), px + PAD, drawY + PAD,
                     Md3Theme.ON_SURFACE);
 
             int previewW = 38;
@@ -240,7 +241,7 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
         private void drawHueControl(GuiGraphicsExtractor gui, int lift) {
             var labelFont = Md3Fonts.label();
             float lineHeight = Md3Fonts.lineHeight(labelFont);
-            Md3Fonts.drawText(gui, labelFont, "Hue", svX(),
+            Md3Fonts.drawText(gui, labelFont, I18n.tr("Hue"), svX(),
                     hueLabelY() + lift + (LABEL_H - lineHeight) / 2f,
                     Md3Theme.ON_SURFACE_VARIANT);
 
@@ -268,7 +269,7 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
         private void drawAlphaControl(GuiGraphicsExtractor gui, int lift) {
             var labelFont = Md3Fonts.label();
             float lineHeight = Md3Fonts.lineHeight(labelFont);
-            String opacity = "Opacity  " + Math.round(alpha * 100f) + "%";
+            String opacity = I18n.tr("Opacity") + "  " + Math.round(alpha * 100f) + "%";
             Md3Fonts.drawText(gui, labelFont, opacity, svX(),
                     alphaLabelY() + lift + (LABEL_H - lineHeight) / 2f,
                     Md3Theme.ON_SURFACE_VARIANT);
@@ -291,7 +292,7 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
                                       int mouseY, int lift) {
             var labelFont = Md3Fonts.label();
             float lineHeight = Md3Fonts.lineHeight(labelFont);
-            Md3Fonts.drawText(gui, labelFont, "Material colors", svX(),
+            Md3Fonts.drawText(gui, labelFont, I18n.tr("Material colors"), svX(),
                     swatchLabelY() + lift + (LABEL_H - lineHeight) / 2f,
                     Md3Theme.ON_SURFACE_VARIANT);
 
@@ -348,8 +349,9 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
                         doneW, FOOTER_H, Md3Theme.R_FULL,
                         Md3Theme.hoverState(Md3Theme.ON_PRIMARY));
             }
-            float textWidth = Md3Fonts.width(labelFont, "Done");
-            Md3Fonts.drawText(gui, labelFont, "Done",
+            String doneText = I18n.tr("Done");
+            float textWidth = Md3Fonts.width(labelFont, doneText);
+            Md3Fonts.drawText(gui, labelFont, doneText,
                     doneX + (doneW - textWidth) / 2f,
                     y + (FOOTER_H - lineHeight) / 2f,
                     Md3Theme.ON_PRIMARY);

@@ -79,12 +79,15 @@ public class MainMenuScreen extends Screen {
     // ========================
     // Fonts
     // ========================
+    // 全部面取自 MiSans-Bold：这是资源中唯一一个既含完整中文字形、又带
+    // 标题磅值(MiSans 的 UI 面板风格)的 MiSans 文件。Source Han Sans 子集
+    // 文件不含 CJK，无法渲染中文，因此不再使用。
     private static final Identifier FONT_BOLD =
-            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-bold.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
     private static final Identifier FONT_MEDIUM =
-            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-medium.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
     private static final Identifier FONT_LIGHT =
-            Identifier.fromNamespaceAndPath("gemini", "font/sourcehansanssc-light.ttf");
+            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
 
     private static final float TITLE_FONT_SIZE     = 48f;
     private static final float SUBTITLE_FONT_SIZE  = 16f;
@@ -111,6 +114,44 @@ public class MainMenuScreen extends Screen {
             navFont = CustomFontRenderer.loadFont(FONT_MEDIUM, NAV_FONT_SIZE);
         if (versionFont == null)
             versionFont = CustomFontRenderer.loadFont(FONT_LIGHT, VERSION_FONT_SIZE);
+    }
+
+    /**
+     * 预热主菜单字体，由 {@code UiShaderWarmup} 在加载界面调用，避免首次进入
+     * 主菜单时渲染线程现场生成 MSDF。调用方需随后执行
+     * {@code CustomFontRenderer.flushAllPages()} 上传图集页。
+     *
+     * <p>预热范围刻意受限：全部面预热 ASCII；仅展示中文的三个面
+     * （副标题/菜单/版本号）额外预热主菜单可见的中文（约 20 余字）。
+     * 标题面保持英文排版，导航面仅英文，均无需中文。MSDF 生成成本约
+     * 17ms/字形（96px em），控制在这个范围加载界面不会明显卡顿。</p>
+     */
+    public static void warmup() {
+        try {
+            ensureFontsLoaded();
+            String warmupCjk = I18n.warmupText();
+            warmupAsciiAnd(titleFont, "GEMINI");
+            warmupAsciiAnd(subtitleFont, warmupCjk);
+            warmupAsciiAnd(menuFont, warmupCjk);
+            warmupAsciiAnd(navFont, "GithubDiscord   ·   ");
+            warmupAsciiAnd(versionFont, warmupCjk + "GEMINI↑↓EnterOpen·");
+        } catch (Throwable t) {
+            // 预热失败不影响运行：字形仍会惰性栅格化。
+        }
+    }
+
+    private static void warmupAsciiAnd(GlyphFont face, String extraText) {
+        if (face == null) {
+            return;
+        }
+        for (int cp = 0x20; cp <= 0x7E; cp++) {
+            face.getGlyph(cp);
+        }
+        for (int i = 0; i < extraText.length(); ) {
+            int cp = extraText.codePointAt(i);
+            face.getGlyph(cp);
+            i += Character.charCount(cp);
+        }
     }
 
     // ========================
@@ -161,7 +202,8 @@ public class MainMenuScreen extends Screen {
             boolean showSubtitle, boolean showAtmosphere, boolean showNavigation,
             boolean showFooter, boolean showHints,
             int bgToggleX, int bgToggleY, int bgToggleW, int bgToggleH,
-            int bgCycleX, int bgCycleY, int bgCycleW, int bgCycleH) {
+            int bgCycleX, int bgCycleY, int bgCycleW, int bgCycleH,
+            int bgLangX, int bgLangY, int bgLangW, int bgLangH) {
 
         float menuY(int index) {
             return menuStartY + index * menuSpacing;
@@ -192,6 +234,7 @@ public class MainMenuScreen extends Screen {
     // Background toggle hover
     private float bgToggleHover;
     private float bgCycleHover;
+    private float bgLangHover;
 
     // Mouse parallax effect
     private float mouseX = 0;
@@ -234,15 +277,15 @@ public class MainMenuScreen extends Screen {
         }
 
         menuItems.clear();
-        menuItems.add(new MenuItem("Singleplayer",
+        menuItems.add(new MenuItem(I18n.tr("Singleplayer"),
                 () -> this.minecraft.gui.setScreen(new SelectWorldScreen(this))));
-        menuItems.add(new MenuItem("Multiplayer",
+        menuItems.add(new MenuItem(I18n.tr("Multiplayer"),
                 () -> this.minecraft.gui.setScreen(new JoinMultiplayerScreen(this))));
-        menuItems.add(new MenuItem("Settings",
+        menuItems.add(new MenuItem(I18n.tr("Settings"),
                 () -> this.minecraft.gui.setScreen(new OptionsScreen(this, this.minecraft.options, false))));
-        menuItems.add(new MenuItem("Alt Manager",
+        menuItems.add(new MenuItem(I18n.tr("Alt Manager"),
                 () -> this.minecraft.gui.setScreen(new AltManagerScreen(this))));
-        menuItems.add(new MenuItem("Exit",
+        menuItems.add(new MenuItem(I18n.tr("Exit"),
                 this.minecraft::stop));
 
         if (hoverProgress == null || hoverProgress.length != menuItems.size()) {
@@ -297,6 +340,7 @@ public class MainMenuScreen extends Screen {
         updateNavHover(layout, mouseX, mouseY, dt);
         updateBgToggleHover(layout, mouseX, mouseY, dt);
         updateBgCycleHover(layout, mouseX, mouseY, dt);
+        updateBgLangHover(layout, mouseX, mouseY, dt);
 
         // ── 3. Readability scrim + ambient lighting ──────
         drawLeftScrim(gui, layout);
@@ -321,6 +365,9 @@ public class MainMenuScreen extends Screen {
         // ── 8.5. Background Cycle Button ───────────────────
         drawBackgroundCycle(gui, layout, elapsed);
 
+        // ── 8.6. Language Switch Button ────────────────────
+        drawBackgroundLanguage(gui, layout, elapsed);
+
         // ── 9. Footer ──────────────────────────────────────
         drawFooter(gui, layout, elapsed);
     }
@@ -328,9 +375,9 @@ public class MainMenuScreen extends Screen {
     private Layout layout() {
         ensureFontsLoaded();
 
-        float githubW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, "Github");
+        float githubW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, I18n.tr("Github"));
         float separatorW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, "   ·   ");
-        float discordW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, "Discord");
+        float discordW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, I18n.tr("Discord"));
         float navW = githubW + separatorW + discordW;
         float navRight = Math.min(NAV_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f));
         float navStartX = Math.max(MIN_EDGE_PAD, this.width - navRight - navW);
@@ -389,7 +436,7 @@ public class MainMenuScreen extends Screen {
         float menuSpacing = Math.clamp(availableSpacing, 18f, MENU_SPACING);
         float menuStartY = desiredMenuY;
 
-        String line1 = "Gemini Client";
+        String line1 = I18n.tr("Gemini Client");
         String line2 = "v" + MOD_VERSION;
         float w1 = versionFont == null ? 0f : CustomFontRenderer.stringWidth(versionFont, line1);
         float w2 = versionFont == null ? 0f : CustomFontRenderer.stringWidth(versionFont, line2);
@@ -409,6 +456,12 @@ public class MainMenuScreen extends Screen {
         int bgCycleX = bgToggleX - bgCycleW - 6; // 6px gap
         int bgCycleY = bgToggleY;
 
+        // Language switch button (left of cycle button)
+        int bgLangW = 28;
+        int bgLangH = 28;
+        int bgLangX = bgCycleX - bgLangW - 6;
+        int bgLangY = bgToggleY;
+
         return new Layout(
                 titleText, menuX, titleY, titleWidth, titleSpacing,
                 titleY + TITLE_FONT_SIZE + 10f,
@@ -421,7 +474,8 @@ public class MainMenuScreen extends Screen {
                 Math.round(menuX + rowW + 96f),
                 showSubtitle, showAtmosphere, showNavigation, showFooter, showHints,
                 bgToggleX, bgToggleY, bgToggleW, bgToggleH,
-                bgCycleX, bgCycleY, bgCycleW, bgCycleH);
+                bgCycleX, bgCycleY, bgCycleW, bgCycleH,
+                bgLangX, bgLangY, bgLangW, bgLangH);
     }
 
     private void drawAtmosphere(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
@@ -490,6 +544,11 @@ public class MainMenuScreen extends Screen {
     private void updateBgCycleHover(Layout layout, int mouseX, int mouseY, float dt) {
         boolean overCycle = isBgCycleHover(layout, mouseX, mouseY);
         bgCycleHover += ((overCycle ? 1f : 0f) - bgCycleHover) * dt * HOVER_SPEED;
+    }
+
+    private void updateBgLangHover(Layout layout, int mouseX, int mouseY, float dt) {
+        boolean overLang = isBgLangHover(layout, mouseX, mouseY);
+        bgLangHover += ((overLang ? 1f : 0f) - bgLangHover) * dt * HOVER_SPEED;
     }
 
     // ========================
@@ -561,7 +620,7 @@ public class MainMenuScreen extends Screen {
         ensureFontsLoaded();
         if (subtitleFont == null) return;
 
-        String subtitle = "Modern Minecraft Client";
+        String subtitle = I18n.tr("Modern Minecraft Client");
         float subX = layout.menuX;
         float subY = layout.subtitleY;
 
@@ -622,12 +681,13 @@ public class MainMenuScreen extends Screen {
                         3, Math.max(2, (int) barH), 1, barColor);
             }
 
-            // Label text: slides right on hover
+            // Label text: centered within the hover card, slides right on hover
             int idleColor = (alpha << 24) | (TEXT_IDLE & 0x00FFFFFF);
             int hoverColor = (alpha << 24) | (TEXT_HOVER & 0x00FFFFFF);
             int textColor = lerpColor(idleColor, hoverColor, hp);
 
-            float textX = layout.menuX + 4f + slideIn + hp * HOVER_SLIDE_PX;
+            float labelW = CustomFontRenderer.stringWidth(menuFont, item.label);
+            float textX = layout.rowX + (layout.rowW - labelW) / 2f + slideIn + hp * HOVER_SLIDE_PX;
             CustomFontRenderer.drawString(gui, menuFont, item.label, textX, y, textColor);
         }
     }
@@ -644,8 +704,8 @@ public class MainMenuScreen extends Screen {
 
         float navY = layout.navY;
 
-        String githubText = "Github";
-        String discordText = "Discord";
+        String githubText = I18n.tr("Github");
+        String discordText = I18n.tr("Discord");
         String separator = "   ·   ";
 
         float githubW = layout.githubW;
@@ -712,7 +772,7 @@ public class MainMenuScreen extends Screen {
         if (alpha <= 0) return;
 
         // ── Right: client name + version ──
-        String line1 = "Gemini Client";
+        String line1 = I18n.tr("Gemini Client");
         String line2 = "v" + MOD_VERSION;
 
         float x1 = layout.footerNameX;
@@ -731,7 +791,7 @@ public class MainMenuScreen extends Screen {
         CustomFontRenderer.drawString(gui, versionFont, line2, x2, y2, color);
 
         if (layout.showHints) {
-            String hints = "↑↓  Select    Enter  Open";
+            String hints = I18n.tr("↑↓  Select    Enter  Open");
             int hintColor = (int) (alpha * 0.58f) << 24 | (HINT_COLOR & 0x00FFFFFF);
             CustomFontRenderer.drawString(gui, versionFont, hints, layout.hintsX, y2, hintColor);
         }
@@ -1077,6 +1137,46 @@ public class MainMenuScreen extends Screen {
     }
 
     // ========================
+    // Language Switch Button
+    // ========================
+
+    private void drawBackgroundLanguage(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+        ensureFontsLoaded();
+        if (versionFont == null) return;
+        if (fileSystem == null) return;
+
+        float reveal = easeOutCubic(clamp01((elapsed - 0.65f) * 3f));
+        int alpha = (int) (entryAlpha * reveal * 255);
+        if (alpha <= 0) return;
+
+        int x = layout.bgLangX;
+        int y = layout.bgLangY;
+        int w = layout.bgLangW;
+        int h = layout.bgLangH;
+
+        // Button background with hover effect (ghost style: fill + hairline only)
+        float hoverScale = 1f + bgLangHover * 0.08f;
+        int hoverW = (int) (w * hoverScale);
+        int hoverH = (int) (h * hoverScale);
+        int hoverX = x - (hoverW - w) / 2;
+        int hoverY = y - (hoverH - h) / 2;
+
+        int bgFill = scaleAlpha(0x581B2936, reveal);
+        int bgOutline = scaleAlpha(0x4489DDFF, reveal);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
+
+        // Icon: 当前语言标签（中 / EN），宽度随语言自适应
+        String iconText = I18n.getLanguage().label();
+        float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
+        float iconX = x + (w - iconW) / 2f;
+        float iconY = y + (h - VERSION_FONT_SIZE) / 2f;
+
+        int iconColor = scaleAlpha(ACCENT, entryAlpha * reveal);
+        CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);
+    }
+
+    // ========================
     // Input
     // ========================
 
@@ -1108,6 +1208,17 @@ public class MainMenuScreen extends Screen {
                 // Open background selector screen
                 this.minecraft.gui.setScreen(new BackgroundSelectorScreen(this));
             }
+            return true;
+        }
+
+        // Language switch button (中/EN)
+        if (isBgLangHover(layout, mouse.x(), mouse.y())) {
+            if (fileSystem != null) {
+                fileSystem.toggleLanguage();
+            }
+            // 重建本地化后的菜单项与标题
+            firstInit = true;
+            init();
             return true;
         }
 
@@ -1231,6 +1342,11 @@ public class MainMenuScreen extends Screen {
     private boolean isBgCycleHover(Layout layout, double mx, double my) {
         return mx >= layout.bgCycleX && mx <= layout.bgCycleX + layout.bgCycleW
                 && my >= layout.bgCycleY && my <= layout.bgCycleY + layout.bgCycleH;
+    }
+
+    private boolean isBgLangHover(Layout layout, double mx, double my) {
+        return mx >= layout.bgLangX && mx <= layout.bgLangX + layout.bgLangW
+                && my >= layout.bgLangY && my <= layout.bgLangY + layout.bgLangH;
     }
 
     // ========================

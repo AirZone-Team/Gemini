@@ -36,7 +36,7 @@ public class FloatValueComponent extends ValueComponent {
         ClassicTheme.drawRow(guiGraphics, x, y, width, height, hoverT);
 
         // Label (left) + current value (right)
-        guiGraphics.text(mc.font, floatValue.getName(), x + 7, y + 3, ClassicTheme.TEXT, true);
+        guiGraphics.text(mc.font, floatValue.getDisplayName(), x + 7, y + 3, ClassicTheme.TEXT, true);
         String valueText = decimalFormat.format(floatValue.getValue());
         guiGraphics.text(mc.font, valueText, x + width - 7 - mc.font.width(valueText), y + 3,
                 ClassicTheme.TEXT_DIM, true);

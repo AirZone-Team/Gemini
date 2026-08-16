@@ -6,6 +6,7 @@ import geminiclient.gemini.event.events.impl.UpdateEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.modules.impl.Mode;
+import geminiclient.gemini.modules.impl.combat.velocity.Fall00;
 import geminiclient.gemini.modules.impl.combat.velocity.Heypixel;
 import geminiclient.gemini.modules.impl.combat.velocity.Packet;
 import geminiclient.gemini.values.impl.*;
@@ -16,7 +17,7 @@ import java.util.List;
 
 public class Velocity extends Module {
     List<Mode> modeList = new ArrayList<>();
-    private final ListValue modes = new ListValue("Modes","Packet",new String[]{"Packet","Heypixel"});
+    private final ListValue modes = new ListValue("Modes","Packet",new String[]{"Packet","Heypixel","NoFall00"});
 
     public IntValue getAttackAmount() {
         return attackAmount;
@@ -28,6 +29,7 @@ public class Velocity extends Module {
         addValue(modes);
         modeList.add(new Packet());
         modeList.add(new Heypixel());
+        modeList.add(new Fall00());
     }
 
     @Override

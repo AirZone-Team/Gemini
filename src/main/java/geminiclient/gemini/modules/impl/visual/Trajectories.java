@@ -428,56 +428,71 @@ public final class Trajectories extends Module {
         }
     }
 
+    /**
+     * Ballistics modeled after the vanilla projectile source for this MC version.
+     * Modern MC shots go through {@code Projectile#shootFromRotation}, which folds the
+     * shooter's own movement vector into the initial velocity, and each projectile
+     * class applies gravity and drag in a different per-tick order:
+     * <ul>
+     *     <li>{@code ThrowableProjectile} - gravity, then inertia (drag).</li>
+     *     <li>{@code AbstractArrow} - moves by the current velocity, then inertia, then gravity.</li>
+     *     <li>{@code FishingHook} - casts from the eye with its own spread, no inherited velocity.</li>
+     * </ul>
+     */
     private TrajectoryResult calculateTrajectory(LivingEntity entity, float partialTick) {
         ItemStack heldStack = entity.isUsingItem() ? entity.getUseItem() : entity.getMainHandItem();
         if (heldStack.isEmpty()) heldStack = entity.getOffhandItem();
         if (heldStack.isEmpty()) return null;
 
         Item item = heldStack.getItem();
-        boolean directAim = false;
-        float motionFactor = 1.5f;
-        float motionSlowdown = 0.99f;
-        float gravity;
-        float size;
+
+        float pow = 1.5f;
+        float gravity = 0.03f;
+        float airDrag = 0.99f;
+        float waterDrag = 0.8f;
         float pitchOffset = 0.0f;
+        float size = 0.25f;
+        boolean fishingRod = false;
+        boolean arrowPhysics = false;
 
         if (item instanceof BowItem) {
             if (!predictBows.enabled || !entity.isUsingItem()) return null;
-            directAim = true;
+            float power = entity instanceof Player
+                    ? BowItem.getPowerForTime(entity.getTicksUsingItem())
+                    : 1.0f;
+            if (power < 0.1f) return null;
+            pow = power * 3.0f;
             gravity = 0.05f;
             size = 0.3f;
-            if (entity instanceof Player) {
-                float power = entity.getTicksUsingItem() / 20.0f;
-                power = (power * power + power * 2.0f) / 3.0f;
-                if (power < 0.1f) return null;
-                motionFactor = Math.min(power, 1.0f) * 3.0f;
-            } else {
-                motionFactor = 3.0f;
-            }
+            arrowPhysics = true;
         } else if (item instanceof TridentItem) {
             if (!predictTridents.enabled || !entity.isUsingItem()
-                    || entity.getTicksUsingItem() < 10) return null;
-            directAim = true;
+                    || entity.getTicksUsingItem() < TridentItem.THROW_THRESHOLD_TIME) return null;
+            pow = TridentItem.PROJECTILE_SHOOT_POWER;
             gravity = 0.05f;
+            waterDrag = 0.99f; // ThrownTrident cuts through water almost undamped
             size = 0.3f;
-            motionFactor = 2.5f;
+            arrowPhysics = true;
         } else if (item instanceof FishingRodItem) {
             if (!predictRods.enabled) return null;
-            gravity = 0.04f;
+            fishingRod = true;
+            gravity = 0.03f;
+            airDrag = 0.92f;
             size = 0.25f;
-            motionSlowdown = 0.92f;
         } else if (item instanceof ThrowablePotionItem) {
             if (!predictPotions.enabled) return null;
+            pow = ThrowablePotionItem.PROJECTILE_SHOOT_POWER;
+            pitchOffset = -20.0f;
             gravity = 0.05f;
             size = 0.25f;
-            motionFactor = 0.5f;
-            pitchOffset = -20.0f;
         } else if (item instanceof EnderpearlItem) {
             if (!predictPearls.enabled) return null;
+            pow = EnderpearlItem.PROJECTILE_SHOOT_POWER;
             gravity = 0.03f;
             size = 0.25f;
         } else if (item instanceof SnowballItem || item instanceof EggItem) {
             if (!predictThrowables.enabled) return null;
+            pow = SnowballItem.PROJECTILE_SHOOT_POWER;
             gravity = 0.03f;
             size = 0.25f;
         } else {
@@ -493,19 +508,47 @@ public final class Trajectories extends Module {
         double pitchRad = Math.toRadians(pitch + pitchOffset);
         Vec3 base = entity.getPosition(partialTick);
 
-        double posX = base.x - Math.cos(yawRad) * 0.16;
-        double posY = base.y + entity.getEyeHeight() - 0.1;
-        double posZ = base.z - Math.sin(yawRad) * 0.16;
-        double aimScale = directAim ? 1.0 : 0.4;
-        double motionX = -Math.sin(yawRad) * Math.cos(pitchRad) * aimScale;
-        double motionY = -Math.sin(pitchRad) * aimScale;
-        double motionZ = Math.cos(yawRad) * Math.cos(pitchRad) * aimScale;
-        double distance = Math.sqrt(motionX * motionX + motionY * motionY + motionZ * motionZ);
-        if (distance < 1.0e-7) return null;
+        double posX;
+        double posY;
+        double posZ;
+        double motionX;
+        double motionY;
+        double motionZ;
 
-        motionX = motionX / distance * motionFactor;
-        motionY = motionY / distance * motionFactor;
-        motionZ = motionZ / distance * motionFactor;
+        if (fishingRod) {
+            // FishingHook is constructed with its own hand-cast spread and never
+            // inherits the shooter's velocity, unlike the shootFromRotation items.
+            posX = base.x - Math.sin(yawRad) * 0.3;
+            posY = base.y + entity.getEyeHeight();
+            posZ = base.z + Math.cos(yawRad) * 0.3;
+            double rodY = Math.max(-5.0, Math.min(5.0, -Math.tan(Math.toRadians(pitch))));
+            double rodDist = Math.sqrt(Math.sin(yawRad) * Math.sin(yawRad)
+                    + rodY * rodY + Math.cos(yawRad) * Math.cos(yawRad));
+            double rodScale = 0.6 / rodDist;
+            motionX = -Math.sin(yawRad) * rodScale;
+            motionY = rodY * rodScale;
+            motionZ = Math.cos(yawRad) * rodScale;
+        } else {
+            // Projectile#shootFromRotation: the item's shoot power along the look
+            // direction, plus the shooter's own movement vector on top.
+            posX = base.x;
+            posY = base.y + entity.getEyeHeight() - 0.1;
+            posZ = base.z;
+            motionX = -Math.sin(yawRad) * Math.cos(pitchRad);
+            motionY = -Math.sin(pitchRad);
+            motionZ = Math.cos(yawRad) * Math.cos(pitchRad);
+            double distance = Math.sqrt(motionX * motionX + motionY * motionY + motionZ * motionZ);
+            if (distance < 1.0e-7) return null;
+
+            motionX = motionX / distance * pow;
+            motionY = motionY / distance * pow;
+            motionZ = motionZ / distance * pow;
+
+            Vec3 shooterVelocity = entity.getKnownMovement();
+            motionX += shooterVelocity.x;
+            motionY += entity.onGround() ? 0.0 : shooterVelocity.y;
+            motionZ += shooterVelocity.z;
+        }
 
         List<Vec3> points = new ArrayList<>();
         Vec3 landingPos = null;
@@ -514,6 +557,27 @@ public final class Trajectories extends Module {
         int maxSteps = simulationSteps.getValue();
 
         while (!landed && posY > mc.level.getMinY() - 8.0 && points.size() < maxSteps) {
+            if (fishingRod) {
+                // FishingHook#tick: landing in water switches the bobber to bobbing,
+                // so the guide ends there. Otherwise gravity, then 0.92 inertia.
+                if (isInWater(posX, posY, posZ)) {
+                    landed = true;
+                    landingPos = new Vec3(posX, posY, posZ);
+                    break;
+                }
+                motionY -= gravity;
+                motionX *= airDrag;
+                motionY *= airDrag;
+                motionZ *= airDrag;
+            } else if (!arrowPhysics) {
+                // ThrowableProjectile#tick: gravity first, then inertia.
+                motionY -= gravity;
+                double drag = isInWater(posX, posY, posZ) ? waterDrag : airDrag;
+                motionX *= drag;
+                motionY *= drag;
+                motionZ *= drag;
+            }
+
             Vec3 before = new Vec3(posX, posY, posZ);
             Vec3 after = new Vec3(posX + motionX, posY + motionY, posZ + motionZ);
             points.add(before);
@@ -551,16 +615,16 @@ public final class Trajectories extends Module {
             posX = after.x;
             posY = after.y;
             posZ = after.z;
-            if (mc.level.getFluidState(BlockPos.containing(posX, posY, posZ)).is(Fluids.WATER)) {
-                motionX *= 0.6;
-                motionY *= 0.6;
-                motionZ *= 0.6;
-            } else {
-                motionX *= motionSlowdown;
-                motionY *= motionSlowdown;
-                motionZ *= motionSlowdown;
+
+            if (arrowPhysics) {
+                // AbstractArrow#tick: inertia (water cancels the air drag for
+                // arrows/trident), then gravity on top.
+                double drag = isInWater(posX, posY, posZ) ? waterDrag : airDrag;
+                motionX *= drag;
+                motionY *= drag;
+                motionZ *= drag;
+                motionY -= gravity;
             }
-            motionY -= gravity;
         }
 
         if (!landed) {
@@ -571,6 +635,11 @@ public final class Trajectories extends Module {
         }
 
         return points.size() >= 2 ? new TrajectoryResult(points, landingPos, hitEntity) : null;
+    }
+
+    private boolean isInWater(double x, double y, double z) {
+        return mc.level != null
+                && mc.level.getFluidState(BlockPos.containing(x, y, z)).is(Fluids.WATER);
     }
 
     private ProjectileKind classifyProjectile(Entity entity) {

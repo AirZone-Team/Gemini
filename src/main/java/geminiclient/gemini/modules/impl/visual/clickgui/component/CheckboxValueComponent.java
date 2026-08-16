@@ -63,7 +63,7 @@ public class CheckboxValueComponent extends ValueComponent {
 
         ClassicTheme.drawRow(guiGraphics, x, y, width, height, hoverT);
 
-        guiGraphics.text(mc.font, checkboxValue.getName(), x + 7, y + 4, ClassicTheme.TEXT, true);
+        guiGraphics.text(mc.font, checkboxValue.getDisplayName(), x + 7, y + 4, ClassicTheme.TEXT, true);
 
         // Chevron mirrors the expanded state, violet while open/hovered
         String chevron = isExpanded ? "▼" : "▶";

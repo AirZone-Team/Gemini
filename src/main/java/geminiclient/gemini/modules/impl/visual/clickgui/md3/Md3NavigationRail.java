@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3;
 
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.ModuleEnum;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -104,7 +105,7 @@ public class Md3NavigationRail {
                 Md3Theme.withAlpha(Md3Theme.OUTLINE_VARIANT, 0.55f));
 
         var labelFont = Md3Fonts.label();
-        String browse = "BROWSE";
+        String browse = I18n.tr("BROWSE");
         float browseWidth = Md3Fonts.width(labelFont, browse);
         Md3Fonts.drawText(gui, labelFont, browse, x + (WIDTH - browseWidth) / 2f,
                 y + 9, Md3Theme.ON_SURFACE_VARIANT);
@@ -177,15 +178,14 @@ public class Md3NavigationRail {
     private record CategoryDestination(ModuleEnum category) implements Destination {
         @Override
         public String getLabel() {
-            String name = category.name();
-            return name.charAt(0) + name.substring(1).toLowerCase();
+            return I18n.category(category);
         }
     }
 
     private static final class FavoritesDestination implements Destination {
         @Override
         public String getLabel() {
-            return "Favorites";
+            return I18n.tr("Favorites");
         }
     }
 }

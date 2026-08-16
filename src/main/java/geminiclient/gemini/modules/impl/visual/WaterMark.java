@@ -1,6 +1,7 @@
 package geminiclient.gemini.modules.impl.visual;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.event.annotations.EventTarget;
@@ -14,7 +15,6 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 public class WaterMark extends Module {
     private static final String CLIENT_NAME = "Gemini";
-    private static final String SUPPORTING_TEXT = "CLIENT HUD";
 
     private static final int HEIGHT = 34;
     private static final int PADDING = 6;
@@ -54,7 +54,7 @@ public class WaterMark extends Module {
         CustomFontRenderer.GlyphFont labelFont = Md3Fonts.label();
         Md3Fonts.drawText(g, titleFont, CLIENT_NAME,
                 layout.brandTextX(), layout.titleY(), Md3Theme.ON_SURFACE);
-        Md3Fonts.drawText(g, labelFont, SUPPORTING_TEXT,
+        Md3Fonts.drawText(g, labelFont, I18n.tr("CLIENT HUD"),
                 layout.brandTextX(), layout.supportingY(), Md3Theme.ON_SURFACE_VARIANT);
 
         Gemini.hudDragManager.registerDragRegion(this, hudX, hudY, layout.width(), HEIGHT);
@@ -78,7 +78,7 @@ public class WaterMark extends Module {
         int brandTextX = hudX + PADDING + BRAND_ICON_SIZE + ICON_TEXT_GAP;
         int brandTextWidth = (int) Math.ceil(Math.max(
                 Md3Fonts.width(titleFont, CLIENT_NAME),
-                Md3Fonts.width(labelFont, SUPPORTING_TEXT)));
+                Md3Fonts.width(labelFont, I18n.tr("CLIENT HUD"))));
 
         int width = brandTextX + brandTextWidth + PADDING - hudX;
 

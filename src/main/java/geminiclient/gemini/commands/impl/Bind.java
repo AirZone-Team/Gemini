@@ -4,8 +4,7 @@ import geminiclient.gemini.Gemini;
 import geminiclient.gemini.commands.Command;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.utils.ClientUtils;
-
-import java.awt.event.KeyEvent;
+import geminiclient.gemini.utils.KeyUtils;
 
 public class Bind extends Command {
     public Bind() {
@@ -24,38 +23,17 @@ public class Bind extends Command {
 
         for (Module module : Gemini.moduleManager.getModules()) {
             if (args[1].equalsIgnoreCase(module.getName())) {
-                if (args[2].length() == 1) {
-                    int key = getKeyCodeFromCharString(args[2]);
-                    if (key == KeyEvent.VK_SPACE || key == KeyEvent.VK_UNDEFINED) {
-                        ClientUtils.addChatMessage("Error");
-                        return;
-                    }
-                    module.key = key;
-                    Gemini.fileSystem.saveConfig();
-                    ClientUtils.addChatMessage(module.getName() + "'s key is " + key);
-                } else {
-                    ClientUtils.addChatMessage("The input value can only be one");
+                // 支持命名键：LSHIFT/RSHIFT、方向键、F1-F24、MOUSE1-8、NONE 等
+                int key = KeyUtils.getKeyCode(args[2]);
+                if (key == KeyUtils.UNDEFINED) {
+                    ClientUtils.addChatMessage("Error");
+                    return;
                 }
+                module.key = key;
+                Gemini.fileSystem.saveConfig();
+                ClientUtils.addChatMessage(module.getName() + "'s key is " + KeyUtils.getKeyName(key));
                 return;
             }
         }
-    }
-
-    public static int getKeyCodeFromCharString(String keyString) {
-        if (keyString == null || keyString.length() != 1) {
-            return KeyEvent.VK_UNDEFINED;
-        }
-
-        char keyChar = keyString.toUpperCase().charAt(0);
-
-        if (keyChar >= 'A' && keyChar <= 'Z' || keyChar >= '0' && keyChar <= '9') {
-            return keyChar;
-        }
-
-        if (keyChar == ' ') {
-            return KeyEvent.VK_SPACE;
-        }
-
-        return KeyEvent.VK_UNDEFINED;
     }
 }

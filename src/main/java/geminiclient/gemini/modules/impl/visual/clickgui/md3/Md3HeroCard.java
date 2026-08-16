@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3;
 
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.ModuleEnum;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -35,18 +36,17 @@ public class Md3HeroCard {
             int[] gradient = Md3Theme.heroGradient(category);
             CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui, x, y, width, height,
                     Md3Theme.R_LARGE, gradient[0], gradient[1]);
-            String name = category.name();
-            titleText = name.charAt(0) + name.substring(1).toLowerCase();
+            titleText = I18n.category(category);
             accent = Md3Theme.categoryAccent(category);
         } else if (favoritesView) {
             CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui, x, y, width, height,
                     Md3Theme.R_LARGE, Md3Theme.TERTIARY_CONTAINER, rgb(0xF4C8D6));
-            titleText = "Favorites";
+            titleText = I18n.tr("Favorites");
             accent = Md3Theme.TERTIARY;
         } else {
             CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui, x, y, width, height,
                     Md3Theme.R_LARGE, Md3Theme.PRIMARY_CONTAINER, rgb(0xD8C8F3));
-            titleText = "Search results";
+            titleText = I18n.tr("Search results");
             accent = Md3Theme.PRIMARY;
         }
 
@@ -56,10 +56,11 @@ public class Md3HeroCard {
 
         int chipY = y + 48;
         int nextX = x + 20;
-        nextX += drawSummaryChip(gui, nextX, chipY,
-                resultCount + (resultCount == 1 ? " module" : " modules"),
+        String countText = resultCount
+                + (resultCount == 1 ? I18n.tr("module") : I18n.tr("modules"));
+        nextX += drawSummaryChip(gui, nextX, chipY, countText,
                 Md3Theme.SURFACE_CONTAINER_LOWEST, Md3Theme.ON_SURFACE_VARIANT) + 6;
-        drawSummaryChip(gui, nextX, chipY, enabledCount + " active",
+        drawSummaryChip(gui, nextX, chipY, enabledCount + I18n.tr("active"),
                 Md3Theme.withAlpha(accent, 0.12f), accent);
     }
 

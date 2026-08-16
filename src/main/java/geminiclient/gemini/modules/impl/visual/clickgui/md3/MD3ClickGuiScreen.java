@@ -1,6 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3;
 
 import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
@@ -280,7 +281,7 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
         var labelFont = Md3Fonts.label();
         Md3Fonts.drawText(gui, titleFont, "Gemini", winX + 50, renderWinY + 13,
                 Md3Theme.ON_SURFACE);
-        Md3Fonts.drawText(gui, labelFont, "CONTROL CENTER", winX + 50, renderWinY + 31,
+        Md3Fonts.drawText(gui, labelFont, I18n.tr("CONTROL CENTER"), winX + 50, renderWinY + 31,
                 Md3Theme.ON_SURFACE_VARIANT);
 
         searchBar.render(gui, mouseX, mouseY, 0f);
@@ -297,11 +298,11 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
     private void renderSectionHeader(GuiGraphicsExtractor gui) {
         var titleFont = Md3Fonts.title();
         var labelFont = Md3Fonts.label();
-        String heading = searchBar.hasFilter() ? "Matching modules" : "Modules";
+        String heading = searchBar.hasFilter() ? I18n.tr("Matching modules") : I18n.tr("Modules");
         Md3Fonts.drawText(gui, titleFont, heading, listX, sectionHeaderY + 2,
                 Md3Theme.ON_SURFACE);
 
-        String count = visibleRows.size() + " shown";
+        String count = visibleRows.size() + I18n.tr("shown");
         float countW = Md3Fonts.width(labelFont, count);
         Md3Fonts.drawText(gui, labelFont, count, listX + listWidth - countW,
                 sectionHeaderY + 5, Md3Theme.ON_SURFACE_VARIANT);
@@ -337,10 +338,10 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
 
         var titleFont = Md3Fonts.title();
         var labelFont = Md3Fonts.label();
-        String title = searchBar.hasFilter() ? "No modules found" : "No favorites yet";
+        String title = searchBar.hasFilter() ? I18n.tr("No modules found") : I18n.tr("No favorites yet");
         String message = searchBar.hasFilter()
-                ? "Try a shorter or different module name"
-                : "Select the heart on a module to pin it here";
+                ? I18n.tr("Try a shorter or different module name")
+                : I18n.tr("Select the heart on a module to pin it here");
         float titleW = Md3Fonts.width(titleFont, title);
         float messageW = Md3Fonts.width(labelFont, message);
         Md3Fonts.drawText(gui, titleFont, title, centerX - titleW / 2f, centerY + 16,
@@ -478,6 +479,13 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
     public boolean keyPressed(KeyEvent keyCode) {
         int glfwKey = keyCode.input();
         int modifiers = keyCode.modifiers();
+
+        // 绑定模式优先：正在等待按键的模块行先消费（Esc 由其取消绑定）
+        if (Md3ModuleComponent.hasActiveBinding()) {
+            if (Md3ModuleComponent.dispatchKeyPress(glfwKey)) {
+                return true;
+            }
+        }
 
         if (glfwKey == GLFW.GLFW_KEY_ESCAPE) {
             if (openOverlay != null) {

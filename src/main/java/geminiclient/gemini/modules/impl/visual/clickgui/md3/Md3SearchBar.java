@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3;
 
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.impl.visual.clickgui.SearchFilterModel;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -59,7 +60,7 @@ public class Md3SearchBar {
         // Text / placeholder
         String filter = model.getFilterText();
         boolean empty = filter.isEmpty();
-        String display = empty ? "Search modules" : filter;
+        String display = empty ? I18n.tr("Search modules") : filter;
         int textColor = empty ? Md3Theme.ON_SURFACE_VARIANT : Md3Theme.ON_SURFACE;
 
         var font = Md3Fonts.search();

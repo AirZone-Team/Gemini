@@ -1,5 +1,6 @@
 package geminiclient.gemini.base.alt;
 
+import geminiclient.gemini.base.I18n;
 import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
@@ -121,7 +122,7 @@ public final class AltAccount {
 
     /** UI 显示用类型标签。 */
     public String typeLabel() {
-        return type == Type.MICROSOFT ? "Microsoft" : "离线";
+        return type == Type.MICROSOFT ? I18n.tr("Microsoft") : I18n.tr("离线");
     }
 
     /** UI 显示用短 UUID（前 8 位，无横线形式的前 8 个字符）。 */

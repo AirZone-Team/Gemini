@@ -403,7 +403,11 @@ public class CustomFontRenderer {
             double visualW = visualBounds.getWidth();
             double visualH = visualBounds.getHeight();
             if (visualW <= 0 || visualH <= 0) {
-                return new Glyph(0, 0, 0, 0, advance, false, -1);
+                // 缺失字形（如 MiSans 没有的符号/emoji）：无法生成 MSDF。
+                // advance 改用 vanilla 字体宽度，使 stringWidth 的测量与
+                // drawGrouped 中 vanilla 兜底绘制的推进保持一致。
+                float fallbackAdvance = mc.font != null ? mc.font.width(charStr) : advance;
+                return new Glyph(0, 0, 0, 0, fallbackAdvance, false, -1);
             }
 
             int cellWidth = (int) Math.ceil(visualW) + SDF_PADDING * 2;
@@ -888,12 +892,13 @@ public class CustomFontRenderer {
         }
     }
 
-    private record GlyphRun(int charIndex, Glyph glyph, float x) {}
+    private record GlyphRun(int charIndex, int codePoint, Glyph glyph, float x) {}
 
     private static void drawGrouped(GuiGraphicsExtractor gui, GlyphFont font,
                                     String text, float x, float y,
                                     ColorEmitter emitter) {
         Map<Integer, List<GlyphRun>> groups = new LinkedHashMap<>();
+        List<GlyphRun> fallbackRuns = new ArrayList<>();
         float cursorX = x;
         int prevCp = -1;
         int charIndex = 0;
@@ -903,20 +908,40 @@ public class CustomFontRenderer {
             cursorX += font.kern(prevCp, codePoint);
             if (glyph.hasImage) {
                 groups.computeIfAbsent(glyph.pageIndex, k -> new ArrayList<>())
-                        .add(new GlyphRun(charIndex, glyph, cursorX));
+                        .add(new GlyphRun(charIndex, codePoint, glyph, cursorX));
+            } else {
+                // 字形缺失（如 MiSans 未收录的符号/emoji）：改由 vanilla 字体
+                // 逐个绘制兜底，避免出现空白；光标按 glyph.advanceX 推进，与
+                // stringWidth 的测量保持一致。
+                fallbackRuns.add(new GlyphRun(charIndex, codePoint, glyph, cursorX));
             }
             cursorX += glyph.advanceX;
             prevCp = codePoint;
             i += Character.charCount(codePoint);
             charIndex++;
         }
-        if (groups.isEmpty()) {
+        if (groups.isEmpty() && fallbackRuns.isEmpty()) {
             return;
         }
 
         float baselineY = y + font.ascent;
         // 基线统一对齐到像素，确保所有字形在同一条线上
         float snappedBaselineY = snapToPixel(baselineY);
+
+        // 兜底字形：vanilla 字体文本顶部约在基线之上 7px（lineHeight 9、
+        // ascent 7），按该值对齐到同一像素基线。
+        if (!fallbackRuns.isEmpty() && mc.font != null) {
+            float vanillaTop = snappedBaselineY - 7f;
+            byte[] tmpColor = new byte[16];
+            for (GlyphRun run : fallbackRuns) {
+                emitter.emit(run.charIndex, run.glyph, tmpColor, 0);
+                int argb = ((tmpColor[3] & 0xFF) << 24) | ((tmpColor[0] & 0xFF) << 16)
+                        | ((tmpColor[1] & 0xFF) << 8) | (tmpColor[2] & 0xFF);
+                String ch = new String(Character.toChars(run.codePoint));
+                gui.text(mc.font, ch, Math.round(run.x), Math.round(vanillaTop), argb, false);
+            }
+        }
+
         Matrix3x2f currentPose = new Matrix3x2f(gui.pose());
         ScreenRectangle currentScissor = gui.peekScissorStack();
 

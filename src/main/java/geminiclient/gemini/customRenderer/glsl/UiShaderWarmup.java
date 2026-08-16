@@ -4,6 +4,8 @@ import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.shaders.ShaderSource;
 import com.mojang.blaze3d.systems.RenderSystem;
+import geminiclient.gemini.base.MainMenuScreen;
+import geminiclient.gemini.base.alt.AltManagerScreen;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Fonts;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelTargetBundle;
@@ -112,6 +114,8 @@ public final class UiShaderWarmup {
         // ── MD3 fonts: load faces + rasterise ASCII glyph set ──
         try {
             Md3Fonts.warmup();
+            MainMenuScreen.warmup();
+            AltManagerScreen.warmup();
             CustomFontRenderer.flushAllPages();
         } catch (Throwable t) {
             LOGGER.warn("[UiWarmup] Font warmup failed; glyphs will rasterise lazily", t);

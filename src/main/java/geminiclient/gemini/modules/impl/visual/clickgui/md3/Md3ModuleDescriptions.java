@@ -1,10 +1,13 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3;
 
+import geminiclient.gemini.base.I18n;
+
 import java.util.Map;
 
 /**
  * Optional one-line module descriptions shown in the MD3 module rows.
  * Modules without an entry simply omit the second supporting line.
+ * Descriptions are keys into {@link I18n} so they follow the UI language.
  */
 public final class Md3ModuleDescriptions {
 
@@ -22,6 +25,6 @@ public final class Md3ModuleDescriptions {
     );
 
     public static String get(String moduleName) {
-        return DESCRIPTIONS.getOrDefault(moduleName, "");
+        return I18n.tr(DESCRIPTIONS.getOrDefault(moduleName, ""));
     }
 }

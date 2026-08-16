@@ -23,16 +23,19 @@ public final class DistributionVerifier {
     private static final String JARJAR_METADATA = JARJAR_PREFIX + "metadata.json";
     private static final Pattern IDENTIFIER = Pattern.compile(
             "\\\"group\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"\\s*,\\s*\\\"artifact\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+    // Only org.json stays nested. The JavaCV/FFmpeg native stack is unpacked
+    // flat into the JAR root (see build.gradle installableJar) so JavaCPP can
+    // load its natives under the FML modular classloader.
     private static final Map<String, Integer> EXPECTED_DEPENDENCIES = Map.of(
-            "org.json:json", 1,
-            "org.bytedeco:javacpp", 2,
-            "org.bytedeco:ffmpeg", 2);
-    private static final Set<String> ALLOWED_JAVACV_CLASSES = Set.of(
+            "org.json:json", 1);
+    /** JavaCV classes FFmpegFrameGrabber needs at runtime (must be present). */
+    private static final Set<String> REQUIRED_JAVACV_CLASSES = Set.of(
             "Frame", "Frame$Type",
             "FrameGrabber", "FrameGrabber$1", "FrameGrabber$Array", "FrameGrabber$Exception",
             "FrameGrabber$ImageMode", "FrameGrabber$PropertyEditor", "FrameGrabber$SampleMode",
             "FFmpegFrameGrabber", "FFmpegFrameGrabber$1", "FFmpegFrameGrabber$Exception",
-            "FFmpegFrameGrabber$ReadCallback", "FFmpegFrameGrabber$SeekCallback");
+            "FFmpegFrameGrabber$ReadCallback", "FFmpegFrameGrabber$SeekCallback",
+            "FFmpegLogCallback");
 
     private DistributionVerifier() {
     }
@@ -41,6 +44,10 @@ public final class DistributionVerifier {
         List<String> errors = new ArrayList<>();
         Map<String, byte[]> nestedJars = new LinkedHashMap<>();
         Set<String> javaCvClasses = new java.util.HashSet<>();
+        boolean hasJavaCppClasses = false;
+        boolean hasJavaCppNative = false;
+        boolean hasFfmpegClasses = false;
+        boolean hasFfmpegNative = false;
         String metadata = null;
         int shaderCount = 0;
 
@@ -50,9 +57,23 @@ public final class DistributionVerifier {
                     continue;
                 }
                 String name = entry.getName();
+                String lower = name.toLowerCase(Locale.ROOT);
                 String javaCvClass = javaCvClassName(name);
                 if (javaCvClass != null) {
                     javaCvClasses.add(javaCvClass);
+                }
+                if (name.startsWith("org/bytedeco/javacpp/") && lower.endsWith(".class")) {
+                    hasJavaCppClasses = true;
+                }
+                if (name.startsWith("org/bytedeco/ffmpeg/") && lower.endsWith(".class")) {
+                    hasFfmpegClasses = true;
+                }
+                boolean nativeLib = lower.endsWith(".dll") || lower.endsWith(".so") || lower.endsWith(".dylib");
+                if (nativeLib && name.startsWith("org/bytedeco/javacpp/")) {
+                    hasJavaCppNative = true;
+                }
+                if (nativeLib && name.startsWith("org/bytedeco/ffmpeg/")) {
+                    hasFfmpegNative = true;
                 }
                 if (name.endsWith(".vsh") || name.endsWith(".fsh")) {
                     shaderCount++;
@@ -66,22 +87,41 @@ public final class DistributionVerifier {
             }
         }
 
-        if (shaderCount != 111) {
-            errors.add("expected exactly 111 .vsh/.fsh resources, found " + shaderCount);
+        if (shaderCount != 113) {
+            errors.add("expected exactly 113 .vsh/.fsh resources, found " + shaderCount);
         }
         if (metadata == null) {
             errors.add("missing " + JARJAR_METADATA);
         } else {
             verifyMetadata(metadata, nestedJars.keySet(), errors);
         }
-        if (!ALLOWED_JAVACV_CLASSES.equals(javaCvClasses)) {
-            errors.add("unexpected slim JavaCV class set: " + javaCvClasses);
+        if (!javaCvClasses.containsAll(REQUIRED_JAVACV_CLASSES)) {
+            errors.add("missing runtime-critical JavaCV classes: "
+                    + javaCvClasses + ", required " + REQUIRED_JAVACV_CLASSES);
         }
         verifyNestedJars(nestedJars, errors);
+        verifyFlatNativeStack(hasJavaCppClasses, hasJavaCppNative, hasFfmpegClasses, hasFfmpegNative, errors);
 
         if (!errors.isEmpty()) {
             throw new IllegalStateException("Distribution verification failed for " + archive + ":\n - "
                     + String.join("\n - ", errors));
+        }
+    }
+
+    private static void verifyFlatNativeStack(boolean hasJavaCppClasses, boolean hasJavaCppNative,
+                                              boolean hasFfmpegClasses, boolean hasFfmpegNative,
+                                              List<String> errors) {
+        if (!hasJavaCppClasses) {
+            errors.add("JavaCPP classes are not unpacked in the JAR root");
+        }
+        if (!hasFfmpegClasses) {
+            errors.add("FFmpeg classes are not unpacked in the JAR root");
+        }
+        if (!hasJavaCppNative) {
+            errors.add("JavaCPP native libraries are not unpacked in the JAR root");
+        }
+        if (!hasFfmpegNative) {
+            errors.add("FFmpeg native libraries are not unpacked in the JAR root");
         }
     }
 
@@ -90,7 +130,9 @@ public final class DistributionVerifier {
         if (lower.endsWith(".spv") || lower.endsWith(".slang")) {
             errors.add("source/intermediate shader packaged: " + name);
         }
-        if (name.startsWith("org/json/") || (name.startsWith("org/bytedeco/") && !isAllowedJavaCvClass(name))) {
+        // The JavaCV/FFmpeg stack is deliberately unpacked flat (see
+        // verifyFlatNativeStack); only stray org/json content is rejected.
+        if (name.startsWith("org/json/")) {
             errors.add("nested dependency was unpacked at the archive top level: " + name);
         }
         if (name.startsWith("net/minecraft/") || name.startsWith("net/neoforged/")) {
@@ -102,11 +144,6 @@ public final class DistributionVerifier {
         if (isSlangPayload(name, lower)) {
             errors.add("Slang class/native packaged: " + name);
         }
-    }
-
-    private static boolean isAllowedJavaCvClass(String name) {
-        String className = javaCvClassName(name);
-        return className != null && ALLOWED_JAVACV_CLASSES.contains(className);
     }
 
     private static String javaCvClassName(String name) {
@@ -121,8 +158,12 @@ public final class DistributionVerifier {
         if (name.startsWith("io/github/refux/slang/") && lower.endsWith(".class")) {
             return true;
         }
-        return lower.endsWith(".dll") || lower.endsWith(".so") || lower.endsWith(".dylib")
-                || lower.contains("slang-java") || lower.contains("slang_glsl")
+        if (lower.endsWith(".dll") || lower.endsWith(".so") || lower.endsWith(".dylib")) {
+            // The JavaCV/FFmpeg platform DLLs under org/bytedeco/ are the
+            // intended flat native stack, not Slang payload.
+            return !name.startsWith("org/bytedeco/");
+        }
+        return lower.contains("slang-java") || lower.contains("slang_glsl")
                 || lower.contains("slang-llvm") || lower.contains("slang_rt");
     }
 

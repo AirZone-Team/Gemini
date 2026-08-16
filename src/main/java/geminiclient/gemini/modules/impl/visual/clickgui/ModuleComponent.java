@@ -1,8 +1,11 @@
 package geminiclient.gemini.modules.impl.visual.clickgui;
 
+import geminiclient.gemini.Gemini;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.impl.visual.clickgui.component.*;
 import geminiclient.gemini.modules.Module;
+import geminiclient.gemini.utils.KeyUtils;
 import geminiclient.gemini.utils.animation.SpringAnimation;
 import geminiclient.gemini.values.ValueParent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -21,6 +24,9 @@ public class ModuleComponent {
     public int x, y, width, height;
     private boolean isExpanded = false;
     private final List<ValueComponent> allValueComponents = new ArrayList<>();
+
+    /** 当前处于"按下按键..."绑定模式的模块行（全局唯一）。 */
+    private static ModuleComponent activeBinding = null;
 
     // ── Modern palette (accent/borders/text shared via ClassicTheme) ──
     private static final int ACCENT_PURPLE  = ClassicTheme.ACCENT;
@@ -179,19 +185,32 @@ public class ModuleComponent {
             guiGraphics.fill(dotX - 1, dotY - 1, dotX + 1, dotY + 1, dotColor);
 
             int textCol = modulateAlpha(TEXT_COLOR, contentAlpha);
-            guiGraphics.text(mc.font, module.getName(), x + 13, renderY + 5, textCol, true);
+            guiGraphics.text(mc.font, I18n.module(module.getName()), x + 13, renderY + 5, textCol, true);
         } else {
             int textCol = modulateAlpha(TEXT_COLOR, contentAlpha);
-            guiGraphics.text(mc.font, module.getName(), x + 7, renderY + 5, textCol, true);
+            guiGraphics.text(mc.font, I18n.module(module.getName()), x + 7, renderY + 5, textCol, true);
         }
 
-        // ── Keybind display ─────────────────────────────
-        if (module.key != 0) {
-            String keyName = getKeyName(module.key);
-            int keyCol = modulateAlpha(TEXT_DIM, contentAlpha);
-            int keyX = x + width - (allValueComponents.isEmpty() ? 8 : 24);
-            guiGraphics.text(mc.font, keyName, keyX - mc.font.width(keyName), renderY + 5, keyCol, true);
+        // ── Keybind pill ───────────────────────────────
+        boolean binding = (activeBinding == this);
+        String keyName = binding
+                ? I18n.tr("Press a key...")
+                : (module.key != 0 ? KeyUtils.getKeyName(module.key) : "");
+        int[] pill = pillBounds(binding, keyName);
+        int pillBg = binding
+                ? new Color(139, 92, 246, 45).getRGB()
+                : new Color(255, 255, 255, 10).getRGB();
+        CustomRoundedRectRenderer.drawRoundedRect(
+                guiGraphics, pill[0], pill[1], pill[2], pill[3],
+                pill[3] / 2, modulateAlpha(pillBg, contentAlpha));
+        if (binding) {
+            CustomRoundedRectRenderer.drawRoundedOutline(
+                    guiGraphics, pill[0], pill[1], pill[2], pill[3],
+                    pill[3] / 2, modulateAlpha(ACCENT_PURPLE, contentAlpha), 1);
         }
+        int keyCol = binding ? ACCENT_PURPLE : TEXT_DIM;
+        int keyTextCol = modulateAlpha(keyCol, contentAlpha);
+        guiGraphics.text(mc.font, keyName, pill[0] + 5, pill[1] + 2, keyTextCol, true);
 
         // ── Expand arrow ────────────────────────────────
         if (!allValueComponents.isEmpty()) {
@@ -249,30 +268,72 @@ public class ModuleComponent {
      * Convert a GLFW key code to a short readable name.
      */
     public static String getKeyName(int key) {
-        if (key == 0) return "None";
-        String name = GLFW.glfwGetKeyName(key, 0);
-        if (name != null) return name.toUpperCase();
-        // Manual mapping for non-printable keys
-        if (key == GLFW.GLFW_KEY_LEFT_SHIFT)  return "LSHIFT";
-        if (key == GLFW.GLFW_KEY_RIGHT_SHIFT) return "RSHIFT";
-        if (key == GLFW.GLFW_KEY_LEFT_CONTROL)  return "LCTRL";
-        if (key == GLFW.GLFW_KEY_RIGHT_CONTROL) return "RCTRL";
-        if (key == GLFW.GLFW_KEY_LEFT_ALT)  return "LALT";
-        if (key == GLFW.GLFW_KEY_RIGHT_ALT) return "RALT";
-        if (key == GLFW.GLFW_KEY_TAB)       return "TAB";
-        if (key == GLFW.GLFW_KEY_CAPS_LOCK) return "CAPS";
-        if (key == GLFW.GLFW_KEY_ENTER)     return "ENTER";
-        if (key == GLFW.GLFW_KEY_SPACE)     return "SPACE";
-        if (key == GLFW.GLFW_KEY_ESCAPE)    return "ESC";
-        if (key >= GLFW.GLFW_KEY_F1 && key <= GLFW.GLFW_KEY_F12)
-            return "F" + (key - GLFW.GLFW_KEY_F1 + 1);
-        return "K" + key;
+        return KeyUtils.getKeyName(key);
+    }
+
+    // ── Keybind pill ────────────────────────────────────
+
+    /** 键名 pill 的边界 [x, y, w, h]，渲染与命中测试共用。 */
+    private int[] pillBounds(boolean binding, String keyName) {
+        int nameWidth = mc.font.width(keyName);
+        int pillW = Math.max(16, nameWidth + 10);
+        int pillRight = x + width - (allValueComponents.isEmpty() ? 8 : 24);
+        return new int[]{pillRight - pillW, y + 3, pillW, height - 6};
+    }
+
+    private boolean isOverPill(double mouseX, double mouseY) {
+        int[] pill = pillBounds(activeBinding == this,
+                activeBinding == this ? I18n.tr("Press a key...")
+                        : (module.key != 0 ? KeyUtils.getKeyName(module.key) : ""));
+        return mouseX >= pill[0] && mouseX <= pill[0] + pill[2]
+                && mouseY >= pill[1] && mouseY <= pill[1] + pill[3];
+    }
+
+    /** 是否有模块行正在等待按键。 */
+    public static boolean hasActiveBinding() {
+        return activeBinding != null;
+    }
+
+    /** 转发按键给绑定中的模块行；已消费返回 true。 */
+    public static boolean dispatchKeyPress(int glfwKey) {
+        return activeBinding != null && activeBinding.keyPressed(glfwKey);
+    }
+
+    /** 绑定模式下的按键捕获：Esc 取消，其余键立即绑定。 */
+    private boolean keyPressed(int glfwKey) {
+        if (activeBinding != this) {
+            return false;
+        }
+        if (glfwKey == GLFW.GLFW_KEY_ESCAPE) {
+            activeBinding = null;
+            return true;
+        }
+        module.key = glfwKey;
+        activeBinding = null;
+        Gemini.fileSystem.saveConfig();
+        return true;
     }
 
     // ── Input ───────────────────────────────────────────
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (isModuleHeaderHovered(mouseX, mouseY)) {
+            if (isOverPill(mouseX, mouseY)) {
+                if (button == 0) {
+                    // 左键：进入/切换绑定模式
+                    if (activeBinding != this) {
+                        activeBinding = this;
+                    }
+                } else if (button == 1) {
+                    // 右键：清除绑定
+                    module.key = 0;
+                    if (activeBinding == this) {
+                        activeBinding = null;
+                    }
+                    Gemini.fileSystem.saveConfig();
+                }
+                return true;
+            }
             if (button == 0) {
                 module.toggle();
                 return true;

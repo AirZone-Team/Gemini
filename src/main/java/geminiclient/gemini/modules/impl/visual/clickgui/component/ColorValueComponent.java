@@ -55,7 +55,7 @@ public class ColorValueComponent extends ValueComponent {
 
         ClassicTheme.drawRow(guiGraphics, x, y, width, height, hoverT);
 
-        guiGraphics.text(mc.font, colorValue.getName(), x + 7, y + 4, ClassicTheme.TEXT, true);
+        guiGraphics.text(mc.font, colorValue.getDisplayName(), x + 7, y + 4, ClassicTheme.TEXT, true);
 
         // Rounded swatch with a hairline border
         int swatchSize = height - 6;

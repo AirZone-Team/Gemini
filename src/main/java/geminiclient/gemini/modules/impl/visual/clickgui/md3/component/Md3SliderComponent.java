@@ -41,7 +41,7 @@ public abstract class Md3SliderComponent extends Md3ValueComponent {
         var labelFont = Md3Fonts.label();
 
         // Label (left) + current value (right)
-        Md3Fonts.drawText(gui, bodyFont, value.getName(), x, y + 2, Md3Theme.ON_SURFACE);
+        Md3Fonts.drawText(gui, bodyFont, value.getDisplayName(), x, y + 2, Md3Theme.ON_SURFACE);
         String valueText = formatValue();
         float vw = Md3Fonts.width(labelFont, valueText);
         Md3Fonts.drawText(gui, labelFont, valueText, x + width - vw, y + 4,
