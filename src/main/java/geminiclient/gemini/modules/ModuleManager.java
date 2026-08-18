@@ -4,7 +4,7 @@ import geminiclient.gemini.modules.impl.combat.*;
 import geminiclient.gemini.modules.impl.movement.*;
 import geminiclient.gemini.modules.impl.player.*;
 import geminiclient.gemini.modules.impl.visual.*;
-import geminiclient.gemini.modules.impl.visual.osu4k.Osu4k;
+import geminiclient.gemini.modules.impl.visual.Osu4k;
 
 import java.io.File;
 import java.io.IOException;

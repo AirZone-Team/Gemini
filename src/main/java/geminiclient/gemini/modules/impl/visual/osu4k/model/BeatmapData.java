@@ -4,13 +4,18 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * A parsed 4K mania beatmap (one {@code .osu} file).
+ * A parsed mania beatmap (one {@code .osu} file).
  *
- * <p>Only the subset of the osu! file format needed by the 4K player is kept:
+ * <p>Only the subset of the osu! file format needed by the player is kept:
  * metadata, audio reference, key count and the hit objects. Everything else
  * (timing points, storyboards, etc.) is intentionally discarded.</p>
  */
 public final class BeatmapData {
+
+    /** Smallest playable key count (1K). */
+    public static final int MIN_KEY_COUNT = 1;
+    /** Largest playable key count (10K). */
+    public static final int MAX_KEY_COUNT = 10;
 
     private final String title;
     private final String artist;
@@ -43,9 +48,10 @@ public final class BeatmapData {
     public double sliderVelocity() { return sliderVelocity; }
     public List<HitObject> hitObjects() { return hitObjects; }
 
-    /** True if this map is playable by the 4K player. */
-    public boolean isPlayable4K() {
-        return keyCount == 4 && !audioFileName.isEmpty() && !hitObjects.isEmpty();
+    /** True if this map is playable (1K-10K, with audio and hit objects). */
+    public boolean isPlayable() {
+        return keyCount >= MIN_KEY_COUNT && keyCount <= MAX_KEY_COUNT
+                && !audioFileName.isEmpty() && !hitObjects.isEmpty();
     }
 
     /** Total song length in ms (last hit object end), used for the progress bar. */

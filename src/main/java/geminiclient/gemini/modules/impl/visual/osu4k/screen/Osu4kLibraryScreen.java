@@ -1,7 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.osu4k.screen;
 
 import geminiclient.gemini.base.I18n;
-import geminiclient.gemini.modules.impl.visual.osu4k.Osu4k;
+import geminiclient.gemini.modules.impl.visual.Osu4k;
 import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kLibrary;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -352,18 +352,5 @@ public final class Osu4kLibraryScreen extends Osu4kScreen {
     @Override
     public boolean isPauseScreen() {
         return false;
-    }
-
-    // ---------------------------------------------------------------------
-    // Easing
-    // ---------------------------------------------------------------------
-
-    private static float clamp01(float v) {
-        return Math.max(0f, Math.min(1f, v));
-    }
-
-    private static float easeOutCubic(float t) {
-        float u = 1f - t;
-        return 1f - u * u * u;
     }
 }

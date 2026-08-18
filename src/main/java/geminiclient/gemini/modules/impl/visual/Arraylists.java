@@ -16,10 +16,13 @@ import geminiclient.gemini.values.impl.FloatValue;
 import geminiclient.gemini.values.impl.IntValue;
 import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.resources.Identifier;
 
 import java.awt.Color;
 import java.io.File;
 import java.util.*;
+
+import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
  * Arraylists — modern HUD module list.
@@ -39,6 +42,10 @@ import java.util.*;
  *    · "Random" color mode; TextAlpha is actually applied
  */
 public class Arraylists extends Module {
+
+    // Bundled MiSans face (assets/gemini/font/misans-bold.ttf) — same resource
+    // the MD3 ClickGui and Osu4k screens use, so the HUD list matches them.
+    private static final Identifier MI_SANS = getIdentifier("font/misans-bold.ttf");
 
     // ==================== CONFIGURATION VALUES ====================
 
@@ -90,7 +97,7 @@ public class Arraylists extends Module {
     public final FloatValue textYOffset       = new FloatValue("TextY",      1f,   0f, 20f);
     public final FloatValue fontAlphaValue    = new FloatValue("TextAlpha",  1.0f, 0.0f, 1.0f);
     public final ListValue ttfFont           = new ListValue("Font",
-            "Default", new String[]{"Default"});
+            "MiSans", new String[]{"MiSans", "Default"});
 
     // ---- Effects (new) ----
     public final FloatValue glowIntensity  = new FloatValue("Glow",          1.0f, 0f,   2f);
@@ -308,6 +315,19 @@ public class Arraylists extends Module {
             customFont = null;
             CustomFontRenderer.setCurrentTtfGlyphFont(null, null);
             return;
+        }
+
+        // "MiSans" is the bundled face, not a file in the TTF folder
+        if ("MiSans".equals(selected)) {
+            try {
+                customFont = CustomFontRenderer.loadFont(MI_SANS, 8f);
+                CustomFontRenderer.setCurrentTtfGlyphFont(customFont, selected);
+                return;
+            } catch (Exception e) {
+                System.err.println("[Arraylists] Failed to load bundled MiSans font: " + e.getMessage());
+                customFont = null;
+                return;
+            }
         }
 
         File fontFile = Gemini.fileSystem.getTtfFontFile(selected);

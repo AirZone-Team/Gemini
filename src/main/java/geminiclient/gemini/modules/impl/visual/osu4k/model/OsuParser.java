@@ -13,18 +13,15 @@ import java.util.Locale;
 /**
  * Minimal parser for the osu! beatmap ({@code .osu}) text format.
  *
- * <p>Only the data the 4K player consumes is extracted: metadata
+ * <p>Only the data the mania player consumes is extracted: metadata
  * ({@code [General]} / {@code [Metadata]}), key count ({@code [Mania]} /
- * {@code [General]}) and the {@code [HitObjects]} section. Unknown or malformed
- * lines are skipped defensively — a malformed single object never aborts the
- * whole parse.</p>
+ * legacy {@code [Difficulty] CircleSize}) and the {@code [HitObjects]}
+ * section. Unknown or malformed lines are skipped defensively — a malformed
+ * single object never aborts the whole parse.</p>
  *
  * <p>Format reference: <a href="https://osu.ppy.sh/wiki/en/Client/File_formats/osu_%28file_format%29">osu file format</a>.</p>
  */
 public final class OsuParser {
-
-    /** Only 4K maps are loadable by this player. */
-    public static final int TARGET_KEY_COUNT = 4;
 
     private OsuParser() {}
 
@@ -48,7 +45,9 @@ public final class OsuParser {
         String title = "";
         String artist = "";
         String version = "";
-        int keyCount = 4; // default per spec: Mode 3 defaults to 4K when [Mania] is absent
+        int keyCount = 0; // 0 = not declared yet; resolved to 4K (spec default) below
+        boolean keysDeclared = false; // a map that declares Keys: 0 is invalid, not "undeclared"
+        double circleSize = 0.0; // legacy mania key count ([Difficulty] CircleSize)
         String audioFile = "";
         double audioLeadIn = 0.0;
         double sliderVelocity = 1.0;
@@ -90,18 +89,21 @@ public final class OsuParser {
                 case "Difficulty" -> {
                     if (line.startsWith("SliderMultiplier:")) {
                         sliderVelocity = parseDouble(valueAfterColon(line), 1.0);
+                    } else if (line.startsWith("CircleSize:")) {
+                        circleSize = parseDouble(valueAfterColon(line), 0.0);
                     }
                 }
                 case "Mania" -> {
                     if (line.startsWith("Mania Speed:") || line.startsWith("Mania_Speed:")) {
                         sliderVelocity = parseDouble(valueAfterColon(line), 1.0);
-                    } else if (line.startsWith("Keys:") || line.startsWith("KeyCount:")
-                            || line.startsWith("SpecialStyle:")) {
-                        keyCount = (int) parseDouble(valueAfterColon(line), keyCount);
+                    } else if (line.startsWith("Keys:") || line.startsWith("KeyCount:")) {
+                        keyCount = (int) Math.round(parseDouble(valueAfterColon(line), 0.0));
+                        keysDeclared = true;
                     }
+                    // SpecialStyle is a 0/1 scratch-column flag, NOT a key count.
                 }
                 case "HitObjects" -> {
-                    HitObject obj = parseHitObject(line);
+                    HitObject obj = parseHitObject(line, effectiveKeyCount(keyCount, keysDeclared, circleSize));
                     if (obj != null) {
                         hitObjects.add(obj);
                     }
@@ -112,10 +114,15 @@ public final class OsuParser {
             }
         }
 
-        // Mania maps carry their key count in [Mania] ("Keys: 4"). When that
-        // section is absent the format defaults to 4K, which is what we need.
-        if (keyCount != TARGET_KEY_COUNT) {
-            throw new IllegalArgumentException(I18n.trf("[%s] is a %dK map, only 4K is supported", fileName, keyCount));
+        // Key count resolution: [Mania] "Keys:" is the modern format; before it
+        // existed mania maps stored the key count in [Difficulty] CircleSize
+        // (as this sample set does); per the spec Mode 3 defaults to 4K when
+        // neither declares a count. Resolved both mid-parse (so hit objects are
+        // mapped with the right lane count) and again here for validation.
+        keyCount = effectiveKeyCount(keyCount, keysDeclared, circleSize);
+        if (keyCount < BeatmapData.MIN_KEY_COUNT || keyCount > BeatmapData.MAX_KEY_COUNT) {
+            throw new IllegalArgumentException(I18n.trf("[%s] is a %dK map, only 1K-10K is supported",
+                    fileName, keyCount));
         }
         if (audioFile.isEmpty()) {
             throw new IllegalArgumentException(I18n.trf("[%s] has no AudioFilename", fileName));
@@ -134,13 +141,28 @@ public final class OsuParser {
     }
 
     /**
+     * Resolves the effective lane count: {@code Keys} (modern) wins; a legacy
+     * {@code CircleSize} fills in when no {@code Keys} line was seen; otherwise
+     * the spec default of 4K applies.
+     */
+    private static int effectiveKeyCount(int keyCount, boolean keysDeclared, double circleSize) {
+        if (!keysDeclared) {
+            if (circleSize > 0) {
+                return (int) Math.round(circleSize);
+            }
+            return 4;
+        }
+        return keyCount;
+    }
+
+    /**
      * Parses one {@code [HitObjects]} line.
      *
      * <p>Format: {@code x,y,time,type,hitSound,objectParams,hitSample}</p>
      * Mania stores the column number in {@code x} ({@code x / 512 * keyCount}),
      * and holds carry their tail length in {@code objectParams} (ms).
      */
-    private static HitObject parseHitObject(String line) {
+    private static HitObject parseHitObject(String line, int keyCount) {
         String[] fields = line.split(",");
         if (fields.length < 5) {
             return null;
@@ -159,7 +181,7 @@ public final class OsuParser {
         }
 
         // Column: mania uses x with 512 logical pixels across keyCount columns.
-        int column = Math.min(TARGET_KEY_COUNT - 1, Math.max(0, (int) ((long) x * TARGET_KEY_COUNT / 512L)));
+        int column = Math.min(keyCount - 1, Math.max(0, (int) ((long) x * keyCount / 512L)));
 
         int durationMs = 0;
         if ((type & (1 << 7)) != 0) { // hold note (type bit 7)
@@ -226,7 +248,7 @@ public final class OsuParser {
         }
     }
 
-    /** Case-insensitive audio extension check used by {@link OszArchive}. */
+    /** Case-insensitive audio extension check (covered by {@code OsuParserTest}). */
     public static boolean isAudioFile(String name) {
         String lower = name.toLowerCase(Locale.ROOT);
         return lower.endsWith(".mp3") || lower.endsWith(".ogg") || lower.endsWith(".wav");

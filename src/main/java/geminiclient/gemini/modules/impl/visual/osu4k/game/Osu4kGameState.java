@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Pure logic of the 4K mania gameplay: timing, judging, scoring, combo.
+ * Pure logic of the mania gameplay: timing, judging, scoring, combo.
  *
  * <p>Kept free of Minecraft and audio dependencies so the judging rules can be
  * unit-tested. All mutations happen through {@link #press}, {@link #release}
@@ -17,15 +17,16 @@ import java.util.List;
  * <p>Judgement windows are chosen from five presets, from lenient to strict.
  * Each preset defines Perfect / Great / Good / Miss limits; a press beyond
  * the Miss limit is ignored and an unhit note beyond it auto-misses.
- * Combo grows on every hit and resets on a miss.</p>
+ * Combo grows when an object is finally settled and resets on a miss.</p>
  *
- * <p>Scoring follows the osu!mania cap: a flawless run is exactly
- * {@value #MAX_SCORE} points and the running score never exceeds it. A note's
- * points grow with the combo held before it — right after a combo break a
- * perfect earns half a note's base value, a max-combo note one and a half
- * times the base, and every hit stays strictly above zero. The judgement
- * weight 300 / 200 / 100 / 0 still scales each award, and over a flawless run
- * the combo scaling averages out so the total lands exactly on the cap.</p>
+ * <p>The lane count (1K-10K) comes from the map being played; every
+ * per-column structure follows it.</p>
+ *
+ * <p>Scoring follows an osu!mania-inspired cap: a flawless run is exactly
+ * {@value #MAX_SCORE} points and the running score never exceeds it. For a
+ * multi-object map, the combo factor grows from 0.5 to 1.5 across a flawless
+ * run; the 300 / 200 / 100 / 0 judgement weights scale each award. A single
+ * object uses a neutral factor of 1.0, so its judgement quality still matters.</p>
  */
 public final class Osu4kGameState {
 
@@ -35,7 +36,7 @@ public final class Osu4kGameState {
      * original osu!-style 16 / 32 / 64 windows.
      */
     public enum Preset {
-        VERY_LENIENT(50.0, 100.0, 200.0, 260.0),
+        VERY_LENIENT(50.0, 100.0, 200.0, 205.0),
         LENIENT(22.5, 90, 180.0, 210.0),
         MODERATE(20.5, 86.5, 168.5, 196.5),
         STRICT(19.5, 75.5, 135.0, 168.5),
@@ -89,7 +90,7 @@ public final class Osu4kGameState {
      *  {@code points} is the score the note awarded (0 for misses). */
     public record HitEntry(int noteTimeMs, int diffMs, Judgment judgment, int points) {}
 
-    private static final int COLUMNS = 4;
+    private final int columnCount;
     private static final int DEBUG_LOG_SIZE = 128;
 
     /** Per-column object lists, each sorted ascending by time. */
@@ -111,14 +112,15 @@ public final class Osu4kGameState {
     private final double missMs;
 
     private HitObject[] activeHold;
+    /** Head judgement is kept pending until the hold tail is resolved. */
+    private Judgment[] activeHoldJudgment;
+    private int[] activeHoldDiff;
 
     /**
-     * Fixed denominator of the score fraction: 600 · totalNotes · (totalNotes − 1).
-     * A judged note contributes {@code (2·combo + totalNotes − 1) × weight} to
-     * {@link #scoreNumerator}; the live score is
-     * {@code floor(MAX_SCORE × numerator / denominator)}. Over a flawless run
-     * the numerator reaches exactly the denominator, so the score lands on
-     * {@link #MAX_SCORE} and can never overshoot it.
+     * Fixed denominator of the score fraction. For maps with two or more
+     * objects it is {@code 600 · totalNotes · (totalNotes − 1)}; a full-combo
+     * perfect run reaches the denominator exactly. A one-object map uses 300 so
+     * its single object still has a meaningful Perfect / Great / Good split.
      */
     private final long scoreDenominator;
 
@@ -152,17 +154,24 @@ public final class Osu4kGameState {
         this.goodMs = preset.goodMs;
         this.missMs = preset.missMs;
         this.totalNotes = map.hitObjects().size();
+        // Lane count comes from the map (1K-10K); clamp defensively so a
+        // hand-built BeatmapData can never break the per-column arrays.
+        this.columnCount = Math.max(BeatmapData.MIN_KEY_COUNT,
+                Math.min(BeatmapData.MAX_KEY_COUNT, map.keyCount()));
         // 600 · n · (n − 1) makes the flawless numerator sum to the denominator
-        // exactly (see scoreDenominator); zero for n ≤ 1, which is handled in
-        // applyHit without the fraction.
-        this.scoreDenominator = 600L * totalNotes * Math.max(0, totalNotes - 1);
+        // exactly. A one-object map uses a single 300-point base unit.
+        this.scoreDenominator = totalNotes <= 1
+                ? 300L
+                : 600L * totalNotes * (totalNotes - 1L);
 
-        columns = new List[COLUMNS];
-        status = new ObjectStatus[COLUMNS][];
-        cursor = new int[COLUMNS];
-        activeHold = new HitObject[COLUMNS];
+        columns = new List[columnCount];
+        status = new ObjectStatus[columnCount][];
+        cursor = new int[columnCount];
+        activeHold = new HitObject[columnCount];
+        activeHoldJudgment = new Judgment[columnCount];
+        activeHoldDiff = new int[columnCount];
 
-        for (int c = 0; c < COLUMNS; c++) {
+        for (int c = 0; c < columnCount; c++) {
             List<HitObject> col = new ArrayList<>();
             for (HitObject ho : map.hitObjects()) {
                 if (ho.column() == c) {
@@ -186,7 +195,7 @@ public final class Osu4kGameState {
     public int maxCombo() { return maxCombo; }
     public int totalNotes() { return totalNotes; }
     public int judgedCount() { return judgedCount; }
-    public int columns() { return COLUMNS; }
+    public int columns() { return columnCount; }
 
     /** How many notes have been judged with the given judgment so far. */
     public int judgmentCount(Judgment j) {
@@ -246,10 +255,10 @@ public final class Osu4kGameState {
     }
 
     public boolean isFinished(long playMs) {
-        if (judgedCount >= totalNotes) {
+        if (judgedCount >= totalNotes && allHoldsResolved()) {
             return true;
         }
-        for (int c = 0; c < COLUMNS; c++) {
+        for (int c = 0; c < columnCount; c++) {
             if (!columns[c].isEmpty()) {
                 HitObject last = columns[c].get(columns[c].size() - 1);
                 if (playMs <= last.endTimeMs() + offsetMs + missMs) {
@@ -267,11 +276,12 @@ public final class Osu4kGameState {
     /**
      * A key went down in {@code column} at playhead time {@code playMs}.
      *
-     * @return the judgment that resulted from this press, or {@code null} when
-     *         the press was ignored (too early, or the lane already held)
+     * @return the head judgment (a hold is not scored until its tail settles),
+     *         or {@code null} when the press was ignored (too early, or the lane
+     *         is already held)
      */
     public Judgment press(int column, long playMs) {
-        if (column < 0 || column >= COLUMNS) {
+        if (column < 0 || column >= columnCount) {
             return null;
         }
         if (activeHold[column] != null) {
@@ -291,33 +301,31 @@ public final class Osu4kGameState {
         Judgment j = judge(diff);
 
         if (j == Judgment.MISS) {
-            setJudged(column, obj);
-            judgedCount++;
-            applyMiss();
-            record(obj.timeMs(), diff, j, 0);
+            autoMiss(column, obj, diff);
             return j;
         }
 
-        int award = applyHit(j);
-        record(obj.timeMs(), diff, j, award);
-        judgedCount++;
         if (obj.isHold()) {
-            status[column][indexOf(column, obj)] = ObjectStatus.ACTIVE;
+            int index = indexOf(column, obj);
+            status[column][index] = ObjectStatus.ACTIVE;
             activeHold[column] = obj;
-        } else {
-            setJudged(column, obj);
+            activeHoldJudgment[column] = j;
+            activeHoldDiff[column] = diff;
+            return j;
         }
+
+        settleHit(column, obj, j, diff);
         return j;
     }
 
     /**
      * A key went up in {@code column}; completes an active hold note.
      *
-     * @return the judgment result (MISS if the hold tail was dropped early), or
-     *         null when there was no active hold in the lane
+     * @return the final judgment (including the head timing and tail completion),
+     *         or null when there was no active hold in the lane
      */
     public Judgment release(int column, long playMs) {
-        if (column < 0 || column >= COLUMNS) {
+        if (column < 0 || column >= columnCount) {
             return null;
         }
         HitObject hold = activeHold[column];
@@ -325,25 +333,22 @@ public final class Osu4kGameState {
             return null;
         }
         long tailTime = hold.endTimeMs() + offsetMs;
-        if (playMs < tailTime - missMs) {
-            // Released too early: the tail is missed and the combo breaks.
-            applyMiss();
-            record(hold.timeMs(), (int) (playMs - tailTime), Judgment.MISS, 0);
-            activeHold[column] = null;
-            setJudged(column, hold);
-            return Judgment.MISS;
+        long tailDiff = playMs - tailTime;
+        Judgment finalJudgment = activeHoldJudgment[column];
+        if (tailDiff < -missMs || tailDiff > missMs) {
+            finalJudgment = Judgment.MISS;
         }
-        activeHold[column] = null;
-        setJudged(column, hold);
-        return null;
+        settleHold(column, hold, finalJudgment, activeHoldDiff[column]);
+        return finalJudgment;
     }
 
     /**
      * Advances the playhead; auto-misses notes the player has run past and
-     * completes holds whose tail is behind the playhead. Call every frame.
+     * settles holds whose tail is behind the playhead. A held key that is still
+     * down after the tail window is treated as a missed hold. Call every frame.
      */
     public void update(long playMs) {
-        for (int c = 0; c < COLUMNS; c++) {
+        for (int c = 0; c < columnCount; c++) {
             List<HitObject> col = columns[c];
 
             // Skip notes already judged.
@@ -359,17 +364,14 @@ public final class Osu4kGameState {
             switch (status[c][cursor[c]]) {
                 case ACTIVE -> {
                     if (playMs > obj.endTimeMs() + offsetMs + missMs) {
-                        activeHold[c] = null;
-                        setJudged(c, cursor[c]);
+                        // The key was never released inside the tail window.
+                        settleHold(c, obj, Judgment.MISS, activeHoldDiff[c]);
                     }
                 }
                 case PENDING -> {
                     int noteTime = obj.timeMs() + offsetMs;
                     if (playMs > noteTime + missMs) {
-                        setJudged(c, cursor[c]);
-                        judgedCount++;
-                        applyMiss();
-                        record(noteTime, (int) (playMs - noteTime), Judgment.MISS, 0);
+                        autoMiss(c, obj, (int) (playMs - noteTime));
                     }
                 }
                 default -> { /* handled above */ }
@@ -390,9 +392,11 @@ public final class Osu4kGameState {
         Arrays.fill(judgmentCounts, 0);
         Arrays.fill(debugLog, null);
         debugLogPos = 0;
-        for (int c = 0; c < COLUMNS; c++) {
+        for (int c = 0; c < columnCount; c++) {
             cursor[c] = 0;
             activeHold[c] = null;
+            activeHoldJudgment[c] = null;
+            activeHoldDiff[c] = 0;
             Arrays.fill(status[c], ObjectStatus.PENDING);
         }
     }
@@ -400,6 +404,38 @@ public final class Osu4kGameState {
     // ---------------------------------------------------------------------
     // Internals
     // ---------------------------------------------------------------------
+
+    private void settleHit(int column, HitObject obj, Judgment judgment, int diffMs) {
+        int award = applyHit(judgment);
+        record(obj.timeMs() + offsetMs, diffMs, judgment, award);
+        judgedCount++;
+        setJudged(column, obj);
+    }
+
+    /** Resolve a held object exactly once when its tail has been dealt with. */
+    private void settleHold(int column, HitObject hold, Judgment judgment, int headDiffMs) {
+        activeHold[column] = null;
+        activeHoldJudgment[column] = null;
+        activeHoldDiff[column] = 0;
+        setJudged(column, hold);
+        if (judgment == Judgment.MISS) {
+            applyMiss();
+            record(hold.timeMs() + offsetMs, headDiffMs, judgment, 0);
+        } else {
+            int award = applyHit(judgment);
+            record(hold.timeMs() + offsetMs, headDiffMs, judgment, award);
+        }
+        judgedCount++;
+    }
+
+    private boolean allHoldsResolved() {
+        for (HitObject hold : activeHold) {
+            if (hold != null) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     /** Oldest PENDING note in the column, or null if none/busy. */
     private HitObject nextPending(int column) {
@@ -441,26 +477,18 @@ public final class Osu4kGameState {
     }
 
     /**
-     * Scores a successful hit and returns the points it awarded (always > 0).
-     *
-     * <p>The award grows with the combo held <i>before</i> this note: the weight
-     * for note {@code i} (0-based) is {@code 2·combo + totalNotes − 1}, so a
-     * perfect right after a combo break earns half of note 0's weight and a
-     * max-combo note one and a half times it. The judgement scales it down to
-     * two thirds for GREAT and one third for GOOD. On a flawless run the weights
-     * sum to the denominator, so the score lands exactly on the cap. For maps
-     * with at most one note every weight-based note scores the full
-     * {@link #MAX_SCORE}, keeping the no-overshoot rule.</p>
+     * Scores a successful object and returns the incremental points awarded.
+     * The combo factor runs from 0.5 on the first object to 1.5 on the last
+     * object of a flawless multi-object map; the denominator normalizes that
+     * exact trajectory to {@link #MAX_SCORE}.
      */
     private int applyHit(Judgment j) {
         int previous = score;
-        int weight = 2 * combo + totalNotes - 1;
-        if (scoreDenominator > 0) {
-            scoreNumerator += (long) weight * j.score;
-            score = (int) Math.min(MAX_SCORE, scoreNumerator * MAX_SCORE / scoreDenominator);
-        } else {
-            score = MAX_SCORE; // single-note map: the note is worth everything
-        }
+        long comboWeight = totalNotes <= 1
+                ? 1L
+                : totalNotes - 1L + 2L * combo;
+        scoreNumerator += comboWeight * j.score;
+        score = (int) Math.min(MAX_SCORE, scoreNumerator * MAX_SCORE / scoreDenominator);
         combo++;
         if (combo > maxCombo) {
             maxCombo = combo;
@@ -470,6 +498,14 @@ public final class Osu4kGameState {
 
     private void applyMiss() {
         combo = 0;
+    }
+
+    /** Marks a note as missed: judged, combo reset, hit logged. */
+    private void autoMiss(int column, HitObject obj, int diffMs) {
+        setJudged(column, obj);
+        judgedCount++;
+        applyMiss();
+        record(obj.timeMs() + offsetMs, diffMs, Judgment.MISS, 0);
     }
 
     private void record(int noteTimeMs, int diffMs, Judgment j, int points) {

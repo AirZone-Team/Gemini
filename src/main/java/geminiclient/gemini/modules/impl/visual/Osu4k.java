@@ -1,4 +1,4 @@
-package geminiclient.gemini.modules.impl.visual.osu4k;
+package geminiclient.gemini.modules.impl.visual;
 
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.I18n;
@@ -10,6 +10,7 @@ import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kGameState;
 import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kKeyConfig;
 import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kLibrary;
 import geminiclient.gemini.modules.impl.visual.osu4k.model.OszArchive;
+import geminiclient.gemini.modules.impl.visual.osu4k.screen.Osu4kScreen;
 import geminiclient.gemini.modules.impl.visual.osu4k.screen.Osu4kSelectScreen;
 import geminiclient.gemini.values.impl.BoolValue;
 import geminiclient.gemini.values.impl.FloatValue;
@@ -19,12 +20,14 @@ import geminiclient.gemini.values.impl.ListValue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.function.Function;
 
 /**
- * OSU4k — a 4K (osu!mania style) rhythm game inside the client.
+ * OSU4k — an osu!mania style rhythm game inside the client (1K-10K lanes).
  *
  * <p>Enabling the module opens the beatmap selection screen; from there the
  * player can open a {@code .osz}, pick a difficulty, rebind keys and play.
+ * Each beatmap's key count (read from the file) drives the number of lanes.
  * The module values (offset, volume, scroll speed, debug overlay) are
  * persisted by the regular module config system.</p>
  */
@@ -33,16 +36,20 @@ public class Osu4k extends Module implements MinecraftInstance {
     /** Shared, module-wide audio player. */
     public static final FfmpegAudioPlayer AUDIO = new FfmpegAudioPlayer();
 
-    // Keybinds shared across the screens; loaded once at init.
-    public static int[] KEYS = Osu4kKeyConfig.DEFAULT_KEYS.clone();
+    // Keybinds shared across the screens, one set per lane count (1K-10K);
+    // loaded once at init, persisted to osu4k.json on change/disable.
+    private static final java.util.Map<Integer, int[]> KEY_SETS = new java.util.HashMap<>();
 
     /** Currently open beatmap set, owned by the select screen. */
     public static OszArchive currentArchive;
     public static Path currentOszPath;
 
-    /** Default per-lane note colours (ARGB); the "Default" lane colour mode. */
+    /** Default per-lane note colours (ARGB); the "Default" lane colour mode.
+     *  The first four hues keep the original 4K look; entries cover 10K. */
     public static final int[] LANE_COLORS = {
-            0xFF5FA8FF, 0xFF4FC3F7, 0xFFFFD54F, 0xFFFF8A65
+            0xFF5FA8FF, 0xFF4FC3F7, 0xFFFFD54F, 0xFFFF8A65,
+            0xFF7EE081, 0xFFB388FF, 0xFFFF80AB, 0xFF80DEEA,
+            0xFFFFB74D, 0xFFA1887F
     };
 
     /** Single colour used for every lane in the "Same" lane colour mode. */
@@ -95,7 +102,7 @@ public class Osu4k extends Module implements MinecraftInstance {
         super("OSU4k", ModuleEnum.Visual);
         this.key = 0; // unbound by default; bind in ClickGUI
         addValue(offsetMs, volume, scrollSpeed, debug, judgement, hitEffects, laneHighlight, laneColors);
-        Osu4k.KEYS = Osu4kKeyConfig.loadKeys(mc.gameDirectory.toPath());
+        KEY_SETS.putAll(Osu4kKeyConfig.loadKeySets(mc.gameDirectory.toPath()));
     }
 
     public int getOffsetMs() {
@@ -122,10 +129,10 @@ public class Osu4k extends Module implements MinecraftInstance {
         return Gemini.moduleManager == null ? null : Gemini.moduleManager.getModule(Osu4k.class);
     }
 
-    /** Effective hit-timing offset in ms. */
-    public static int offset() {
+    /** Reads a module value, falling back when the module is not available. */
+    private static <T> T cfg(Function<Osu4k, T> getter, T fallback) {
         Osu4k m = module();
-        return m == null ? 0 : m.getOffsetMs();
+        return m == null ? fallback : getter.apply(m);
     }
 
     /** Selected judgement-window preset, used when a game state is created. */
@@ -142,44 +149,43 @@ public class Osu4k extends Module implements MinecraftInstance {
         }
     }
 
+    /** Effective hit-timing offset in ms. */
+    public static int offset() {
+        return cfg(Osu4k::getOffsetMs, 0);
+    }
+
     /** Effective playback volume (0..1). */
     public static float volume() {
-        Osu4k m = module();
-        return m == null ? 0.8f : m.getVolume();
+        return cfg(Osu4k::getVolume, 0.8f);
     }
 
     /** Effective note scroll speed in px per ms. */
     public static float scrollSpeed() {
-        Osu4k m = module();
-        return m == null ? 2.0f : m.getScrollSpeed();
+        return cfg(Osu4k::getScrollSpeed, 2.0f);
     }
 
     /** Whether the debug overlay should render. */
     public static boolean debug() {
-        Osu4k m = module();
-        return m != null && m.isDebug();
+        return cfg(Osu4k::isDebug, false);
     }
 
     /** Whether judgement-line hit effects (rings, hold pulse) should render. */
     public static boolean hitEffects() {
-        Osu4k m = module();
-        return m == null || m.hitEffects.enabled;
+        return cfg(m -> m.hitEffects.enabled, true);
     }
 
     /** Whether pressing a lane key should highlight that lane (press glow). */
     public static boolean laneHighlight() {
-        Osu4k m = module();
-        return m == null || m.laneHighlight.enabled;
+        return cfg(m -> m.laneHighlight.enabled, true);
     }
 
     /**
      * Effective colour of a lane's notes, honouring the Lane Colors mode:
-     * {@code Default} keeps the fixed four-lane palette, {@code Same} paints
+     * {@code Default} keeps the fixed lane palette, {@code Same} paints
      * every lane in one colour and {@code Random} uses a per-launch palette.
      */
     public static int laneColor(int column) {
-        Osu4k m = module();
-        String mode = m == null ? "Default" : m.laneColors.get();
+        String mode = cfg(m -> m.laneColors.get(), "Default");
         int idx = Math.floorMod(column, LANE_COLORS.length);
         if ("Same".equals(mode)) {
             return SAME_LANE_COLOR;
@@ -188,6 +194,27 @@ public class Osu4k extends Module implements MinecraftInstance {
             return RANDOM_LANE_COLORS[idx];
         }
         return LANE_COLORS[idx];
+    }
+
+    /**
+     * Effective lane keys for a key count, falling back to that count's
+     * default layout when it has no stored set. Callers must not mutate the
+     * returned array (clone it first, as the keybind screen does).
+     */
+    public static int[] keysFor(int columns) {
+        int c = Math.max(Osu4kKeyConfig.MIN_KEYS, Math.min(Osu4kKeyConfig.MAX_KEYS, columns));
+        int[] keys = KEY_SETS.get(c);
+        return keys != null ? keys : Osu4kKeyConfig.defaultKeys(c);
+    }
+
+    /** Replaces the key set for one lane count and persists every set. */
+    public static void setKeys(int columns, int[] keys) {
+        int c = Math.max(Osu4kKeyConfig.MIN_KEYS, Math.min(Osu4kKeyConfig.MAX_KEYS, columns));
+        if (keys == null || keys.length != c) {
+            return;
+        }
+        KEY_SETS.put(c, keys.clone());
+        Osu4kKeyConfig.saveKeySets(mc.gameDirectory.toPath(), KEY_SETS);
     }
 
     /**
@@ -227,24 +254,49 @@ public class Osu4k extends Module implements MinecraftInstance {
         }
     }
 
+    /**
+     * Disables the module if it is currently enabled. Used by the screens when
+     * the OSU4K flow is closed (Esc on the select screen), so the module never
+     * stays on in the background with no UI open.
+     */
+    public static void requestDisable() {
+        Osu4k m = module();
+        if (m != null && m.enabled) {
+            m.setEnabled(false);
+        }
+    }
+
     @Override
     public void onDisabled() {
         super.onDisabled();
-        Osu4kKeyConfig.saveKeys(mc.gameDirectory.toPath(), Osu4k.KEYS);
-        AUDIO.unload();
-        if (currentArchive != null) {
-            try {
-                currentArchive.close();
-            } catch (Exception ignored) {
-                // best effort
-            }
-            currentArchive = null;
-            currentOszPath = null;
-        }
-        // Return to the game screen if one of the OSU4K screens is open.
-        if (mc.gui.screen() instanceof geminiclient.gemini.modules.impl.visual.osu4k.screen.Osu4kScreen) {
+        // Return to the game screen if one of the OSU4K screens is open. This
+        // must run on the render thread; the heavier teardown below does not.
+        if (mc.gui.screen() instanceof Osu4kScreen) {
             mc.gui.setScreen(null);
         }
-        Gemini.fileSystem.saveConfig();
+        // Teardown (audio decode-thread join, FFmpeg release, key-set + config
+        // JSON writes) runs on a background thread so toggling the module off
+        // never stalls a frame. Skipped when the module was re-enabled before
+        // it ran, so a quick re-toggle cannot kill the new session's audio.
+        OszArchive archive = currentArchive;
+        currentArchive = null;
+        currentOszPath = null;
+        Thread cleanup = new Thread(() -> {
+            if (enabled) {
+                return;
+            }
+            Osu4kKeyConfig.saveKeySets(mc.gameDirectory.toPath(), KEY_SETS);
+            AUDIO.unload();
+            if (archive != null) {
+                try {
+                    archive.close();
+                } catch (Exception ignored) {
+                    // best effort
+                }
+            }
+            Gemini.fileSystem.saveConfig();
+        }, "OSU4K-Disable");
+        cleanup.setDaemon(true);
+        cleanup.start();
     }
 }

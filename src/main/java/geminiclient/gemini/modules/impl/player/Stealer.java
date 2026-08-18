@@ -22,6 +22,7 @@ import net.minecraft.world.level.block.Block;
 
 import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -32,6 +33,9 @@ public class Stealer extends Module {
     private static final String LARGE_CHEST_KEY = "container.chestDouble";
     private static final String FALLBACK_CHEST_TITLE = "Chest";
 
+    /** 同一槽位 QUICK_MOVE 连续失败达到该次数后视为卡死（如背包已满），不再重试。 */
+    private static final int MAX_FAILED_MOVE_ATTEMPTS = 2;
+
     private final IntRangeValue openDelay = new IntRangeValue("OpenDelay", 150, 300, 0, 500);
     private final IntRangeValue stealDelay = new IntRangeValue("StealDelay", 100, 200, 0, 500);
     private final IntRangeValue closeDelay = new IntRangeValue("CloseDelay", 100, 200, 0, 500);
@@ -41,9 +45,13 @@ public class Stealer extends Module {
     private final TimerUtils closeTimer = new TimerUtils();
     private Screen lastScreen;
     private final Set<ItemCategory> processedCategories = EnumSet.noneOf(ItemCategory.class);
+    /** 每个箱子槽位已尝试 QUICK_MOVE 的次数，用于识别搬运失败（背包满等）的卡死槽位。 */
+    private final Map<Integer, Integer> failedMoveAttempts = new HashMap<>();
     private boolean hasUpgradeableItems = false;
     private boolean waitingForOpenDelay = true;
     private int openDelayMs;
+    private int stealDelayMs;
+    private int closeDelayMs;
 
     public Stealer() {
         super("Stealer", ModuleEnum.Player);
@@ -90,9 +98,6 @@ public class Stealer extends Module {
             }
         }
 
-        int stealDelayMs = getRandomDelay(stealDelay);
-        int closeDelayMs = getRandomDelay(closeDelay);
-
         if (!hasUpgradeableItems) {
             hasUpgradeableItems = hasUpgradeableItems(menu);
         }
@@ -106,24 +111,32 @@ public class Stealer extends Module {
     }
 
     private boolean hasUpgradeableItems(ChestMenu menu) {
-        Map<ItemCategory, Float> bestInvScores = getBestItemScoresInInventory();
+        Map<ItemCategory, Float> bestInvScores = getBestOwnedItemScores();
         int chestSize = menu.getRowCount() * 9;
 
         for (int i = 0; i < chestSize; i++) {
+            if (isSlotStuck(i))
+                continue;
+
             ItemStack stack = menu.getSlot(i).getItem();
-            if (!stack.isEmpty() && isValuableItem(stack)) {
-                ItemCategory category = getItemCategory(stack);
-                if (processedCategories.contains(category))
-                    continue;
+            if (stack.isEmpty()) {
+                failedMoveAttempts.remove(i);
+                continue;
+            }
+            if (!isValuableItem(stack))
+                continue;
 
-                if (category == ItemCategory.MATERIAL) {
-                    return true;
-                }
+            ItemCategory category = getItemCategory(stack);
+            if (processedCategories.contains(category))
+                continue;
 
-                float score = calculateItemScore(stack);
-                if (score > bestInvScores.getOrDefault(category, 0f)) {
-                    return true;
-                }
+            if (category == ItemCategory.MATERIAL) {
+                return true;
+            }
+
+            float score = calculateItemScore(stack);
+            if (score > bestInvScores.getOrDefault(category, 0f)) {
+                return true;
             }
         }
         return false;
@@ -136,6 +149,7 @@ public class Stealer extends Module {
             }
             closeTimer.reset();
             processedCategories.clear();
+            failedMoveAttempts.clear();
             hasUpgradeableItems = false;
         }
     }
@@ -162,6 +176,10 @@ public class Stealer extends Module {
         mc.gameMode.handleContainerInput(menu.containerId, slotValue.slotId(), 0,
                 ContainerInput.QUICK_MOVE, mc.player);
 
+        // 无法立刻确认服务端是否搬运成功：记录尝试次数，若槽位多次未清空（如背包已满）
+        // 则判定卡死并跳过，避免对同槽位无限重发 QUICK_MOVE。
+        failedMoveAttempts.merge(slotValue.slotId(), 1, Integer::sum);
+
         if (slotValue.category() != ItemCategory.MATERIAL) {
             processedCategories.add(slotValue.category());
         }
@@ -171,13 +189,20 @@ public class Stealer extends Module {
     // ========== Item Selection ==========
 
     private Optional<SlotValue> findBestItemSlotToSteal(ChestMenu menu) {
-        Map<ItemCategory, Float> bestInvScores = getBestItemScoresInInventory();
+        Map<ItemCategory, Float> bestInvScores = getBestOwnedItemScores();
         int chestSize = menu.getRowCount() * 9;
         Map<ItemCategory, SlotValue> upgradeableItems = new EnumMap<>(ItemCategory.class);
 
         for (int i = 0; i < chestSize; i++) {
+            if (isSlotStuck(i))
+                continue;
+
             ItemStack stack = menu.getSlot(i).getItem();
-            if (stack.isEmpty() || !isValuableItem(stack))
+            if (stack.isEmpty()) {
+                failedMoveAttempts.remove(i);
+                continue;
+            }
+            if (!isValuableItem(stack))
                 continue;
 
             ItemCategory category = getItemCategory(stack);
@@ -200,11 +225,13 @@ public class Stealer extends Module {
             }
         }
 
+        // 全局价值最高的优先拿；同分时优先盔甲与武器。
         SlotValue bestSlot = null;
-        float bestScore = -1;
         for (SlotValue sv : upgradeableItems.values()) {
-            if (sv.score() > bestScore) {
-                bestScore = sv.score();
+            if (bestSlot == null
+                    || sv.score() > bestSlot.score()
+                    || (sv.score() == bestSlot.score()
+                        && categoryPriority(sv.category()) < categoryPriority(bestSlot.category()))) {
                 bestSlot = sv;
             }
         }
@@ -212,12 +239,13 @@ public class Stealer extends Module {
         return Optional.ofNullable(bestSlot);
     }
 
-    private Map<ItemCategory, Float> getBestItemScoresInInventory() {
+    /** 扫描玩家全部可持有槽位（背包 0-35、盔甲 36-39、副手 40），与箱子中的物品按类别比价值。 */
+    private Map<ItemCategory, Float> getBestOwnedItemScores() {
         Map<ItemCategory, Float> bestScores = new EnumMap<>(ItemCategory.class);
         if (mc.player == null)
             return bestScores;
 
-        for (int i = 0; i < 36; i++) {
+        for (int i = 0; i < mc.player.getInventory().getContainerSize(); i++) {
             ItemStack stack = mc.player.getInventory().getItem(i);
             if (!stack.isEmpty() && isValuableItem(stack)) {
                 ItemCategory category = getItemCategory(stack);
@@ -226,6 +254,19 @@ public class Stealer extends Module {
             }
         }
         return bestScores;
+    }
+
+    private boolean isSlotStuck(int slotId) {
+        return failedMoveAttempts.getOrDefault(slotId, 0) >= MAX_FAILED_MOVE_ATTEMPTS;
+    }
+
+    /** 价值相同时的拿取优先级：值越小越优先（盔甲/武器 > 远程/工具 > 方块/材料）。 */
+    private static int categoryPriority(ItemCategory category) {
+        return switch (category) {
+            case WEAPON, ARMOR_HEAD, ARMOR_CHEST, ARMOR_LEGS, ARMOR_FEET -> 0;
+            case BOW, CROSSBOW, TOOL, FISHING_ROD -> 1;
+            case BLOCK, MATERIAL -> 2;
+        };
     }
 
     private record SlotValue(int slotId, float score, ItemCategory category) {}
@@ -311,6 +352,11 @@ public class Stealer extends Module {
     private float calculateItemScore(ItemStack stack) {
         Item item = stack.getItem();
 
+        // 神棍物品（锋利 100+ 神斧、图腾、末影水晶等）价值最高，必须在工具分支前判断，
+        // 否则神斧会被 getToolScore 打成 0 分而永远不被拿取。
+        if (InvUtils.isGodItem(stack))
+            return 500f;
+
         if (stack.is(ItemTags.SWORDS))
             return InvUtils.getSwordDamage(stack) * 10f;
         if (InvUtils.isSharpnessAxe(stack))
@@ -334,20 +380,24 @@ public class Stealer extends Module {
         if (item == Items.FISHING_ROD)
             return 20f;
 
-        if (item instanceof BlockItem)
-            return stack.getCount();
-
-        if (InvUtils.isGodItem(stack))
-            return 500f;
-
+        // 材料评分必须放在 BlockItem 分支之前：信标、黑曜石等方块型材料
+        // 若按方块数量计分会得到极低的分数，导致其在与已有物品比较时被跳过。
         Float materialScore = MATERIAL_SCORES.get(item);
         if (materialScore != null) {
             return stack.getCount() > 1 ? materialScore + stack.getCount() : materialScore;
         }
+
+        if (item instanceof BlockItem)
+            return stack.getCount();
+
         return 0f;
     }
 
     private ItemCategory getItemCategory(ItemStack stack) {
+        // 神斧锋利等级超出 isSharpnessAxe 的区间，会被误判为普通工具，这里显式归为武器。
+        if (InvUtils.isGodAxe(stack))
+            return ItemCategory.WEAPON;
+
         Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
         if (equippable != null) {
             return switch (equippable.slot()) {
@@ -375,6 +425,11 @@ public class Stealer extends Module {
 
         if (stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.AXES) || stack.is(ItemTags.SHOVELS))
             return ItemCategory.TOOL;
+
+        // 材料优先于方块判断：信标、黑曜石等方块型材料归为 MATERIAL（始终可拿），
+        // 而不是按方块数量与已有方块比较后被跳过。
+        if (MATERIAL_SCORES.containsKey(item))
+            return ItemCategory.MATERIAL;
 
         if (item instanceof BlockItem)
             return ItemCategory.BLOCK;
@@ -429,6 +484,9 @@ public class Stealer extends Module {
         openTimer.reset();
         waitingForOpenDelay = true;
         openDelayMs = getRandomDelay(openDelay);
+        stealDelayMs = getRandomDelay(stealDelay);
+        closeDelayMs = getRandomDelay(closeDelay);
+        failedMoveAttempts.clear();
     }
 
     private int getRandomDelay(IntRangeValue delay) {

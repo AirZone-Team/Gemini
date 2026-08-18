@@ -536,6 +536,17 @@ public class CustomFontRenderer {
         return loadFont(path, size, java.awt.Font.PLAIN);
     }
 
+    /**
+     * Fallback face used when a bundled TTF cannot be loaded. {@code Font.createFont}
+     * spools the TTF into {@code java.io.tmpdir} while parsing, so it fails (and used
+     * to crash the render thread) when the temp volume is full; a plain logical font
+     * touches no disk, so this always succeeds.
+     */
+    private static GlyphFont fallbackFont(int awtStyle, float size) {
+        java.awt.Font base = new java.awt.Font(java.awt.Font.SANS_SERIF, awtStyle, 1);
+        return new GlyphFont(base.deriveFont(size));
+    }
+
     public static GlyphFont loadFont(Identifier path, float size, int awtStyle) {
         String key = path.toString() + "@" + size + "@" + awtStyle;
         return FONT_CACHE.computeIfAbsent(key, k -> {
@@ -545,7 +556,8 @@ public class CustomFontRenderer {
                         java.awt.Font.TRUETYPE_FONT, is);
                 return new GlyphFont(base.deriveFont(awtStyle, size));
             } catch (Exception e) {
-                throw new RuntimeException("Failed to load font: " + path, e);
+                LOGGER.warn("[Font] Failed to load {}: {} — using system fallback", path, e.toString());
+                return fallbackFont(awtStyle, size);
             }
         });
     }
@@ -556,7 +568,8 @@ public class CustomFontRenderer {
                     java.awt.Font.TRUETYPE_FONT, in);
             return new GlyphFont(base.deriveFont(size));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load font from stream", e);
+            LOGGER.warn("[Font] Failed to load font from stream: {} — using system fallback", e.toString());
+            return fallbackFont(java.awt.Font.PLAIN, size);
         }
     }
 
@@ -568,7 +581,9 @@ public class CustomFontRenderer {
                         java.awt.Font.TRUETYPE_FONT, fis);
                 return new GlyphFont(base.deriveFont(size));
             } catch (Exception e) {
-                throw new RuntimeException("Failed to load font: " + file.getAbsolutePath(), e);
+                LOGGER.warn("[Font] Failed to load {}: {} — using system fallback",
+                        file.getAbsolutePath(), e.toString());
+                return fallbackFont(java.awt.Font.PLAIN, size);
             }
         });
     }

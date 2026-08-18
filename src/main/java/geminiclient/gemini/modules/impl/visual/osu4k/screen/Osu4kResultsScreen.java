@@ -198,12 +198,6 @@ public final class Osu4kResultsScreen extends Osu4kScreen {
         drawCentered(gui, smallFont, label, cx, cy, scaleAlpha(COLOR_SUCCESS, reveal));
     }
 
-    private void drawAccentGlowAt(GuiGraphicsExtractor gui, float cx, float cy, float w, float h, int color, int alpha) {
-        int argb = (alpha << 24) | (color & 0xFFFFFF);
-        CustomRoundedRectRenderer.drawRoundedRect(
-                gui, Math.round(cx - w / 2f), Math.round(cy - h / 2f), Math.round(w), Math.round(h), (int) (h / 2f), argb);
-    }
-
     // ---------------------------------------------------------------------
     // Colours
     // ---------------------------------------------------------------------
@@ -216,16 +210,6 @@ public final class Osu4kResultsScreen extends Osu4kScreen {
             case B -> 0xFF4FC3F7;
             case C -> 0xFFFFD28A;
             case D -> 0xFFFF6E6E;
-        };
-    }
-
-    /** Judgment text colour, matching the in-game popups. */
-    private static int judgmentColor(Judgment j) {
-        return switch (j) {
-            case PERFECT -> 0xFFFFD700;
-            case GREAT -> 0xFF7EE081;
-            case GOOD -> 0xFF4FC3F7;
-            case MISS -> COLOR_ERROR;
         };
     }
 
@@ -276,30 +260,5 @@ public final class Osu4kResultsScreen extends Osu4kScreen {
     /** Replays the same difficulty; the game screen reloads the audio and plays. */
     private void retry() {
         this.minecraft.gui.setScreen(new Osu4kGameScreen(parent, map));
-    }
-
-    // ---------------------------------------------------------------------
-    // Easing
-    // ---------------------------------------------------------------------
-
-    private static float clamp01(float v) {
-        return Math.max(0f, Math.min(1f, v));
-    }
-
-    private static float easeOutCubic(float t) {
-        float u = 1f - t;
-        return 1f - u * u * u;
-    }
-
-    private static float easeOutBack(float t) {
-        float c1 = 1.70158f;
-        float c3 = c1 + 1.0f;
-        return 1.0f + c3 * (float) Math.pow(t - 1.0f, 3)
-                + c1 * (float) Math.pow(t - 1.0f, 2);
-    }
-
-    private static String fmtTime(long ms) {
-        long s = Math.max(0, ms / 1000);
-        return String.format(Locale.ROOT, "%d:%02d", s / 60, s % 60);
     }
 }

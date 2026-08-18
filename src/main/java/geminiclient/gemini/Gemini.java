@@ -40,12 +40,16 @@ public class Gemini {
         eventManager.register(hudDragManager);
 
         // Sync available TTF fonts into Arraylists' Font ListValue before config load
+        // ("MiSans" is the bundled face — always keep it listed and first)
         List<String> ttfFonts = fileSystem.scanTtfFonts();
         Arraylists arraylists = moduleManager.getModule(Arraylists.class);
-        if (arraylists != null && !ttfFonts.isEmpty()) {
+        if (arraylists != null) {
             List<String> options = new ArrayList<>();
-            options.add("Default");
-            options.addAll(ttfFonts);
+            options.add("MiSans");
+            if (!ttfFonts.isEmpty()) {
+                options.add("Default");
+                options.addAll(ttfFonts);
+            }
             arraylists.ttfFont.setList(options);
         }
 

@@ -1,7 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.osu4k.screen;
 
 import geminiclient.gemini.base.I18n;
-import geminiclient.gemini.modules.impl.visual.osu4k.Osu4k;
+import geminiclient.gemini.modules.impl.visual.Osu4k;
 import geminiclient.gemini.modules.impl.visual.osu4k.audio.FfmpegAudioPlayer;
 import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kGameState;
 import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kGameState.HitEntry;
@@ -26,13 +26,11 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * The 4K playfield screen.
+ * The mania playfield screen (lane count follows the map, 1K-10K).
  *
- * <p>Layout (top to bottom): a 44 px header (song title only), the score/combo
- * band drawn at the bottom-most layer beneath the playfield, the four-lane
- * playfield with the judgement line at 82% height, and a 64 px footer with the
- * draggable progress bar and a single auto-width button row (transport plus
- * difficulty / keys / pause / exit).</p>
+ * <p>Layout: compact song statistics float at the top, the playfield fills
+ * the centre, a vertical progress rail sits on the right, and compact
+ * controls are split between the lower left and right edges.</p>
  *
  * <p>Timing is driven entirely by the audio clock ({@link FfmpegAudioPlayer#positionMsFresh()}),
  * so notes stay locked to the music regardless of frame rate. The music is
@@ -49,11 +47,13 @@ import java.util.Locale;
  */
 public final class Osu4kGameScreen extends Osu4kScreen {
 
-    private static final int HEADER_H = 44;
-    /** Score/combo band directly below the header (bottom-most draw layer). */
-    private static final int SCORE_H = 26;
-    private static final int FOOTER_H = 64;
-    private static final float JUDGE_LINE_FRACTION = 0.87f;
+    private static final int TOP_INFO_H = 44;
+    private static final int CONTROL_H = 28;
+    private static final int PROGRESS_W = 18;
+    private static final int PROGRESS_GAP = 18;
+    private static final int SIDE_MARGIN = 18;
+    private static final long NOTE_PREVIEW_MS = 1000L;
+    private static final float JUDGE_LINE_FRACTION = 0.95f;
 
     /** Note visual scale: shrinks note caps / glows so the longer lane stays
      *  readable and fits more notes on screen at once. */
@@ -69,8 +69,10 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     private static final int BTN_PAUSE = 4;
     private static final int BTN_KEYS = 5;
     private static final int BTN_EXIT = 6;
-    private static final int FOOTER_BTN_H = 26;
-    private static final int FOOTER_BTN_GAP = 8;
+    private static final int FOOTER_BTN_H = 20;
+    private static final int FOOTER_BTN_GAP = 5;
+    private static final int FOOTER_BTN_PAD = 22;
+    private static final int FOOTER_BTN_FONT = 12;
 
     private BeatmapData map;
     private final FfmpegAudioPlayer audio = Osu4k.AUDIO;
@@ -101,6 +103,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     private long lastFrameMs;
     private int mouseX;
     private int mouseY;
+    private String errorMessage;
 
     // End-of-song transition to the results screen: when the audio ends and the
     // last note is judged, the playfield freezes and shows a "Clear!" flash for
@@ -108,6 +111,14 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     private static final long CLEAR_HOLD_MS = 800;
     private long clearedAt;
     private boolean resultsShown;
+    /**
+     * Last line of defence against a spurious audio ENDED: the audio player's
+     * own recovery re-seeks and resumes on decode hiccups, but if the playhead
+     * still reports the song over with most of it unplayed, this re-seeks to
+     * the extrapolated playhead and resumes playback exactly once. If the
+     * audio then genuinely ends there, the results screen opens as usual.
+     */
+    private long resumeAtMs = -1;
 
     /**
      * Music delay in ms: the audio is held silent for this long after the
@@ -117,18 +128,21 @@ public final class Osu4kGameScreen extends Osu4kScreen {
      */
     private static final long MUSIC_DELAY_MS = 3000;
 
-    // Judgement popup + lane effects.
+    // Judgement popup + lane effects. Arrays are fixed at the maximum lane
+    // count so switching difficulty never reallocates them; all loops bound
+    // by the current map's column count.
     private Judgment lastJudgment;
     private long judgmentAtMs;
-    private final int[] laneFlashEndMs = new int[Osu4kKeyConfig.COLUMNS];
-    private final boolean[] laneDown = new boolean[Osu4kKeyConfig.COLUMNS];
+    private final int[] laneFlashEndMs = new int[Osu4kKeyConfig.MAX_KEYS];
+    private final boolean[] laneDown = new boolean[Osu4kKeyConfig.MAX_KEYS];
 
     // Judgement-line hit effects (expanding rings) + hold pulse state.
     private final List<HitEffect> hitEffects = new java.util.ArrayList<>();
-    private final boolean[] holdPulseActive = new boolean[Osu4kKeyConfig.COLUMNS];
+    private final boolean[] holdPulseActive = new boolean[Osu4kKeyConfig.MAX_KEYS];
 
     // Layout cache.
     private int fieldTop, fieldBottom, fieldLeft, fieldRight, judgeY, laneW;
+    private int progressX, progressTop, progressBottom;
 
     /**
      * Expanding ring burst drawn at the judgement line when a note is hit.
@@ -144,7 +158,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     }
 
     /** One auto-sized button in the footer row (transport + actions). */
-    private record FooterBtn(int id, int x, int y, int w, int h) {}
+    private record FooterBtn(int id, int x, int y, int w, int h, String label) {}
 
     public Osu4kGameScreen(Screen parent, BeatmapData map) {
         super(parent, "OSU4k Play");
@@ -172,6 +186,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
             audio.setVolume(Osu4k.volume());
             state = new Osu4kGameState(map, Osu4k.offset(), Osu4k.judgementPreset());
             paused = false;
+            resumeAtMs = -1;
             // No lead-in if the audio failed to load: show the error instead.
             musicStartAtMs = audio.isLoaded() ? System.currentTimeMillis() + MUSIC_DELAY_MS : 0;
             smoother.reset(audio.positionMs(), System.nanoTime());
@@ -180,15 +195,27 @@ public final class Osu4kGameScreen extends Osu4kScreen {
         }
     }
 
-    private String errorMessage;
-
     private void computeLayout() {
-        fieldLeft = Math.max(20, this.width / 2 - 240);
-        fieldRight = Math.min(this.width - 20, this.width / 2 + 240);
-        fieldTop = HEADER_H + SCORE_H + 6;
-        fieldBottom = this.height - FOOTER_H - 6;
+        int progressReserve = PROGRESS_W + PROGRESS_GAP + SIDE_MARGIN;
+        fieldLeft = Math.max(SIDE_MARGIN, this.width / 2 - 280);
+        fieldRight = Math.min(this.width - progressReserve, this.width / 2 + 280);
+        if (fieldRight - fieldLeft < 160) {
+            fieldLeft = SIDE_MARGIN;
+            fieldRight = Math.max(fieldLeft + 160, this.width - progressReserve);
+        }
+        fieldTop = TOP_INFO_H;
+        fieldBottom = Math.max(fieldTop + 80, this.height - CONTROL_H - 6);
         judgeY = fieldTop + (int) ((fieldBottom - fieldTop) * JUDGE_LINE_FRACTION);
-        laneW = (fieldRight - fieldLeft) / 4;
+        laneW = Math.max(1, (fieldRight - fieldLeft) / columns());
+
+        progressX = this.width - SIDE_MARGIN - PROGRESS_W;
+        progressTop = Math.max(TOP_INFO_H + 8, 42);
+        progressBottom = Math.max(progressTop + 80, this.height - CONTROL_H - 6);
+    }
+
+    /** Lane count of the current map (1K-10K). */
+    private int columns() {
+        return map.keyCount();
     }
 
     private Path cacheRoot() {
@@ -205,6 +232,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
             this.map = newMap;
             this.state = new Osu4kGameState(newMap, Osu4k.offset(), Osu4k.judgementPreset());
             paused = false;
+            resumeAtMs = -1;
             // A fresh difficulty starts like a fresh run: 3s music lead-in with
             // the first notes already falling when it opens.
             musicStartAtMs = System.currentTimeMillis() + MUSIC_DELAY_MS;
@@ -230,6 +258,31 @@ public final class Osu4kGameScreen extends Osu4kScreen {
         lastJudgment = null;
         hitEffects.clear();
         java.util.Arrays.fill(holdPulseActive, false);
+        resumeAtMs = -1;
+    }
+
+    /**
+     * Re-seeks and resumes once if the audio player reports end-of-stream
+     * while most of the song is still unplayed. The decode thread normally
+     * recovers from mid-song null frames itself; this catches whatever slips
+     * through (or the decoded tail simply underrunning the extrapolated
+     * playhead). Only fires when playback was actually running and never when
+     * paused or near the true end, so a genuine finish still opens the results
+     * screen untouched.
+     *
+     * @return true when the audio was re-seeked and playhead must be re-read
+     */
+    private boolean resumeSpuriousEnded(long playMs) {
+        if (paused || resumeAtMs != -1 || audio.state() != FfmpegAudioPlayer.State.ENDED) {
+            return false;
+        }
+        long dur = audio.durationMs();
+        if (dur <= 0 || playMs >= dur - 500) {
+            return false; // genuinely at the end
+        }
+        resumeAtMs = playMs;
+        audio.resumeAt(resumeAtMs);
+        return true;
     }
 
     // ---------------------------------------------------------------------
@@ -269,6 +322,16 @@ public final class Osu4kGameScreen extends Osu4kScreen {
         // audible position of this instant.
         long playMs = musicStartAtMs != 0 ? now - musicStartAtMs : audio.positionMsFresh();
 
+        // The audio player recovers from decode hiccups on its own, but if it
+        // still reports the song over with most of it unplayed, re-seek to the
+        // extrapolated playhead and resume once before giving up (see
+        // resumeSpuriousEnded). Runs only when playback was actually going:
+        // a pause or a genuine end never re-seeks, so the results screen still
+        // opens for a normal finish.
+        if (resumeSpuriousEnded(playMs)) {
+            playMs = audio.positionMsFresh();
+        }
+
         // The song ran out while the final notes were still pending (the audio
         // clock's batch updates can skip the last judging frame): judge them at
         // the true end so the run can finish cleanly.
@@ -297,7 +360,10 @@ public final class Osu4kGameScreen extends Osu4kScreen {
         // so Retry/Back from the results screen behave naturally. The finished
         // check uses the true audio end (the playhead can lag it by one audio
         // clock batch, and the extra update above judges the final notes).
-        if (!resultsShown && !paused && audio.state() == FfmpegAudioPlayer.State.ENDED
+        // resumeAtMs == -1 excludes a spurious ENDED that was just recovered:
+        // that resume must settle before the results screen may open.
+        if (!resultsShown && !paused && resumeAtMs == -1
+                && audio.state() == FfmpegAudioPlayer.State.ENDED
                 && state.isFinished(audio.durationMs())) {
             clearedAt = now;
             resultsShown = true;
@@ -321,7 +387,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
 
         // Hold pulse lifecycle: a hold that was hit and is no longer active
         // (released or its tail passed) fires its completion burst once.
-        for (int c = 0; c < Osu4kKeyConfig.COLUMNS; c++) {
+        for (int c = 0; c < columns(); c++) {
             if (holdPulseActive[c] && state.activeHold(c) == null) {
                 holdPulseActive[c] = false;
                 spawnHitEffect(c, Osu4k.laneColor(c), 380, true);
@@ -331,30 +397,23 @@ public final class Osu4kGameScreen extends Osu4kScreen {
         // Prune finished hit effects.
         hitEffects.removeIf(e -> e.done(now));
 
-        // Progress-bar dragging via raw mouse state (same trick as BackgroundSelectorScreen).
+        // Progress dragging uses the vertical rail: bottom is 0%, top is 100%.
         if (draggingProgress) {
             long h = this.minecraft.getWindow().handle();
             boolean leftDown = GLFW.glfwGetMouseButton(h, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
             if (!leftDown) {
                 draggingProgress = false;
             } else {
-                long dur = Math.max(1, audio.durationMs());
-                float frac = (this.mouseX - fieldLeft) / (float) (fieldRight - fieldLeft);
-                frac = Math.max(0f, Math.min(1f, frac));
-                seekTo((long) (frac * dur));
+                seekFromProgressY(this.mouseY);
             }
         }
 
         fillBackground(gui);
-        // Score/combo sit at the bottom-most draw layer, directly below the
-        // header — everything else (playfield, footer) paints over them.
-        drawScoreInfo(gui);
-        drawHeader(gui);
+        drawTopInfo(gui);
         drawPlayfield(gui, scrollMs);
-        // Progress bar tracks the real audio position (the 3s music delay makes
-        // the game playhead run ahead of it), so it reads 0% at the start and
-        // 100% at the song end.
-        drawFooter(gui, audio.positionMsFresh());
+        drawCombo(gui);
+        drawProgressRail(gui, audio.positionMsFresh());
+        drawControlButtons(gui);
         drawJudgmentPopup(gui, now);
         drawClearOverlay(gui, now);
         if (errorMessage != null) {
@@ -366,46 +425,37 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     }
 
     // ---------------------------------------------------------------------
-    // Header
+    // Top information
     // ---------------------------------------------------------------------
 
-    private void drawHeader(GuiGraphicsExtractor gui) {
-        CustomRectRenderer.drawRect(gui, 0, 0, this.width, HEADER_H, STRIP);
-        CustomRectRenderer.drawRect(gui, 0, HEADER_H - 1, this.width, 1, STRIP_EDGE);
-
-        // Song title only — score/combo live in their own band below, and the
-        // action buttons moved to the footer.
+    private void drawTopInfo(GuiGraphicsExtractor gui) {
         String title = map.title();
         if (!map.artist().isEmpty()) {
             title = map.artist() + " - " + title;
         }
-        drawStringCenteredY(gui, titleFont, title, 14, HEADER_H / 2f, COLOR_TEXT);
-        float titleW = titleFont == null
-                ? textWidth(title, 24f)
-                : CustomFontRenderer.stringWidth(titleFont, title);
-        drawStringCenteredY(gui, itemFont, "[" + map.version() + "]", 16 + titleW + 4, HEADER_H / 2f, COLOR_ACCENT);
-    }
+        String difficulty = "[" + map.version() + "]";
+        String titleLine = title + "  " + difficulty;
+        drawStringCenteredY(gui, smallFont, titleLine, SIDE_MARGIN, 13, COLOR_TEXT);
 
-    /**
-     * Score, combo and progress counters drawn directly below the header at the
-     * bottom-most layer: the playfield and footer are painted on top of it.
-     */
-    private void drawScoreInfo(GuiGraphicsExtractor gui) {
-        String scoreText = String.format(Locale.ROOT, "%,d", state.score());
-        drawCentered(gui, titleFont, scoreText, this.width / 2f, HEADER_H + 10, COLOR_TEXT);
+        int remaining = Math.max(0, state.totalNotes() - state.judgedCount());
+        String stats = I18n.tr("Max Combo") + " " + state.maxCombo()
+                + "   /   " + I18n.trf("%d notes", remaining);
+        drawStringCenteredY(gui, smallFont, stats, SIDE_MARGIN, 31, COLOR_TEXT_DIM);
 
-        // Combo line, with the live accuracy centered on the right side of the
-        // same row: green while ≥95% (S and above), red below 70% (D), neutral
-        // otherwise.
-        String comboText = state.combo() + "x  /  " + I18n.tr("max") + " " + state.maxCombo()
-                + "  /  " + state.judgedCount() + "/" + state.totalNotes();
-        drawCentered(gui, smallFont, comboText, this.width / 2f, HEADER_H + 24, COLOR_TEXT_DIM);
-
+        String score = String.format(Locale.ROOT, "%,d", state.score());
+        drawStringRightAligned(gui, smallFont, score, this.width - SIDE_MARGIN, 13, COLOR_TEXT);
         double acc = state.accuracy();
         String accText = String.format(Locale.ROOT, "%.2f%%", acc * 100);
-        int accColor = acc >= 0.95 ? COLOR_SUCCESS : acc >= 0.70 ? COLOR_TEXT : COLOR_ERROR;
-        drawCentered(gui, smallFont, accText, this.width * 3f / 4f, HEADER_H + 24, accColor);
+        int accColor = acc >= 0.95 ? COLOR_SUCCESS : acc >= 0.70 ? COLOR_TEXT_DIM : COLOR_ERROR;
+        drawStringRightAligned(gui, smallFont, accText, this.width - SIDE_MARGIN, 31, accColor);
     }
+
+    private void drawCombo(GuiGraphicsExtractor gui) {
+        int alpha = Math.min(130, 38 + state.combo() / 4);
+        drawCentered(gui, titleFont, state.combo() + "x", (fieldLeft + fieldRight) / 2f,
+                fieldTop + (fieldBottom - fieldTop) * 0.48f, (alpha << 24) | (COLOR_TEXT & 0xFFFFFF));
+    }
+
 
     // ---------------------------------------------------------------------
     // Playfield
@@ -418,7 +468,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
                 fieldLeft, fieldTop, fieldRight - fieldLeft, fieldBottom - fieldTop, 0, 8f);
 
         // Lanes are translucent — the blurred menu/world behind shows through.
-        for (int c = 0; c < 4; c++) {
+        for (int c = 0; c < columns(); c++) {
             int lx = fieldLeft + c * laneW;
             CustomRectRenderer.drawRect(gui, lx, fieldTop, laneW, fieldBottom - fieldTop,
                     (c % 2 == 0) ? 0x38121824 : 0x2E10141E);
@@ -426,17 +476,21 @@ public final class Osu4kGameScreen extends Osu4kScreen {
                 CustomRectRenderer.drawRect(gui, lx, fieldTop, 1, fieldBottom - fieldTop, 0x3DFFFFFF);
             }
         }
-        CustomRectRenderer.drawRect(gui, fieldLeft + laneW * 4, fieldTop, 1, fieldBottom - fieldTop, 0x3DFFFFFF);
+        CustomRectRenderer.drawRect(gui, fieldLeft + laneW * columns(), fieldTop, 1, fieldBottom - fieldTop, 0x3DFFFFFF);
 
         // Judgement line: soft glow + a brighter core, matching the accent.
         CustomRoundedRectRenderer.drawRoundedRect(gui, fieldLeft - 4, judgeY - 6, fieldRight - fieldLeft + 8, 12, 6, 0x3D4FC3F7);
         CustomRectRenderer.drawRect(gui, fieldLeft, judgeY - 2, fieldRight - fieldLeft, 4, 0xCCFFFFFF);
 
-        float scroll = Osu4k.scrollSpeed();
+        // Keep the configured rhythm while guaranteeing a full second of
+        // visible travel from the lane top to the judgement line.
+        float configuredScroll = Osu4k.scrollSpeed();
+        float maxPreviewScroll = (judgeY - fieldTop) / (float) NOTE_PREVIEW_MS;
+        float scroll = Math.min(configuredScroll, Math.max(0.01f, maxPreviewScroll));
         int offset = Osu4k.offset();
         long now = playMs;
 
-        for (int c = 0; c < 4; c++) {
+        for (int c = 0; c < columns(); c++) {
             List<HitObject> col = state.columnObjects(c);
             int lx = fieldLeft + c * laneW;
             int laneColor = Osu4k.laneColor(c);
@@ -453,7 +507,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
                 }
 
                 float headY = judgeY - (ho.timeMs() + offset - now) * scroll;
-                if (headY < fieldTop - 140) {
+                if (headY < fieldTop - NOTE_CAP_H) {
                     continue;
                 }
                 // Notes shrink by NOTE_SCALE (centred in the lane) so more of
@@ -500,7 +554,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
         // Lane press glow.
         long nowMs = System.currentTimeMillis();
         if (Osu4k.laneHighlight()) {
-            for (int c = 0; c < 4; c++) {
+            for (int c = 0; c < columns(); c++) {
                 if (laneDown[c] || nowMs < laneFlashEndMs[c]) {
                     int alpha = laneDown[c] ? 0x40 : 0x18;
                     int rgb = Osu4k.laneColor(c) & 0xFFFFFF;
@@ -512,7 +566,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
 
         // Hold pulse: continuous pulsing ring while a hold is being held.
         if (Osu4k.hitEffects()) {
-            for (int c = 0; c < 4; c++) {
+            for (int c = 0; c < columns(); c++) {
                 if (holdPulseActive[c] && state.activeHold(c) != null) {
                     drawHoldPulse(gui, c, nowMs);
                 }
@@ -556,7 +610,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     }
 
     private void spawnHitEffect(int column, int color, int durationMs, boolean hold) {
-        if (column < 0 || column >= Osu4kKeyConfig.COLUMNS || !Osu4k.hitEffects()) {
+        if (column < 0 || column >= columns() || !Osu4k.hitEffects()) {
             return;
         }
         hitEffects.add(new HitEffect(column, System.currentTimeMillis(), durationMs, color, hold));
@@ -582,85 +636,93 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     }
 
     // ---------------------------------------------------------------------
-    // Footer (progress + transport)
+    // Progress rail and controls
     // ---------------------------------------------------------------------
 
-    private void drawFooter(GuiGraphicsExtractor gui, long playMs) {
-        int fy = this.height - FOOTER_H;
-        CustomRectRenderer.drawRect(gui, 0, fy, this.width, FOOTER_H, STRIP);
-        CustomRectRenderer.drawRect(gui, 0, fy, this.width, 1, STRIP_EDGE);
-
-        int barX = fieldLeft;
-        int barY = fy + 14;
-        int barW = fieldRight - fieldLeft;
+    private void drawProgressRail(GuiGraphicsExtractor gui, long playMs) {
         long dur = Math.max(1, audio.durationMs());
-        float frac = (float) playMs / dur;
-        frac = Math.max(0f, Math.min(1f, frac));
+        float frac = Math.max(0f, Math.min(1f, playMs / (float) dur));
+        int railH = progressBottom - progressTop;
+        int fillH = Math.round(railH * frac);
+        int fillY = progressBottom - fillH;
 
-        CustomRoundedRectRenderer.drawRoundedRect(gui, barX, barY, barW, 6, 3, 0x332A6C8F);
-        if (frac > 0) {
-            CustomRoundedRectRenderer.drawRoundedRect(gui, barX, barY, Math.max(6, (int) (barW * frac)), 6, 3, COLOR_ACCENT);
+        CustomRoundedRectRenderer.drawRoundedRect(gui, progressX, progressTop, PROGRESS_W, railH, 7, 0x442A6C8F);
+        if (fillH > 0) {
+            CustomRoundedRectRenderer.drawRoundedRect(gui, progressX, fillY, PROGRESS_W, fillH, 7, COLOR_ACCENT);
         }
-        CustomRoundedRectRenderer.drawCircle(gui, barX + barW * frac, barY + 3, 8, 0xFFE6E9F2);
+        CustomRoundedRectRenderer.drawCircle(gui, progressX + PROGRESS_W / 2f, fillY, 6, 0xFFE6E9F2);
 
-        String cur = fmtTime(playMs);
-        String tot = fmtTime(dur);
-        drawStringCenteredY(gui, smallFont, cur, barX - textWidth(cur, 12.5f) - 8, barY + 3, COLOR_TEXT_DIM);
-        drawStringCenteredY(gui, smallFont, tot, barX + barW + 8, barY + 3, COLOR_TEXT_DIM);
+        drawCentered(gui, smallFont, fmtTime(playMs), progressX + PROGRESS_W / 2f, progressBottom + 12, COLOR_TEXT_DIM);
+        drawCentered(gui, smallFont, fmtTime(dur), progressX + PROGRESS_W / 2f, progressTop - 10, COLOR_TEXT_DIM);
+    }
 
-        // Single auto-width button row: transport controls plus the four
-        // actions that used to live in the header.
-        String[] labels = footerButtonLabels();
+    private void drawControlButtons(GuiGraphicsExtractor gui) {
         List<FooterBtn> btns = footerButtons();
-        for (int i = 0; i < btns.size(); i++) {
-            FooterBtn b = btns.get(i);
+        for (FooterBtn b : btns) {
             boolean hovered = inRect(mouseX, mouseY, b.x(), b.y(), b.w(), b.h());
-            drawButton(gui, b.x(), b.y(), b.w(), b.h(), labels[i], hovered, true);
+            drawCompactButton(gui, b.x(), b.y(), b.w(), b.h(), b.label(), hovered);
         }
 
-        // Difficulty dropdown opens upward, clear of the footer.
         if (difficultyDropdownOpen) {
             FooterBtn diff = btns.get(BTN_DIFF);
             List<BeatmapData> maps = Osu4k.currentArchive == null ? List.of() : Osu4k.currentArchive.playableMaps();
             int rows = Math.min(maps.size(), 5);
             int ddH = rows * 24 + 4;
-            drawDifficultyDropdown(gui, diff.x(), diff.y() - ddH - 2, rows);
+            drawDifficultyDropdown(gui, difficultyDropdownX(diff), diff.y() - ddH - 2, rows);
         }
     }
 
-    /** Labels of the footer button row, in draw order. */
-    private String[] footerButtonLabels() {
-        return new String[]{
+    private void drawCompactButton(GuiGraphicsExtractor gui, int x, int y, int w, int h,
+                                   String label, boolean hovered) {
+        int top = hovered ? 0x4A2A3A52 : 0x38232B3A;
+        int bottom = hovered ? 0x30202A38 : 0x241B2230;
+        int outline = hovered ? 0x99FFFFFF : GLASS_OUTLINE_SOFT;
+        CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui, x, y, w, h, 5, top, bottom);
+        CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, 5, outline, 1);
+        drawCentered(gui, smallFont, label, x + w / 2f, y + h / 2f, COLOR_TEXT);
+    }
+
+    /**
+     * Builds the footer button row; labels are computed live (they reflect the
+     * paused state). Buttons are split to the lower left and right edges
+     * instead of stacking at centre.
+     */
+    private List<FooterBtn> footerButtons() {
+        String[] labels = {
                 "-5s",
                 paused ? I18n.tr("Play") : I18n.tr("Pause"),
                 "+5s",
-                map.version(),
+                map.version() + " " + map.keyCount() + "K",
                 paused ? I18n.tr("Resume") : I18n.tr("Pause"),
                 I18n.tr("Keys"),
                 I18n.tr("ExitGame")
         };
-    }
-
-    /**
-     * Footer buttons laid out in a single centred row, each sized to its text.
-     */
-    private List<FooterBtn> footerButtons() {
-        String[] labels = footerButtonLabels();
         int[] ws = new int[labels.length];
-        int total = 0;
         for (int i = 0; i < labels.length; i++) {
-            ws[i] = Math.round(textWidth(labels[i], 15f)) + 36;
-            total += ws[i];
+            ws[i] = Math.max(28, Math.round(textWidth(labels[i], FOOTER_BTN_FONT)) + FOOTER_BTN_PAD);
         }
-        total += FOOTER_BTN_GAP * (labels.length - 1);
-        int x = (this.width - total) / 2;
-        int y = this.height - FOOTER_H + 32;
+
+        int y = this.height - FOOTER_BTN_H - 8;
         List<FooterBtn> out = new java.util.ArrayList<>(labels.length);
-        for (int i = 0; i < labels.length; i++) {
-            out.add(new FooterBtn(i, x, y, ws[i], FOOTER_BTN_H));
+        int x = SIDE_MARGIN;
+        for (int i = 0; i <= BTN_SKIP_FWD; i++) {
+            out.add(new FooterBtn(i, x, y, ws[i], FOOTER_BTN_H, labels[i]));
             x += ws[i] + FOOTER_BTN_GAP;
         }
+
+        int right = this.width - SIDE_MARGIN - PROGRESS_W - PROGRESS_GAP;
+        for (int i = BTN_EXIT; i >= BTN_DIFF; i--) {
+            right -= ws[i];
+            out.add(new FooterBtn(i, right, y, ws[i], FOOTER_BTN_H, labels[i]));
+            right -= FOOTER_BTN_GAP;
+        }
+        out.sort(java.util.Comparator.comparingInt(FooterBtn::id));
         return out;
+    }
+
+    private int difficultyDropdownX(FooterBtn diff) {
+        int w = 180;
+        return Math.max(SIDE_MARGIN, Math.min(diff.x(), this.width - SIDE_MARGIN - PROGRESS_W - PROGRESS_GAP - w));
     }
 
     private void drawDifficultyDropdown(GuiGraphicsExtractor gui, int x, int y, int rows) {
@@ -675,7 +737,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
             if (inRect(mouseX, mouseY, x + 2, rowY, w - 4, 22)) {
                 CustomRectRenderer.drawRect(gui, x + 2, rowY, w - 4, 22, 0x332A6C8F);
             }
-            drawStringCenteredY(gui, itemFont, m.version(), x + 10, rowY + 11, COLOR_TEXT);
+            drawStringCenteredY(gui, itemFont, m.version() + " " + m.keyCount() + "K", x + 10, rowY + 11, COLOR_TEXT);
             if (m == map) {
                 drawCentered(gui, itemFont, "\u2713", x + w - 14, rowY + 11, COLOR_ACCENT);
             }
@@ -749,22 +811,6 @@ public final class Osu4kGameScreen extends Osu4kScreen {
         drawCentered(gui, titleFont, I18n.tr(lastJudgment.label), cx, cy, argb);
     }
 
-    /** Colour used for the judgement popup, hit-effect rings and hold pulses. */
-    private static int judgmentColor(Judgment j) {
-        return switch (j) {
-            case PERFECT -> 0xFFFFD700;
-            case GREAT -> 0xFF7EE081;
-            case GOOD -> 0xFF4FC3F7;
-            case MISS -> COLOR_ERROR;
-        };
-    }
-
-    private void drawAccentGlowAt(GuiGraphicsExtractor gui, float cx, float cy, float w, float h, int color, int alpha) {
-        int argb = (alpha << 24) | (color & 0xFFFFFF);
-        geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer.drawRoundedRect(
-                gui, Math.round(cx - w / 2f), Math.round(cy - h / 2f), Math.round(w), Math.round(h), (int) (h / 2f), argb);
-    }
-
     /**
      * End-of-song flash: a white vignette fading from full over the frozen
      * playfield while a "Clear!" caption pops in, for the {@link #CLEAR_HOLD_MS}
@@ -791,15 +837,11 @@ public final class Osu4kGameScreen extends Osu4kScreen {
             float fade = Math.min(1f, (1f - p) * 2f);
             int alpha = Math.round(fade * 255);
             float size = 34f * scale;
-            float hw = titleFont == null ? 34f * scale * 5f : CustomFontRenderer.stringWidth(titleFont, clearText()) * scale;
+            float hw = titleFont == null ? 34f * scale * 5f : CustomFontRenderer.stringWidth(titleFont, I18n.tr("Clear!")) * scale;
             drawAccentGlowAt(gui, this.width / 2f, this.height / 2f, hw + 60, size + 20, 0xFFFFFF, (int) (fade * 90));
-            drawCentered(gui, titleFont, clearText(), this.width / 2f, this.height / 2f,
+            drawCentered(gui, titleFont, I18n.tr("Clear!"), this.width / 2f, this.height / 2f,
                     (alpha << 24) | 0xFF4FC3F7);
         }
-    }
-
-    private static String clearText() {
-        return I18n.tr("Clear!");
     }
 
     // ---------------------------------------------------------------------
@@ -807,8 +849,8 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     // ---------------------------------------------------------------------
 
     private int laneForColumn(int key) {
-        int[] keys = Osu4k.KEYS;
-        for (int c = 0; c < 4; c++) {
+        int[] keys = Osu4k.keysFor(columns());
+        for (int c = 0; c < columns(); c++) {
             if (keys[c] == key) {
                 return c;
             }
@@ -848,10 +890,12 @@ public final class Osu4kGameScreen extends Osu4kScreen {
      * every currently-held lane key is recognized at the playhead of this
      * frame. {@code laneDown} mirrors the physical state after each frame, so
      * this only fires for presses / releases the event path never saw.
-     */    private void pollLaneInput(long playMs) {
+     */
+    private void pollLaneInput(long playMs) {
         long h = this.minecraft.getWindow().handle();
-        for (int c = 0; c < Osu4kKeyConfig.COLUMNS; c++) {
-            boolean down = GLFW.glfwGetKey(h, Osu4k.KEYS[c]) == GLFW.GLFW_PRESS;
+        int[] keys = Osu4k.keysFor(columns());
+        for (int c = 0; c < columns(); c++) {
+            boolean down = GLFW.glfwGetKey(h, keys[c]) == GLFW.GLFW_PRESS;
             if (down && !laneDown[c]) {
                 laneDown[c] = true;
                 handleLanePress(c, playMs);
@@ -936,8 +980,9 @@ public final class Osu4kGameScreen extends Osu4kScreen {
             int rows = Math.min(maps.size(), 5);
             int ddH = rows * 24 + 4;
             int ddY = diff.y() - ddH - 2;
+            int ddX = difficultyDropdownX(diff);
             for (int i = 0; i < rows; i++) {
-                if (inRect(mx, my, diff.x(), ddY + 2 + i * 24, 180, 22)) {
+                if (inRect(mx, my, ddX, ddY + 2 + i * 24, 180, 22)) {
                     BeatmapData m = maps.get(i);
                     if (m != map) {
                         reloadMap(m);
@@ -957,7 +1002,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
                 case BTN_SKIP_BACK -> seekTo(Math.max(0, audio.positionMs() - 5000));
                 case BTN_PLAY, BTN_PAUSE -> togglePause();
                 case BTN_SKIP_FWD -> seekTo(audio.positionMs() + 5000);
-                case BTN_KEYS -> this.minecraft.gui.setScreen(new Osu4kKeybindScreen(this));
+                case BTN_KEYS -> this.minecraft.gui.setScreen(new Osu4kKeybindScreen(this, columns()));
                 case BTN_EXIT -> closeToParent();
                 case BTN_DIFF -> { /* handled above */ }
                 default -> { }
@@ -965,13 +1010,10 @@ public final class Osu4kGameScreen extends Osu4kScreen {
             return true;
         }
 
-        // Progress bar.
-        int fy = this.height - FOOTER_H;
-        int barY = fy + 14;
-        if (inRect(mx, my, fieldLeft, barY - 6, fieldRight - fieldLeft, 22)) {
-            long dur = Math.max(1, audio.durationMs());
-            float frac = (float) ((mx - fieldLeft) / (double) (fieldRight - fieldLeft));
-            seekTo((long) (Math.max(0f, Math.min(1f, frac)) * dur));
+        // Vertical progress rail: bottom is the start of the song.
+        if (inRect(mx, my, progressX - 8, progressTop - 8,
+                PROGRESS_W + 16, progressBottom - progressTop + 16)) {
+            seekFromProgressY(my);
             draggingProgress = true;
             return true;
         }
@@ -1004,16 +1046,10 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     // Helpers
     // ---------------------------------------------------------------------
 
-    private static String fmtTime(long ms) {
-        long s = Math.max(0, ms / 1000);
-        return String.format(Locale.ROOT, "%d:%02d", s / 60, s % 60);
-    }
-
-    /** Overshoot-and-settle easing used by the "Clear!" caption pop. */
-    private static float easeOutBack(float t) {
-        float c1 = 1.70158f;
-        float c3 = c1 + 1.0f;
-        return 1.0f + c3 * (float) Math.pow(t - 1.0f, 3)
-                + c1 * (float) Math.pow(t - 1.0f, 2);
+    private void seekFromProgressY(double y) {
+        long dur = Math.max(1, audio.durationMs());
+        float frac = (progressBottom - (float) y) / Math.max(1, progressBottom - progressTop);
+        frac = Math.max(0f, Math.min(1f, frac));
+        seekTo((long) (frac * dur));
     }
 }

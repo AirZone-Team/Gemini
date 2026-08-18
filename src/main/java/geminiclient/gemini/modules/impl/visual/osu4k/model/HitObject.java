@@ -1,10 +1,10 @@
 package geminiclient.gemini.modules.impl.visual.osu4k.model;
 
 /**
- * A single 4K mania hit object.
+ * A single mania hit object (lane count comes from the map, 1K-10K).
  *
  * @param timeMs     absolute note time in milliseconds (from the start of the audio)
- * @param column     lane index, 0..3 (0 = leftmost)
+ * @param column     lane index, 0..9 (0 = leftmost)
  * @param durationMs length of a hold note in ms (0 = regular tap)
  */
 public record HitObject(int timeMs, int column, int durationMs) {

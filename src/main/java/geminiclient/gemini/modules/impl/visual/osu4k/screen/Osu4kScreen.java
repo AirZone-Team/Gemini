@@ -5,11 +5,14 @@ import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer.GlyphFont;
 import geminiclient.gemini.customRenderer.glsl.SdfUIRenderer;
-import geminiclient.gemini.modules.impl.visual.osu4k.Osu4k;
+import geminiclient.gemini.modules.impl.visual.Osu4k;
+import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kGameState.Judgment;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+
+import java.util.Locale;
 
 /**
  * Shared scaffolding for the OSU4K screens: fonts, palette and small layout
@@ -24,36 +27,43 @@ public abstract class Osu4kScreen extends Screen {
     protected static final Identifier FONT = Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
 
     // Scene + panel palette (slightly lighter than pure black for depth).
-    protected static final int COLOR_BG = 0xFF0A0C11;
-    protected static final int GLASS_TOP = 0x33202636;
-    protected static final int GLASS_BOTTOM = 0x1E141B24;
+    private static final int GLASS_TOP = 0x33202636;
+    private static final int GLASS_BOTTOM = 0x1E141B24;
     protected static final int GLASS_OUTLINE = 0x5AFFFFFF;
     protected static final int GLASS_OUTLINE_SOFT = 0x33FFFFFF;
-    protected static final int SHADOW = 0x3C000000;
+    private static final int SHADOW = 0x3C000000;
 
     // Text + accent palette.
     protected static final int COLOR_TEXT = 0xFFEFF3FA;
     protected static final int COLOR_TEXT_DIM = 0xFF9AA3B4;
     protected static final int COLOR_ACCENT = 0xFF4FC3F7;
-    protected static final int COLOR_ACCENT_SOFT = 0x334FC3F7;
     protected static final int COLOR_SUCCESS = 0xFF7EE081;
     protected static final int COLOR_WARN = 0xFFFFD28A;
     protected static final int COLOR_ERROR = 0xFFFF6E6E;
-
-    // Header/footer strip colors (translucent so the blurred backdrop shows).
-    protected static final int STRIP = 0x9910141D;
-    protected static final int STRIP_EDGE = 0x33FFFFFF;
 
     protected final Screen parent;
     protected GlyphFont titleFont;
     protected GlyphFont itemFont;
     protected GlyphFont smallFont;
-    /** Large display font (countdown / rank), loaded lazily; may be null. */
-    protected GlyphFont bigFont;
+
+    private static final long BLUR_FADE_IN_MS = 300L;
+    private final long openedAtMs = System.currentTimeMillis();
 
     protected Osu4kScreen(Screen parent, String title) {
         super(Component.literal(title));
         this.parent = parent;
+    }
+
+    /** Fade used by the global blur boundary while the OSU4K screen opens. */
+    public float getBlurFade() {
+        return Math.min(1.0f, (System.currentTimeMillis() - openedAtMs) / (float) BLUR_FADE_IN_MS);
+    }
+
+    /** OSU4K owns the explicit blur boundary in MixinGameRenderer. */
+    @Override
+    public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
+        this.extractTransparentBackground(graphics);
+        this.minecraft.gui.hud.extractDeferredSubtitles();
     }
 
     @Override
@@ -62,12 +72,24 @@ public abstract class Osu4kScreen extends Screen {
         loadFonts();
     }
 
+    /**
+     * Closes this screen to {@code next}, disabling the OSU4K module when that
+     * leaves the OSU4K screen flow (e.g. Esc on the select screen). Navigation
+     * between OSU4K screens keeps the module enabled, so the flow stays usable
+     * until the user really exits it.
+     */
+    protected void closeTo(Screen next) {
+        this.minecraft.gui.setScreen(next);
+        if (!(next instanceof Osu4kScreen)) {
+            Osu4k.requestDisable();
+        }
+    }
+
     protected void loadFonts() {
         try {
             titleFont = CustomFontRenderer.loadFont(FONT, 24f);
             itemFont = CustomFontRenderer.loadFont(FONT, 15f);
             smallFont = CustomFontRenderer.loadFont(FONT, 12.5f);
-            bigFont = CustomFontRenderer.loadFont(FONT, 60f);
         } catch (Exception e) {
             titleFont = null;
             itemFont = null;
@@ -140,6 +162,15 @@ public abstract class Osu4kScreen extends Screen {
         CustomFontRenderer.drawString(gui, font, text, x, centerY - fontHeight(font) / 2f, color);
     }
 
+    protected void drawStringRightAligned(GuiGraphicsExtractor gui, GlyphFont font, String text,
+                                          float rightX, float centerY, int color) {
+        if (font == null) {
+            return;
+        }
+        float w = CustomFontRenderer.stringWidth(font, text);
+        CustomFontRenderer.drawString(gui, font, text, rightX - w, centerY - fontHeight(font) / 2f, color);
+    }
+
     protected float fontHeight(GlyphFont font) {
         return font == null ? 14f : font.lineHeight;
     }
@@ -163,14 +194,6 @@ public abstract class Osu4kScreen extends Screen {
         drawCentered(gui, itemFont, label, x + w / 2f, y + h / 2f, textColor);
     }
 
-    /** Compact icon-style button (smaller corner radius, tighter text). */
-    protected void drawIconButton(GuiGraphicsExtractor gui, int x, int y, int w, int h, String label, boolean hovered) {
-        int fill = hovered ? 0x44313C55 : 0x2E253047;
-        CustomRoundedRectRenderer.drawRoundedRect(gui, x, y, w, h, 6, fill);
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, 6, GLASS_OUTLINE_SOFT, 1);
-        drawCentered(gui, smallFont, label, x + w / 2f, y + h / 2f, COLOR_TEXT);
-    }
-
     // ---------------------------------------------------------------------
     // Colour helpers
     // ---------------------------------------------------------------------
@@ -190,5 +213,49 @@ public abstract class Osu4kScreen extends Screen {
         int g = ((foreground >>> 8 & 0xFF) * a + (background >>> 8 & 0xFF) * inv) / 255;
         int b = ((foreground & 0xFF) * a + (background & 0xFF) * inv) / 255;
         return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    // ---------------------------------------------------------------------
+    // Shared helpers (easing, formatting, effects)
+    // ---------------------------------------------------------------------
+
+    protected static float clamp01(float v) {
+        return Math.max(0f, Math.min(1f, v));
+    }
+
+    protected static float easeOutCubic(float t) {
+        float u = 1f - t;
+        return 1f - u * u * u;
+    }
+
+    /** Overshoot-and-settle easing used by pop-in effects. */
+    protected static float easeOutBack(float t) {
+        float c1 = 1.70158f;
+        float c3 = c1 + 1.0f;
+        return 1.0f + c3 * (float) Math.pow(t - 1.0f, 3)
+                + c1 * (float) Math.pow(t - 1.0f, 2);
+    }
+
+    /** Formats ms as m:ss (progress rail, results screen). */
+    protected static String fmtTime(long ms) {
+        long s = Math.max(0, ms / 1000);
+        return String.format(Locale.ROOT, "%d:%02d", s / 60, s % 60);
+    }
+
+    /** Colour used for the judgement popup, hit-effect rings and hold pulses. */
+    protected static int judgmentColor(Judgment j) {
+        return switch (j) {
+            case PERFECT -> 0xFFFFD700;
+            case GREAT -> 0xFF7EE081;
+            case GOOD -> 0xFF4FC3F7;
+            case MISS -> COLOR_ERROR;
+        };
+    }
+
+    /** Soft rounded glow blob centred at {@code (cx, cy)} with the given alpha. */
+    protected void drawAccentGlowAt(GuiGraphicsExtractor gui, float cx, float cy, float w, float h, int color, int alpha) {
+        int argb = (alpha << 24) | (color & 0xFFFFFF);
+        CustomRoundedRectRenderer.drawRoundedRect(
+                gui, Math.round(cx - w / 2f), Math.round(cy - h / 2f), Math.round(w), Math.round(h), (int) (h / 2f), argb);
     }
 }

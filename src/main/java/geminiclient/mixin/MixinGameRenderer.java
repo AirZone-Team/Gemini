@@ -13,6 +13,7 @@ import geminiclient.gemini.modules.impl.visual.KillEffect;
 import geminiclient.gemini.modules.impl.visual.SweepingAttackVFX;
 import geminiclient.gemini.modules.impl.visual.FullLight;
 import geminiclient.gemini.modules.impl.visual.clickgui.AbstractClickGuiScreen;
+import geminiclient.gemini.modules.impl.visual.osu4k.screen.Osu4kScreen;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -46,10 +47,9 @@ public class MixinGameRenderer {
     }
 
     /**
-     * While a ClickGui screen is open, override the blur radius used by the
-     * vanilla menu-blur post chain for this frame. The field is re-extracted
-     * from the game options every frame, so the original value is restored
-     * automatically once the ClickGui closes.
+     * Apply the appropriate global blur while a full-screen client UI is open.
+     * The value is re-extracted every frame, so closing the screen restores the
+     * normal game option automatically.
      */
     @Inject(method = "render", at = @At("HEAD"))
     public void applyClickGuiBlurRadius(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
@@ -58,6 +58,9 @@ public class MixinGameRenderer {
             int strength = clickGui != null ? clickGui.getBlurStrength() : 0;
             this.gameRenderState.optionsRenderState.menuBackgroundBlurriness =
                     Math.round(strength * screen.getBlurFade());
+        } else if (this.minecraft.gui.screen() instanceof Osu4kScreen screen) {
+            this.gameRenderState.optionsRenderState.menuBackgroundBlurriness =
+                    Math.round(8f * screen.getBlurFade());
         }
     }
 
@@ -73,24 +76,31 @@ public class MixinGameRenderer {
         Gemini.eventManager.post(EventTypes.RENDER_2D, new Render2DEvent(g, g.pose()));
         CustomFontRenderer.flushAllPages();
 
-        // ── ClickGui: submit the screen above all HUD, with a blur boundary ──
-        // Everything submitted so far (vanilla HUD + client HUD modules such as
-        // the ArrayList) sits in strata before the boundary and gets blurred by
-        // the vanilla blur pass; the ClickGui strata draw sharp on top of it.
-        if (this.minecraft.gui.screen() instanceof AbstractClickGuiScreen screen
-                && this.minecraft.gui.overlay() == null) {
+        // Submit full-screen client UIs above the HUD with one blur boundary.
+        // World, vanilla HUD and client HUD modules remain below and are blurred;
+        // the active OSU4K/ClickGui screen is extracted sharply on top.
+        if ((this.minecraft.gui.screen() instanceof AbstractClickGuiScreen
+                || this.minecraft.gui.screen() instanceof Osu4kScreen) && this.minecraft.gui.overlay() == null) {
             GuiRenderState guiState = this.gameRenderState.guiRenderState;
             guiState.nextStratum();
-
-            ClickGui clickGui = Gemini.moduleManager.getModule(ClickGui.class);
-            if (clickGui != null && clickGui.getBlurStrength() > 0) {
+            boolean blur = true;
+            if (this.minecraft.gui.screen() instanceof AbstractClickGuiScreen clickScreen) {
+                ClickGui clickGui = Gemini.moduleManager.getModule(ClickGui.class);
+                blur = clickGui != null && clickGui.getBlurStrength() > 0;
+            }
+            if (blur) {
                 guiState.blurBeforeThisStratum();
             }
 
             GuiGraphicsExtractor screenGraphics =
                     new GuiGraphicsExtractor(this.minecraft, guiState, i, j);
-            screen.extractRenderStateWithTooltipAndSubtitles(
-                    screenGraphics, i, j, deltaTracker.getGameTimeDeltaTicks());
+            if (this.minecraft.gui.screen() instanceof AbstractClickGuiScreen clickScreen) {
+                clickScreen.extractRenderStateWithTooltipAndSubtitles(
+                        screenGraphics, i, j, deltaTracker.getGameTimeDeltaTicks());
+            } else if (this.minecraft.gui.screen() instanceof Osu4kScreen osuScreen) {
+                osuScreen.extractRenderStateWithTooltipAndSubtitles(
+                        screenGraphics, i, j, deltaTracker.getGameTimeDeltaTicks());
+            }
             CustomFontRenderer.flushAllPages();
         }
     }
@@ -105,8 +115,7 @@ public class MixinGameRenderer {
             target = "Lnet/minecraft/client/gui/render/GuiRenderer;render()V"))
     public void injectPostProcess(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
         KillEffect killEffect = Gemini.moduleManager.getModule(KillEffect.class);
-        if (killEffect == null || !killEffect.enabled || !killEffect.hasActiveEffects()) return;
-
+        if (killEffect != null && killEffect.enabled && killEffect.hasActiveEffects()) {
         long nowMs = System.currentTimeMillis();
         int stage = killEffect.getPrimaryStage(nowMs);
         int mergeCount = killEffect.getPrimaryMergeCount();
@@ -337,6 +346,8 @@ public class MixinGameRenderer {
                 lightWorldPos, lightColor,
                 ssrIntensity, volumetricSteps,
                 chainFade);
+
+        }
 
         // ── Sweep Attack post-processing (distortion + chromatic) ──
         SweepingAttackVFX sweep = Gemini.moduleManager.getModule(SweepingAttackVFX.class);

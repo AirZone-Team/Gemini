@@ -25,8 +25,8 @@ import java.util.zip.ZipFile;
  *   <li>difficulty discovery — every {@code .osu} entry is parsed and reported
  *       together with its error, so the UI can list all available difficulties
  *       (and say why an entry is unplayable);</li>
- *   <li>validation — a usable set must contain at least one playable 4K map
- *       and the audio file that map references;</li>
+ *   <li>validation — a usable set must contain at least one playable mania
+ *       map (1K-10K) and the audio file that map references;</li>
  *   <li>audio extraction — the referenced audio is copied into a per-set cache
  *       directory under {@code <gameDir>/gemini/osu4k/cache/}.</li>
  * </ul>
@@ -149,22 +149,28 @@ public final class OszArchive implements Closeable {
     }
 
     /**
-     * Validates the whole set: at least one playable 4K map and its audio present.
-     * Used to fail fast with a clear message before opening the game screen.
+     * Validates the whole set: at least one playable mania map and its audio
+     * present. Used to fail fast with a clear message before opening the game
+     * screen.
      *
      * @return the chosen (first) playable map, or throws
      */
     public BeatmapData requirePlayableSet() throws OszError {
-        List<BeatmapData> maps = playableMaps();
-        if (maps.isEmpty()) {
+        List<MapFile> files = mapFiles();
+        BeatmapData first = null;
+        for (MapFile mf : files) {
+            if (first == null && mf.isPlayable()) {
+                first = mf.map();
+            }
+        }
+        if (first == null) {
             List<String> reasons = new ArrayList<>();
-            for (MapFile mf : mapFiles()) {
+            for (MapFile mf : files) {
                 reasons.add(mf.entryName() + " -> " + mf.error());
             }
-            throw new OszError(I18n.tr("No playable 4K map in this .osz") + (reasons.isEmpty() ? ""
+            throw new OszError(I18n.tr("No playable mania map in this .osz") + (reasons.isEmpty() ? ""
                     : "\n" + String.join("\n", reasons)));
         }
-        BeatmapData first = maps.get(0);
         if (findEntry(first.audioFileName()) == null) {
             throw new OszError(I18n.trf("Map \"%s\" is missing its audio file: %s", first.displayLabel(), first.audioFileName()));
         }

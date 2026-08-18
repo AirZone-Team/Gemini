@@ -1,5 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.osu4k.game;
 
+import geminiclient.gemini.modules.impl.visual.osu4k.audio.FfmpegAudioPlayer;
+
 /**
  * Smooths the audio clock into a per-frame playhead for rendering.
  *

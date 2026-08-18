@@ -1,7 +1,7 @@
 package geminiclient.gemini.modules.impl.visual.osu4k.screen;
 
 import geminiclient.gemini.base.I18n;
-import geminiclient.gemini.modules.impl.visual.osu4k.Osu4k;
+import geminiclient.gemini.modules.impl.visual.Osu4k;
 import geminiclient.gemini.modules.impl.visual.osu4k.model.BeatmapData;
 import geminiclient.gemini.modules.impl.visual.osu4k.model.OszArchive;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
@@ -15,7 +15,7 @@ import java.util.List;
 
 /**
  * Beatmap selection screen: opens a {@code .osz} via the native file dialog,
- * lists every playable 4K difficulty, and offers entry to keybinds.
+ * lists every playable mania difficulty (1K-10K), and offers entry to keybinds.
  *
  * <p>Errors from a corrupt or unsupported archive are shown inline in the
  * panel (never thrown). Loading is done synchronously — set sizes are small
@@ -102,7 +102,7 @@ public final class Osu4kSelectScreen extends Osu4kScreen {
             for (OszArchive.MapFile mf : Osu4k.currentArchive.mapFiles()) {
                 reasons.add(mf.entryName() + "  " + mf.error());
             }
-            errorText = I18n.tr("No playable 4K map in this .osz") + "\n" + String.join("\n", reasons);
+            errorText = I18n.tr("No playable mania map in this .osz") + "\n" + String.join("\n", reasons);
             maps = List.of();
             setTitle = "";
         } else {
@@ -124,7 +124,7 @@ public final class Osu4kSelectScreen extends Osu4kScreen {
     }
 
     private void openKeybinds() {
-        this.minecraft.gui.setScreen(new Osu4kKeybindScreen(this));
+        this.minecraft.gui.setScreen(new Osu4kKeybindScreen(this, 4));
     }
 
     private void showMessage(String text) {
@@ -170,7 +170,7 @@ public final class Osu4kSelectScreen extends Osu4kScreen {
         // Title block.
         drawCentered(gui, titleFont, "OSU4k", panelX + PANEL_W / 2f, py + 30, accentColor);
         drawAccentGlow(gui, panelX + PANEL_W / 2f, py + 48, 90, 2);
-        String subtitle = setTitle.isEmpty() ? I18n.tr("4K Rhythm Game") : setTitle;
+        String subtitle = setTitle.isEmpty() ? I18n.tr("Mania Rhythm Game") : setTitle;
         drawCentered(gui, itemFont, subtitle, panelX + PANEL_W / 2f, py + 56, dimColor);
 
         // Action row.
@@ -273,6 +273,9 @@ public final class Osu4kSelectScreen extends Osu4kScreen {
         drawStringCenteredY(gui, itemFont, m.displayLabel(), x + 34, y + ROW_H / 2f, scaleAlpha(COLOR_TEXT, reveal));
         String notes = I18n.trf("%d notes", m.hitObjects().size());
         drawCentered(gui, smallFont, notes, x + w - 64, y + ROW_H / 2f, scaleAlpha(COLOR_TEXT_DIM, reveal));
+        // Key-count badge ("4K", "6K", ...) between the label and the notes.
+        drawStringCenteredY(gui, smallFont, m.keyCount() + "K", x + 34 + textWidth(m.displayLabel(), 12.5f) + 10,
+                y + ROW_H / 2f, scaleAlpha(COLOR_ACCENT, reveal));
         if (hovered) {
             drawCentered(gui, itemFont, ">", x + w - 18, y + ROW_H / 2f, scaleAlpha(COLOR_ACCENT, reveal));
         }
@@ -333,7 +336,9 @@ public final class Osu4kSelectScreen extends Osu4kScreen {
     @Override
     public boolean keyPressed(net.minecraft.client.input.KeyEvent event) {
         if (event.isEscape()) {
-            this.minecraft.gui.setScreen(parent);
+            // Leaving the select screen exits the OSU4K flow and turns the
+            // module off (parent is null when the module opened this screen).
+            closeTo(parent);
             return true;
         }
         return super.keyPressed(event);
@@ -342,18 +347,5 @@ public final class Osu4kSelectScreen extends Osu4kScreen {
     @Override
     public boolean isPauseScreen() {
         return false;
-    }
-
-    // ---------------------------------------------------------------------
-    // Easing
-    // ---------------------------------------------------------------------
-
-    private static float clamp01(float v) {
-        return Math.max(0f, Math.min(1f, v));
-    }
-
-    private static float easeOutCubic(float t) {
-        float u = 1f - t;
-        return 1f - u * u * u;
     }
 }

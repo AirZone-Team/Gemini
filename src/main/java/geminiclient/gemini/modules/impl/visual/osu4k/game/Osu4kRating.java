@@ -18,8 +18,9 @@ public final class Osu4kRating {
 
     /**
      * Letter grade for a score (0..{@link Osu4kGameState#MAX_SCORE}). The
-     * score is compared as a fraction of the cap:
-     * {@code 1.0 -> SS, 0.95 -> S, 0.90 -> A, 0.80 -> B, 0.70 -> C, else D}.
+     * score is compared as a fraction of the cap: {@code 1.0 -> SSS},
+     * {@code 0.85 -> SS}, {@code 0.75 -> S}, {@code 0.65 -> A},
+     * {@code 0.50 -> B}, {@code 0.30 -> C}, otherwise {@code D}.
      */
     public static Rank rank(int score) {
         double fraction = (double) score / Osu4kGameState.MAX_SCORE;

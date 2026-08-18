@@ -2,6 +2,7 @@ package geminiclient.mixin;
 
 import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import geminiclient.gemini.modules.impl.visual.clickgui.AbstractClickGuiScreen;
+import geminiclient.gemini.modules.impl.visual.osu4k.screen.Osu4kScreen;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
@@ -22,6 +23,6 @@ public class MixinGui {
     private boolean deferClickGuiExtraction(Screen screen, Stack<Screen> screenLayers,
                                              GuiGraphicsExtractor graphics, int mouseX,
                                              int mouseY, float deltaTicks) {
-        return !(screen instanceof AbstractClickGuiScreen);
+        return !(screen instanceof AbstractClickGuiScreen || screen instanceof Osu4kScreen);
     }
 }
