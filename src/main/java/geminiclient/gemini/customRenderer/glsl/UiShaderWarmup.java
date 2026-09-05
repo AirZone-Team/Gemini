@@ -4,6 +4,8 @@ import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.shaders.ShaderSource;
 import com.mojang.blaze3d.systems.RenderSystem;
+import geminiclient.gemini.base.BackgroundSelectorScreen;
+import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.base.MainMenuScreen;
 import geminiclient.gemini.base.alt.AltManagerScreen;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Fonts;
@@ -19,6 +21,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * Pre-compiles every GPU resource the ClickGui needs on first open, so the
@@ -38,9 +42,14 @@ import java.io.Reader;
  *   <li>The vanilla {@code minecraft:blur} post chain — this is the background
  *       blur rendered behind the ClickGui (blur stratum boundary), and is the
  *       single most expensive lazy compile on first open.</li>
- *   <li>The five Google Sans {@link Md3Fonts} faces plus printable-ASCII MSDF
+ *   <li>The five MiSans {@link Md3Fonts} faces plus printable-ASCII MSDF
  *       glyph rasterisation for each — the dominant CPU cost of the first
  *       MD3 frame.</li>
+ *   <li>As a second reload listener ({@code gemini:ui_font_warmup}), the full
+ *       glyph set the client's own UI draws — the I18n Chinese strings plus
+ *       ASCII and UI symbols — for the three MD3 body faces. Blocking, so the
+ *       loading screen does not finish until every UI glyph is ready and the
+ *       menu never shows the vanilla-font fallback.</li>
  * </ul>
  *
  * <p>Every step is isolated in its own try/catch: a warmup failure must never
@@ -75,6 +84,31 @@ public final class UiShaderWarmup {
         };
     }
 
+    /**
+     * The reload listener that rasterises the client UI's full glyph set
+     * (see {@link #warmupClientGlyphs()}) as its own item in the loading
+     * screen's reload pipeline. Blocking on the render thread; repeat calls
+     * are cheap because rasterised glyphs are cached.
+     */
+    public static SimplePreparableReloadListener<Object> createFontWarmupListener() {
+        return new SimplePreparableReloadListener<>() {
+            @Override
+            protected Object prepare(ResourceManager manager, ProfilerFiller profiler) {
+                return null;
+            }
+
+            @Override
+            protected void apply(Object preparations, ResourceManager manager, ProfilerFiller profiler) {
+                try {
+                    warmupClientGlyphs();
+                    CustomFontRenderer.flushAllPages();
+                } catch (Throwable t) {
+                    LOGGER.warn("[UiWarmup] Client glyph warmup failed; glyphs will rasterise lazily", t);
+                }
+            }
+        };
+    }
+
     /** Run all warmup steps. Safe to call repeatedly (caches make repeats cheap). */
     public static void warmup(ResourceManager resourceManager) {
         long start = System.nanoTime();
@@ -95,6 +129,7 @@ public final class UiShaderWarmup {
         precompile("sdf_rounded_shadow", SdfUIRenderer.SDF_SHADOW_PIPELINE, shaderSource);
         precompile("sdf_wavy_ring", SdfUIRenderer.SDF_WAVY_RING_PIPELINE, shaderSource);
         precompile("sdf_md3_icon", SdfUIRenderer.SDF_ICON_PIPELINE, shaderSource);
+        precompile("sdf_loader_star", SdfUIRenderer.SDF_STAR_PIPELINE, shaderSource);
 
         // ── Custom region blur pipeline ──
         try {
@@ -116,6 +151,7 @@ public final class UiShaderWarmup {
             Md3Fonts.warmup();
             MainMenuScreen.warmup();
             AltManagerScreen.warmup();
+            BackgroundSelectorScreen.warmup();
             CustomFontRenderer.flushAllPages();
         } catch (Throwable t) {
             LOGGER.warn("[UiWarmup] Font warmup failed; glyphs will rasterise lazily", t);
@@ -123,6 +159,35 @@ public final class UiShaderWarmup {
 
         LOGGER.info("[UiWarmup] ClickGui shader/font warmup finished in {} ms",
                 (System.nanoTime() - start) / 1_000_000L);
+    }
+
+    /** UI symbols the client draws besides printable ASCII. */
+    private static final String UI_SYMBOL_GLYPHS = "·—↑↓×▶←→";
+
+    /**
+     * Rasterises the full glyph set the client's own UI draws — the I18n
+     * Chinese strings, printable ASCII and {@link #UI_SYMBOL_GLYPHS} — for
+     * the three MD3 faces that render it, blocking on the render thread. In
+     * English mode the CJK set is empty and ASCII is already cached by the
+     * warmup above, so this is nearly free there.
+     */
+    private static void warmupClientGlyphs() {
+        Set<Integer> codePoints = new LinkedHashSet<>(I18n.cjkCodepoints());
+        for (int cp = 0x20; cp <= 0x7E; cp++) {
+            codePoints.add(cp);
+        }
+        for (int i = 0; i < UI_SYMBOL_GLYPHS.length(); i++) {
+            codePoints.add((int) UI_SYMBOL_GLYPHS.charAt(i));
+        }
+        for (CustomFontRenderer.GlyphFont face : new CustomFontRenderer.GlyphFont[] {
+                Md3Fonts.body(), Md3Fonts.label(), Md3Fonts.title()}) {
+            if (face == null || face.isDisposed()) {
+                continue;
+            }
+            for (int cp : codePoints) {
+                face.getGlyphBlocking(cp);
+            }
+        }
     }
 
     private static void precompile(String name, RenderPipeline pipeline, ShaderSource shaderSource) {

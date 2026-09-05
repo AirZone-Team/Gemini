@@ -1,18 +1,12 @@
 package geminiclient.gemini.base;
 
 import com.mojang.blaze3d.platform.InputConstants;
-import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.RenderSystem;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.alt.AltManagerScreen;
-import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer.GlyphFont;
 import geminiclient.gemini.customRenderer.glsl.InfiniteGridRenderer;
-import geminiclient.gemini.customRenderer.glsl.SdfUIRenderer;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
@@ -20,100 +14,63 @@ import net.minecraft.client.gui.screens.options.OptionsScreen;
 import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.texture.AbstractTexture;
-import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.NotNull;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import static geminiclient.gemini.base.MenuUI.*;
+
 /**
- * Minimal left-column main menu that puts the wallpaper first.
+ * 主菜单 —— 底部 Dock 磨砂构图（单色设计语言）。
  *
- * <p>Typography is the visual anchor: a staggered white→cyan title, a thin
- * accent rule and a quiet vertical menu hug the left edge, while the rest of
- * the screen is left open so the custom wallpaper stays unobstructed.
- * A barely-there left scrim keeps text readable over bright wallpapers
- * without ever reading as a panel.</p>
+ * <p>壁纸优先：清晰的壁纸/视频背景占据全部视野，仅顶部/底部各一条极淡的
+ * 压暗渐变保证文字可读。标题居上，五个菜单项收进底部一条全圆角磨砂
+ * Dock（区域模糊 + 深色渐变 + 白色细描边），悬停时项文字提亮并轻微上浮，
+ * 没有多余的卡片与装饰。右上角三个圆形幽灵按钮负责壁纸开关、壁纸选择
+ * 与语言切换。窄窗口下 Dock 自动退化为居中竖排磨砂卡。</p>
  */
 public class MainMenuScreen extends Screen {
 
     // ========================
-    // Layout Constants
-    // ========================
-    private static final int MENU_SPACING = 34;
-    private static final int NAV_RIGHT_PAD = 40;
-    private static final int FOOTER_RIGHT_PAD = 40;
-    private static final int FOOTER_BOTTOM_PAD = 30;
-
-    // ========================
     // Color Constants (ARGB)
     // ========================
-    private static final int ACCENT          = 0xFF89DDFF; // soft cyan accent
-    private static final int TEXT_IDLE       = 0xFF9A9A9A;
-    private static final int TEXT_HOVER      = 0xFFEAF6FF; // accent-tinted white
-    private static final int TITLE_COLOR     = 0xFFFFFFFF;
-    private static final int TITLE_GRADIENT  = 0xFFA8DCFF; // title right edge
-    private static final int SUBTITLE_COLOR  = 0xFF7A7A7A;
-    private static final int NAV_IDLE        = 0xFFAAAAAA;
-    private static final int NAV_HOVER       = 0xFFFFFFFF;
-    private static final int VERSION_COLOR   = 0xFF666666;
-    private static final int SEPARATOR_COLOR = 0xFF444444;
-    private static final int HINT_COLOR      = 0xFF4A4A4A;
-    private static final int SCRIM_COLOR     = 0x3006080D; // left readability scrim
-    private static final int ROW_FILL        = 0x4A1B2936;
-    private static final int ROW_FILL_EDGE   = 0x1415222D;
-
-    private static final int MIN_EDGE_PAD = 8;
-    private static final int MIN_MENU_SPACING = 22;
+    private static final int SCRIM_TOP = 0x4A000000;
+    private static final int SCRIM_BOTTOM = 0x40000000;
 
     // ========================
     // Fonts
     // ========================
     // 全部面取自 MiSans-Bold：这是资源中唯一一个既含完整中文字形、又带
-    // 标题磅值(MiSans 的 UI 面板风格)的 MiSans 文件。Source Han Sans 子集
-    // 文件不含 CJK，无法渲染中文，因此不再使用。
-    private static final Identifier FONT_BOLD =
-            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
-    private static final Identifier FONT_MEDIUM =
-            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
-    private static final Identifier FONT_LIGHT =
+    // 标题磅值的 MiSans 文件。Source Han Sans 子集文件不含 CJK，无法渲染
+    // 中文，因此不再使用。
+    private static final Identifier FONT_REGULAR =
             Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
 
-    private static final float TITLE_FONT_SIZE     = 48f;
-    private static final float SUBTITLE_FONT_SIZE  = 16f;
-    private static final float MENU_FONT_SIZE      = 14f;
-    private static final float NAV_FONT_SIZE       = 12f;
-    private static final float VERSION_FONT_SIZE   = 11f;
+    private static final float TITLE_FONT_SIZE   = 40f;
+    private static final float SUBTITLE_FONT_SIZE = 13f;
+    private static final float DOCK_FONT_SIZE     = 15f;
+    private static final float SMALL_FONT_SIZE    = 11f;
 
-    private static final float TITLE_SPACING_PX = 14f;
+    private static final float TITLE_SPACING_PX = 12f;
 
     private static GlyphFont titleFont;
     private static GlyphFont subtitleFont;
-    private static GlyphFont menuFont;
-    private static GlyphFont navFont;
-    private static GlyphFont versionFont;
+    private static GlyphFont dockFont;
+    private static GlyphFont smallFont;
 
     private static void ensureFontsLoaded() {
         if (titleFont == null)
-            titleFont = CustomFontRenderer.loadFont(FONT_BOLD, TITLE_FONT_SIZE);
+            titleFont = CustomFontRenderer.loadFont(FONT_REGULAR, TITLE_FONT_SIZE);
         if (subtitleFont == null)
-            subtitleFont = CustomFontRenderer.loadFont(FONT_LIGHT, SUBTITLE_FONT_SIZE);
-        if (menuFont == null)
-            menuFont = CustomFontRenderer.loadFont(FONT_MEDIUM, MENU_FONT_SIZE);
-        if (navFont == null)
-            navFont = CustomFontRenderer.loadFont(FONT_MEDIUM, NAV_FONT_SIZE);
-        if (versionFont == null)
-            versionFont = CustomFontRenderer.loadFont(FONT_LIGHT, VERSION_FONT_SIZE);
+            subtitleFont = CustomFontRenderer.loadFont(FONT_REGULAR, SUBTITLE_FONT_SIZE);
+        if (dockFont == null)
+            dockFont = CustomFontRenderer.loadFont(FONT_REGULAR, DOCK_FONT_SIZE);
+        if (smallFont == null)
+            smallFont = CustomFontRenderer.loadFont(FONT_REGULAR, SMALL_FONT_SIZE);
     }
 
     /**
@@ -121,10 +78,8 @@ public class MainMenuScreen extends Screen {
      * 主菜单时渲染线程现场生成 MSDF。调用方需随后执行
      * {@code CustomFontRenderer.flushAllPages()} 上传图集页。
      *
-     * <p>预热范围刻意受限：全部面预热 ASCII；仅展示中文的三个面
-     * （副标题/菜单/版本号）额外预热主菜单可见的中文（约 20 余字）。
-     * 标题面保持英文排版，导航面仅英文，均无需中文。MSDF 生成成本约
-     * 17ms/字形（96px em），控制在这个范围加载界面不会明显卡顿。</p>
+     * <p>预热范围刻意受限：全部面预热 ASCII；展示中文的面额外预热主菜单
+     * 可见的中文（约 20 余字）。MSDF 生成成本约 17ms/字形（96px em）。</p>
      */
     public static void warmup() {
         try {
@@ -132,9 +87,8 @@ public class MainMenuScreen extends Screen {
             String warmupCjk = I18n.warmupText();
             warmupAsciiAnd(titleFont, "GEMINI");
             warmupAsciiAnd(subtitleFont, warmupCjk);
-            warmupAsciiAnd(menuFont, warmupCjk);
-            warmupAsciiAnd(navFont, "GithubDiscord   ·   ");
-            warmupAsciiAnd(versionFont, warmupCjk + "GEMINI↑↓EnterOpen·");
+            warmupAsciiAnd(dockFont, warmupCjk + "↑↓←→");
+            warmupAsciiAnd(smallFont, warmupCjk + "GithubDiscord·EN中v0.1.0BG");
         } catch (Throwable t) {
             // 预热失败不影响运行：字形仍会惰性栅格化。
         }
@@ -145,11 +99,11 @@ public class MainMenuScreen extends Screen {
             return;
         }
         for (int cp = 0x20; cp <= 0x7E; cp++) {
-            face.getGlyph(cp);
+            face.getGlyphBlocking(cp);
         }
         for (int i = 0; i < extraText.length(); ) {
             int cp = extraText.codePointAt(i);
-            face.getGlyph(cp);
+            face.getGlyphBlocking(cp);
             i += Character.charCount(cp);
         }
     }
@@ -158,13 +112,18 @@ public class MainMenuScreen extends Screen {
     // Animation Constants
     // ========================
     private static final float HOVER_SPEED      = 12f;  // exponential lerp speed
-    private static final float UNDERLINE_SPEED  = 12f;
     private static final float ENTRY_FADE_SPEED = 4f;
-    private static final float ENTRY_STAGGER    = 0.09f; // per menu item, seconds
-    private static final float TITLE_STAGGER    = 0.06f; // per title letter, seconds
-    private static final float ENTRY_SLIDE_PX   = 18f;   // cascade-in distance
-    private static final float HOVER_SLIDE_PX   = 6f;    // text slide on hover
-    private static final float DIM_FACTOR       = 0.35f; // idle dim while another item hovered
+    private static final float ITEM_STAGGER     = 0.05f; // dock items, seconds
+    private static final float DOCK_RISE_PX     = 18f;   // dock slide-up distance
+    private static final float HOVER_RISE_PX    = 2f;    // item lift on hover
+
+    private static final int   UTILITY_SIZE     = 32;
+    private static final int   UTILITY_GAP      = 6;
+    private static final float DOCK_HEIGHT      = 56f;
+    private static final float DOCK_ITEM_PAD    = 18f;
+    private static final float DOCK_ITEM_GAP    = 2f;
+    private static final float COMPACT_ROW_H    = 42f;
+    private static final float COMPACT_CARD_PAD = 14f;
 
     private static final String MOD_VERSION = "0.1.0";
 
@@ -173,44 +132,38 @@ public class MainMenuScreen extends Screen {
     private static final String DISCORD_URL = "https://discord.com/";
 
     // ========================
-    // Custom Background
-    // ========================
-    private static FileSystem fileSystem;
-    private static Identifier customBackgroundTexture;
-    private static DynamicTexture customBackgroundDynamicTexture;
-    private static GpuVideoTexture customBackgroundVideoTexture;
-    /** Reused PBO-equivalent: CPU writes once, then the device copies it to the texture. */
-    private static GpuBuffer customBackgroundUploadBuffer;
-    private static Path customBackgroundFile;
-    private static JavaCvVideoBackground customBackgroundVideo;
-    private static boolean customBackgroundLoadFailed = false;
-
-    // ========================
     // Inner Types
     // ========================
 
     private record MenuItem(String label, Runnable action) {}
 
+    /**
+     * 单一权威屏幕布局，绘制与命中测试共享。
+     */
     private record Layout(
-            String titleText,
-            float titleX, float titleY, float titleWidth, float titleSpacing,
-            float accentY, float subtitleY,
-            float menuX, float menuStartY, float menuSpacing, int rowX, int rowW, int rowH,
-            float navStartX, float navY, float githubW, float separatorW, float discordW,
-            float footerNameX, float footerVersionX, float footerNameY, float footerVersionY,
-            float hintsX, int scrimW,
-            boolean showSubtitle, boolean showAtmosphere, boolean showNavigation,
-            boolean showFooter, boolean showHints,
-            int bgToggleX, int bgToggleY, int bgToggleW, int bgToggleH,
-            int bgCycleX, int bgCycleY, int bgCycleW, int bgCycleH,
-            int bgLangX, int bgLangY, int bgLangW, int bgLangH) {
+            float titleY, float subtitleY,
+            boolean compact,
+            float dockX, float dockY, float dockW, float dockH, float[] itemW,
+            float cardX, float cardY, float cardW, float cardH,
+            float utilCy, float bgCx, float gearCx, float langCx,
+            boolean showCorners, float navY, float navX,
+            float githubW, float separatorW, float discordW,
+            float versionX, float versionW) {
 
-        float menuY(int index) {
-            return menuStartY + index * menuSpacing;
+        float itemX(int index) {
+            float x = dockX + DOCK_ITEM_PAD;
+            for (int i = 0; i < index; i++) {
+                x += itemW[i] + DOCK_ITEM_GAP;
+            }
+            return x;
+        }
+
+        float cardRowY(int index) {
+            return cardY + COMPACT_CARD_PAD + index * COMPACT_ROW_H;
         }
 
         float discordX() {
-            return navStartX + githubW + separatorW;
+            return navX + githubW + separatorW;
         }
     }
 
@@ -221,24 +174,21 @@ public class MainMenuScreen extends Screen {
     private final List<MenuItem> menuItems = new ArrayList<>();
     private float[] hoverProgress;
     private float entryAlpha;        // global fade-in: 0 → 1
-    private float anyHoverProgress;  // 1 while any menu item is hovered/focused
     private int focusedIndex = -1;
     private int hoveredIndex = -1;
 
-    // Navigation hover
+    // Corner link hover
     private float githubHover;
     private float discordHover;
-    private float githubUnderline;
-    private float discordUnderline;
 
-    // Background toggle hover
+    // Utility button hover
     private float bgToggleHover;
     private float bgCycleHover;
     private float bgLangHover;
 
-    // Mouse parallax effect
-    private float mouseX = 0;
-    private float mouseY = 0;
+    // Mouse position (wallpaper parallax + particles)
+    private float mouseX;
+    private float mouseY;
 
     // Particle system for custom background
     private ParticleSystem particleSystem;
@@ -253,6 +203,8 @@ public class MainMenuScreen extends Screen {
 
     public MainMenuScreen() {
         super(Component.literal("Gemini Main Menu"));
+        // 引用计数：主菜单 ↔ AltManager 互切时壁纸资源保持存活
+        MenuBackdrop.acquire();
     }
 
     // ========================
@@ -261,10 +213,7 @@ public class MainMenuScreen extends Screen {
 
     @Override
     protected void init() {
-        // Initialize background storage
-        if (fileSystem == null) {
-            fileSystem = Gemini.fileSystem;
-        }
+        FileSystem fileSystem = fs();
         if (fileSystem != null) {
             fileSystem.refreshBackgrounds();
         }
@@ -300,6 +249,18 @@ public class MainMenuScreen extends Screen {
         lastFrameMs = System.currentTimeMillis();
     }
 
+    private static FileSystem fs() {
+        return Gemini.fileSystem;
+    }
+
+    /**
+     * Reloads the custom background texture.
+     * Called when a new wallpaper is selected from the selector screen.
+     */
+    public void reloadCustomBackground() {
+        MenuBackdrop.reload();
+    }
+
     // ========================
     // Main render
     // ========================
@@ -311,869 +272,338 @@ public class MainMenuScreen extends Screen {
         lastFrameMs = now;
         float elapsed = (now - screenOpenTime) / 1000f;
 
-        // Update mouse position for parallax
         this.mouseX = mouseX;
         this.mouseY = mouseY;
 
-        // Update particle system
-        if (particleSystem != null && fileSystem != null && fileSystem.isCustomBackgroundEnabled()) {
+        FileSystem fileSystem = fs();
+
+        // Particle system follows the mouse only while the wallpaper is up
+        boolean wallpaperActive = MenuBackdrop.isActive();
+        if (particleSystem != null && wallpaperActive) {
             particleSystem.updateMousePosition(mouseX, mouseY);
             particleSystem.update(dt);
         }
 
-        // Entry fade-in
         entryAlpha += (1f - entryAlpha) * dt * ENTRY_FADE_SPEED;
         if (entryAlpha > 0.99f) entryAlpha = 1f;
 
         Layout layout = layout();
 
-        // ── 1. GLSL Background ─────────────────────────────
-        renderBackground(gui, elapsed);
-
-        // ── 1.5. Particle System (only with custom background) ─────
-        if (particleSystem != null && fileSystem != null && fileSystem.isCustomBackgroundEnabled()) {
+        // ── 1. Background: wallpaper (or GLSL grid fallback) ──
+        MenuBackdrop.render(gui, this.width, this.height, mouseX, mouseY);
+        if (!wallpaperActive && fileSystem != null && fileSystem.isParticlesEnabled()) {
+            InfiniteGridRenderer.render(elapsed);
+        }
+        if (particleSystem != null && wallpaperActive) {
             particleSystem.render(gui, partialTicks);
         }
 
-        // ── 2. Update hover animations ─────────────────────
-        updateMenuHover(layout, mouseX, mouseY, dt);
-        updateNavHover(layout, mouseX, mouseY, dt);
-        updateBgToggleHover(layout, mouseX, mouseY, dt);
-        updateBgCycleHover(layout, mouseX, mouseY, dt);
-        updateBgLangHover(layout, mouseX, mouseY, dt);
+        // ── 2. Readability scrims ─────────────────────────
+        edgeScrim(gui, 0, 0, this.width, 110, scaleAlpha(SCRIM_TOP, entryAlpha), true);
+        edgeScrim(gui, 0, this.height - 150, this.width, 150, scaleAlpha(SCRIM_BOTTOM, entryAlpha), false);
 
-        // ── 3. Readability scrim + ambient lighting ──────
-        drawLeftScrim(gui, layout);
-        drawAtmosphere(gui, layout, elapsed);
+        // ── 3. Hover animations ───────────────────────────
+        updateHovers(layout, mouseX, mouseY, dt);
 
-        // ── 4. Title ───────────────────────────────────────
+        // ── 4. Title + subtitle ───────────────────────────
         drawTitle(gui, layout, elapsed);
-
-        // ── 5. Accent rule + Subtitle ──────────────────────
-        drawAccentRule(gui, layout, elapsed);
         drawSubtitle(gui, layout, elapsed);
 
-        // ── 6. Menu items ──────────────────────────────────
-        drawMenuItems(gui, layout, elapsed);
+        // ── 5. Menu (dock / compact card) ─────────────────
+        if (layout.compact()) {
+            drawCompactCard(gui, layout, elapsed);
+        } else {
+            drawDock(gui, layout, elapsed);
+        }
 
-        // ── 7. Navigation ──────────────────────────────────
-        drawNavigation(gui, layout, elapsed);
+        // ── 6. Corner links + version ─────────────────────
+        drawCorners(gui, layout, elapsed);
 
-        // ── 8. Background Toggle Button ────────────────────
-        drawBackgroundToggle(gui, layout, elapsed);
+        // ── 7. Utility buttons ────────────────────────────
+        drawUtilityButtons(gui, layout, elapsed);
 
-        // ── 8.5. Background Cycle Button ───────────────────
-        drawBackgroundCycle(gui, layout, elapsed);
-
-        // ── 8.6. Language Switch Button ────────────────────
-        drawBackgroundLanguage(gui, layout, elapsed);
-
-        // ── 9. Footer ──────────────────────────────────────
-        drawFooter(gui, layout, elapsed);
+        // ── 8. Boot star mark（加载画面交接的左上角品牌标记） ──
+        GeminiLoadingOverlay.drawMenuMark(gui);
     }
+
+    // ========================
+    // Layout
+    // ========================
 
     private Layout layout() {
         ensureFontsLoaded();
+        int n = menuItems.size();
 
-        float githubW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, I18n.tr("Github"));
-        float separatorW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, "   ·   ");
-        float discordW = navFont == null ? 0f : CustomFontRenderer.stringWidth(navFont, I18n.tr("Discord"));
-        float navW = githubW + separatorW + discordW;
-        float navRight = Math.min(NAV_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f));
-        float navStartX = Math.max(MIN_EDGE_PAD, this.width - navRight - navW);
+        // ── Utility buttons (top right) ──
+        float pad = Math.max(16f, this.width * 0.03f);
+        float bgCx = this.width - pad - UTILITY_SIZE / 2f;
+        float gearCx = bgCx - UTILITY_SIZE - UTILITY_GAP;
+        float langCx = gearCx - UTILITY_SIZE - UTILITY_GAP;
+        float utilCy = Math.max(20f, pad * 0.6f) + UTILITY_SIZE / 2f;
 
-        // Left column: wide enough to breathe, narrow enough to keep the wallpaper open
-        float menuX = Math.clamp(this.width * 0.09f, 28f, 96f);
+        // ── Title / subtitle (top center) ──
+        float titleY = Math.max(46f, this.height * 0.14f);
+        float subtitleY = titleY + TITLE_FONT_SIZE * 0.9f + 18f;
 
-        boolean showSubtitle = this.height >= 340;
-        boolean showAtmosphere = this.height >= 260;
-        boolean showNavigation = this.height >= 210 && navW <= this.width - MIN_EDGE_PAD * 2f;
-        boolean showFooter = this.height >= 420;
-        boolean showHints = this.height >= 480;
-
-        String titleText = "G E M I N I";
-        float rawTitleWidth = titleFont == null ? 0f
-                : computeSpacedWidth(titleFont, titleText, TITLE_SPACING_PX);
-        int titleGaps = titleText.codePointCount(0, titleText.length()) - 1;
-        float glyphWidth = Math.max(0f, rawTitleWidth - titleGaps * TITLE_SPACING_PX);
-        float titleAvail = this.width - menuX - MIN_EDGE_PAD;
-        if (glyphWidth > titleAvail) {
-            titleText = "GEMINI";
-            rawTitleWidth = titleFont == null ? 0f
-                    : computeSpacedWidth(titleFont, titleText, TITLE_SPACING_PX);
-            titleGaps = titleText.codePointCount(0, titleText.length()) - 1;
-            glyphWidth = Math.max(0f, rawTitleWidth - titleGaps * TITLE_SPACING_PX);
+        // ── Dock (bottom center) ──
+        float[] itemW = new float[n];
+        float total = DOCK_ITEM_PAD * 2f + DOCK_ITEM_GAP * (n - 1);
+        for (int i = 0; i < n; i++) {
+            itemW[i] = (dockFont == null ? DOCK_FONT_SIZE * 6f
+                    : CustomFontRenderer.stringWidth(dockFont, menuItems.get(i).label())) + 36f;
+            total += itemW[i];
         }
-        float titleSpacing = titleGaps <= 0 ? TITLE_SPACING_PX
-                : Math.clamp((titleAvail - glyphWidth) / titleGaps, 1f, TITLE_SPACING_PX);
-        float titleWidth = titleFont == null ? 0f
-                : computeSpacedWidth(titleFont, titleText, titleSpacing);
 
-        // Uniform row width from the widest label so hover cards line up
-        float maxLabelW = 0f;
-        if (menuFont != null) {
-            for (MenuItem item : menuItems) {
-                maxLabelW = Math.max(maxLabelW, CustomFontRenderer.stringWidth(menuFont, item.label()));
+        boolean compact = total > this.width - 24f;
+        float dockX = 0, dockY = 0, dockW = 0;
+        float cardX = 0, cardY = 0, cardW = 0, cardH = 0;
+
+        if (!compact) {
+            dockW = total;
+            dockX = (this.width - dockW) / 2f;
+            dockY = this.height - Math.max(26f, this.height * 0.075f) - DOCK_HEIGHT;
+        } else {
+            float maxLabelW = 0f;
+            if (dockFont != null) {
+                for (MenuItem item : menuItems) {
+                    maxLabelW = Math.max(maxLabelW, CustomFontRenderer.stringWidth(dockFont, item.label()));
+                }
             }
-        }
-        int rowX = Math.round(menuX - 14f);
-        int rowW = Math.max(40, Math.round(maxLabelW) + 48);
-        int rowH = Math.round((menuFont == null ? MENU_FONT_SIZE : menuFont.lineHeight) + 14f);
-
-        // Vertical stack: title → rule → subtitle → menu, anchored to the left
-        float titleY = Math.max(52f, this.height * 0.20f);
-        float menuTop = Math.max(this.height - (showFooter ? 64f : MIN_EDGE_PAD), titleY + 120f);
-        float desiredMenuY = titleY + TITLE_FONT_SIZE + (showSubtitle ? 78f : 52f);
-        float availableSpacing = (menuTop - desiredMenuY) / menuItems.size();
-
-        if (availableSpacing < MIN_MENU_SPACING) {
-            titleY = Math.max(30f, menuTop - (showSubtitle ? 78f : 52f)
-                    - TITLE_FONT_SIZE - menuItems.size() * MIN_MENU_SPACING);
-            desiredMenuY = titleY + TITLE_FONT_SIZE + (showSubtitle ? 78f : 52f);
-            availableSpacing = (menuTop - desiredMenuY) / menuItems.size();
+            cardW = Math.max(140f, maxLabelW + 64f);
+            cardH = n * COMPACT_ROW_H + COMPACT_CARD_PAD * 2f;
+            cardX = (this.width - cardW) / 2f;
+            cardY = Math.max(subtitleY + 40f, (this.height - cardH) / 2f);
         }
 
-        float menuSpacing = Math.clamp(availableSpacing, 18f, MENU_SPACING);
-        float menuStartY = desiredMenuY;
+        // ── Corner links + version ──
+        boolean showCorners = this.width >= 720 && this.height >= 300;
+        float githubW = smallFont == null ? 0f : CustomFontRenderer.stringWidth(smallFont, I18n.tr("Github"));
+        float separatorW = smallFont == null ? 0f : CustomFontRenderer.stringWidth(smallFont, "   ·   ");
+        float discordW = smallFont == null ? 0f : CustomFontRenderer.stringWidth(smallFont, I18n.tr("Discord"));
+        String version = "v" + MOD_VERSION;
+        float versionW = smallFont == null ? 0f : CustomFontRenderer.stringWidth(smallFont, version);
+        float navY = this.height - 26f;
+        float navX = 18f;
+        float versionX = this.width - 18f - versionW;
 
-        String line1 = I18n.tr("Gemini Client");
-        String line2 = "v" + MOD_VERSION;
-        float w1 = versionFont == null ? 0f : CustomFontRenderer.stringWidth(versionFont, line1);
-        float w2 = versionFont == null ? 0f : CustomFontRenderer.stringWidth(versionFont, line2);
-        float footerRight = Math.min(FOOTER_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f));
-        float footerVersionY = this.height - Math.min(FOOTER_BOTTOM_PAD, Math.max(12, this.height / 12));
-        float footerNameY = footerVersionY - VERSION_FONT_SIZE - 4f;
-
-        // Background toggle button (right side, below navigation)
-        int bgToggleW = 28;
-        int bgToggleH = 28;
-        int bgToggleX = this.width - (int) Math.min(NAV_RIGHT_PAD, Math.max(MIN_EDGE_PAD, this.width * 0.08f)) - bgToggleW;
-        int bgToggleY = showNavigation ? 53 : 52;
-
-        // Background cycle button (left of toggle button)
-        int bgCycleW = 28;
-        int bgCycleH = 28;
-        int bgCycleX = bgToggleX - bgCycleW - 6; // 6px gap
-        int bgCycleY = bgToggleY;
-
-        // Language switch button (left of cycle button)
-        int bgLangW = 28;
-        int bgLangH = 28;
-        int bgLangX = bgCycleX - bgLangW - 6;
-        int bgLangY = bgToggleY;
-
-        return new Layout(
-                titleText, menuX, titleY, titleWidth, titleSpacing,
-                titleY + TITLE_FONT_SIZE + 10f,
-                titleY + TITLE_FONT_SIZE + 24f,
-                menuX, menuStartY, menuSpacing, rowX, rowW, rowH,
-                navStartX, 20f, githubW, separatorW, discordW,
-                this.width - footerRight - w1, this.width - footerRight - w2,
-                footerNameY, footerVersionY,
-                menuX,
-                Math.round(menuX + rowW + 96f),
-                showSubtitle, showAtmosphere, showNavigation, showFooter, showHints,
-                bgToggleX, bgToggleY, bgToggleW, bgToggleH,
-                bgCycleX, bgCycleY, bgCycleW, bgCycleH,
-                bgLangX, bgLangY, bgLangW, bgLangH);
-    }
-
-    private void drawAtmosphere(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
-        if (!layout.showAtmosphere) return;
-        // Don't show atmosphere when custom background is active
-        if (fileSystem != null && fileSystem.isCustomBackgroundEnabled()
-                && fileSystem.customBackgroundFileExists()) {
-            return;
-        }
-
-        float reveal = easeOutCubic(clamp01(elapsed * 1.6f)) * entryAlpha;
-        if (reveal <= 0.01f) return;
-
-        float pulse = 0.88f + 0.12f * (float) Math.sin(elapsed * 0.8f);
-        SdfUIRenderer.drawCircle(gui, this.width - 88f, 92f, 150,
-                scaleAlpha(0x0C89DDFF, reveal * pulse));
-        SdfUIRenderer.drawCircle(gui, 52f, this.height - 72f, 110,
-                scaleAlpha(0x085C7CFF, reveal));
-    }
-
-    /**
-     * A whisper-thin gradient scrim along the left edge. It only exists to
-     * keep the column text legible over bright wallpapers — it is far too
-     * faint to ever read as a panel, so the wallpaper stays in charge.
-     */
-    private void drawLeftScrim(GuiGraphicsExtractor gui, Layout layout) {
-        if (entryAlpha <= 0.01f) return;
-        int color = scaleAlpha(SCRIM_COLOR, entryAlpha);
-        CustomRectRenderer.drawRectHorizGrad(gui, 0, 0, Math.min(layout.scrimW, this.width),
-                this.height, color, color & 0x00FFFFFF);
+        return new Layout(titleY, subtitleY, compact,
+                dockX, dockY, dockW, DOCK_HEIGHT, itemW,
+                cardX, cardY, cardW, cardH,
+                utilCy, bgCx, gearCx, langCx,
+                showCorners, navY, navX,
+                githubW, separatorW, discordW,
+                versionX, versionW);
     }
 
     // ========================
-    // Hover updates (exponential lerp)
+    // Hover updates
     // ========================
 
-    private void updateMenuHover(Layout layout, int mouseX, int mouseY, float dt) {
+    private void updateHovers(Layout layout, double mx, double my, float dt) {
         hoveredIndex = -1;
-        for (int i = 0; i < menuItems.size(); i++) {
-            boolean mouseOver = isMenuHover(layout, mouseX, mouseY, i);
-            boolean over = mouseOver || i == focusedIndex;
-            if (mouseOver) hoveredIndex = i;
-            float target = over ? 1f : 0f;
+        int n = menuItems.size();
+        for (int i = 0; i < n; i++) {
+            boolean over = isItemHover(layout, mx, my, i);
+            if (over) hoveredIndex = i;
+            // 键盘焦点与鼠标悬停同一视觉语言
+            float target = over || i == focusedIndex ? 1f : 0f;
             hoverProgress[i] += (target - hoverProgress[i]) * dt * HOVER_SPEED;
         }
-        float anyTarget = hoveredIndex >= 0 || focusedIndex >= 0 ? 1f : 0f;
-        anyHoverProgress += (anyTarget - anyHoverProgress) * dt * HOVER_SPEED;
-    }
 
-    private void updateNavHover(Layout layout, int mouseX, int mouseY, float dt) {
-        boolean overGithub = isNavGithubHover(layout, mouseX, mouseY);
-        boolean overDiscord = isNavDiscordHover(layout, mouseX, mouseY);
-
+        boolean overGithub = layout.showCorners()
+                && inRect(mx, my, layout.navX() - 4, layout.navY() - 4,
+                        layout.githubW() + 8, smallFont == null ? 0 : smallFont.lineHeight + 8);
+        boolean overDiscord = layout.showCorners()
+                && inRect(mx, my, layout.discordX() - 4, layout.navY() - 4,
+                        layout.discordW() + 8, smallFont == null ? 0 : smallFont.lineHeight + 8);
         githubHover += ((overGithub ? 1f : 0f) - githubHover) * dt * HOVER_SPEED;
         discordHover += ((overDiscord ? 1f : 0f) - discordHover) * dt * HOVER_SPEED;
 
-        githubUnderline += ((overGithub ? 1f : 0f) - githubUnderline) * dt * UNDERLINE_SPEED;
-        discordUnderline += ((overDiscord ? 1f : 0f) - discordUnderline) * dt * UNDERLINE_SPEED;
-    }
-
-    private void updateBgToggleHover(Layout layout, int mouseX, int mouseY, float dt) {
-        boolean overToggle = isBgToggleHover(layout, mouseX, mouseY);
-        bgToggleHover += ((overToggle ? 1f : 0f) - bgToggleHover) * dt * HOVER_SPEED;
-    }
-
-    private void updateBgCycleHover(Layout layout, int mouseX, int mouseY, float dt) {
-        boolean overCycle = isBgCycleHover(layout, mouseX, mouseY);
-        bgCycleHover += ((overCycle ? 1f : 0f) - bgCycleHover) * dt * HOVER_SPEED;
-    }
-
-    private void updateBgLangHover(Layout layout, int mouseX, int mouseY, float dt) {
-        boolean overLang = isBgLangHover(layout, mouseX, mouseY);
-        bgLangHover += ((overLang ? 1f : 0f) - bgLangHover) * dt * HOVER_SPEED;
+        bgToggleHover += ((isUtilHover(layout, mx, my, layout.bgCx()) ? 1f : 0f) - bgToggleHover) * dt * HOVER_SPEED;
+        bgCycleHover += ((isUtilHover(layout, mx, my, layout.gearCx()) ? 1f : 0f) - bgCycleHover) * dt * HOVER_SPEED;
+        bgLangHover += ((isUtilHover(layout, mx, my, layout.langCx()) ? 1f : 0f) - bgLangHover) * dt * HOVER_SPEED;
     }
 
     // ========================
-    // Title: "G E M I N I"
-    // Letters reveal one by one, white → soft cyan gradient.
+    // Title + subtitle
     // ========================
 
     private void drawTitle(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         ensureFontsLoaded();
         if (titleFont == null) return;
 
-        String title = layout.titleText;
-        float titleX = layout.titleX;
-        float titleY = layout.titleY;
+        float reveal = easeOutCubic(clamp01((elapsed - 0.08f) * 2f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
 
-        int letterIndex = 0;
-        float cx = titleX;
-        int letterCount = title.replace(" ", "").length();
+        String title = "GEMINI";
+        float spacing = TITLE_SPACING_PX;
+        float totalW = computeSpacedWidth(titleFont, title, spacing);
+        float cx = (this.width - totalW) / 2f;
+        // 从上方轻微沉降入场
+        float y = layout.titleY() - (1f - reveal) * 10f;
+        int alpha = (int) (reveal * 255);
 
-        for (int i = 0; i < title.length();) {
-            int cp = title.codePointAt(i);
-            String ch = new String(Character.toChars(cp));
+        for (int i = 0; i < title.length(); i++) {
+            String ch = title.substring(i, i + 1);
             float chW = CustomFontRenderer.stringWidth(titleFont, ch);
-
-            if (!ch.isBlank()) {
-                // Per-letter staggered reveal
-                float reveal = clamp01((elapsed - 0.10f - letterIndex * TITLE_STAGGER) * 3f);
-                reveal = easeOutCubic(reveal);
-                int alpha = (int) (entryAlpha * reveal * 255);
-                if (alpha > 0) {
-                    // Gradient across the word: white → accent-tinted
-                    float t = letterCount <= 1 ? 0f : (float) letterIndex / (letterCount - 1);
-                    int base = lerpColor(TITLE_COLOR, TITLE_GRADIENT, t);
-                    int color = (alpha << 24) | (base & 0x00FFFFFF);
-                    CustomFontRenderer.drawString(gui, titleFont, ch, cx, titleY, color);
-                }
-                letterIndex++;
-            }
-
-            cx += chW + layout.titleSpacing;
-            i += Character.charCount(cp);
+            CustomFontRenderer.drawString(gui, titleFont, ch, cx, y, (alpha << 24) | (TEXT_HIGH & 0x00FFFFFF));
+            cx += chW + spacing;
         }
     }
-
-    // ========================
-    // Accent rule under the title — draws itself outward from center
-    // ========================
-
-    private void drawAccentRule(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
-        if (!layout.showSubtitle) return;
-        float progress = easeOutCubic(clamp01((elapsed - 0.45f) * 2.2f));
-        if (progress <= 0.01f) return;
-
-        float lineW = layout.titleWidth * 0.32f * progress;
-        float x = layout.titleX;
-        float y = layout.accentY;
-
-        int alpha = (int) (entryAlpha * progress * 255);
-        int color = (alpha << 24) | (ACCENT & 0x00FFFFFF);
-        CustomRectRenderer.drawRect(gui, (int) x, (int) y, (int) lineW, 1, color);
-    }
-
-    // ========================
-    // Subtitle: "Modern Minecraft Client"
-    // ========================
 
     private void drawSubtitle(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
-        if (!layout.showSubtitle) return;
-        ensureFontsLoaded();
         if (subtitleFont == null) return;
+        float reveal = easeOutCubic(clamp01((elapsed - 0.22f) * 2f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
 
-        String subtitle = I18n.tr("Modern Minecraft Client");
-        float subX = layout.menuX;
-        float subY = layout.subtitleY;
-
-        float reveal = easeOutCubic(clamp01((elapsed - 0.55f) * 2.5f));
-        int alpha = (int) (entryAlpha * reveal * 255);
-        if (alpha <= 0) return;
-        int color = (alpha << 24) | (SUBTITLE_COLOR & 0x00FFFFFF);
-
-        CustomFontRenderer.drawString(gui, subtitleFont, subtitle, subX, subY, color);
+        int alpha = (int) (reveal * 220);
+        drawCentered(gui, subtitleFont, I18n.tr("Modern Minecraft Client"),
+                this.width / 2f, layout.subtitleY(), (alpha << 24) | (TEXT_BODY & 0x00FFFFFF));
     }
 
     // ========================
-    // Menu items — staggered cascade-in, accent indicator bar,
-    // hover slide, idle items dim while another is hovered.
+    // Dock menu
     // ========================
 
-    private void drawMenuItems(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+    private void drawDock(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         ensureFontsLoaded();
-        if (menuFont == null) return;
+        if (dockFont == null) return;
+
+        float reveal = easeOutCubic(clamp01((elapsed - 0.3f) * 2.2f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
+
+        float dockY = layout.dockY() + (1f - reveal) * DOCK_RISE_PX;
+
+        glassPanel(gui, layout.dockX(), dockY, layout.dockW(), layout.dockH(),
+                layout.dockH() / 2f, reveal, 10f);
 
         for (int i = 0; i < menuItems.size(); i++) {
-            MenuItem item = menuItems.get(i);
+            float itemReveal = easeOutCubic(clamp01((elapsed - 0.38f - i * ITEM_STAGGER) * 2.5f));
+            if (itemReveal <= 0.01f) continue;
 
-            // Per-item staggered reveal
-            float reveal = easeOutCubic(clamp01((elapsed - 0.35f - i * ENTRY_STAGGER) * 3f));
-            if (reveal <= 0.01f) continue;
-
-            float slideIn = (1f - reveal) * -ENTRY_SLIDE_PX;
-            float y = layout.menuY(i);
             float hp = hoverProgress[i];
+            float itemX = layout.itemX(i);
+            float itemW = layout.itemW()[i];
 
-            // Dim idle items while another is hovered
-            float dim = 1f - DIM_FACTOR * anyHoverProgress * (1f - hp);
-            int alpha = (int) (entryAlpha * reveal * dim * 255);
-            if (alpha <= 0) continue;
-
-            int rowX = layout.rowX;
-            int rowY = Math.round(y - 7f);
-            int rowW = layout.rowW;
-            int rowH = layout.rowH;
-            float active = Math.max(hp, i == focusedIndex ? 0.75f : 0f);
-            if (active > 0.01f) {
-                CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui,
-                        rowX, rowY, rowW, rowH, 8,
-                        scaleAlpha(ROW_FILL, reveal * active),
-                        scaleAlpha(ROW_FILL_EDGE, reveal * active));
-            }
-
-            // Accent indicator bar: grows vertically on hover
+            // 悬停 / 焦点胶囊
             if (hp > 0.01f) {
-                float lineH = menuFont.lineHeight;
-                float barH = lineH * hp;
-                float barY = y + (lineH - barH) / 2f;
-                int barAlpha = (int) (alpha * hp);
-                int barColor = (barAlpha << 24) | (ACCENT & 0x00FFFFFF);
                 CustomRoundedRectRenderer.drawRoundedRect(gui,
-                        rowX + 6 + (int) slideIn, (int) barY,
-                        3, Math.max(2, (int) barH), 1, barColor);
+                        Math.round(itemX + 4), Math.round(dockY + 6),
+                        Math.round(itemW - 8), Math.round(layout.dockH() - 12),
+                        Math.round((layout.dockH() - 12) / 2f),
+                        scaleAlpha(lerpColor(HOVER_FILL, SELECTED_FILL, hp), reveal * hp));
             }
 
-            // Label text: centered within the hover card, slides right on hover
-            int idleColor = (alpha << 24) | (TEXT_IDLE & 0x00FFFFFF);
-            int hoverColor = (alpha << 24) | (TEXT_HOVER & 0x00FFFFFF);
-            int textColor = lerpColor(idleColor, hoverColor, hp);
-
-            float labelW = CustomFontRenderer.stringWidth(menuFont, item.label);
-            float textX = layout.rowX + (layout.rowW - labelW) / 2f + slideIn + hp * HOVER_SLIDE_PX;
-            CustomFontRenderer.drawString(gui, menuFont, item.label, textX, y, textColor);
+            // 文字：居中 + 悬停轻微上浮
+            String label = menuItems.get(i).label();
+            float labelW = CustomFontRenderer.stringWidth(dockFont, label);
+            float textX = itemX + (itemW - labelW) / 2f;
+            float textY = dockY + (layout.dockH() - dockFont.lineHeight) / 2f - hp * HOVER_RISE_PX;
+            int alpha = (int) (reveal * itemReveal * 255);
+            int color = lerpColor((alpha << 24) | (TEXT_BODY & 0x00FFFFFF),
+                    (alpha << 24) | (TEXT_HIGH & 0x00FFFFFF), hp);
+            CustomFontRenderer.drawString(gui, dockFont, label, textX, textY, color);
         }
     }
 
-    // ========================
-    // Navigation: Github | Discord
-    // Accent underlines grow outward from the center; clickable.
-    // ========================
-
-    private void drawNavigation(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
-        if (!layout.showNavigation) return;
+    /** 窄窗口降级：居中竖排磨砂卡。 */
+    private void drawCompactCard(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         ensureFontsLoaded();
-        if (navFont == null) return;
+        if (dockFont == null) return;
 
-        float navY = layout.navY;
+        float reveal = easeOutCubic(clamp01((elapsed - 0.3f) * 2.2f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
 
-        String githubText = I18n.tr("Github");
-        String discordText = I18n.tr("Discord");
-        String separator = "   ·   ";
+        float cardY = layout.cardY() + (1f - reveal) * DOCK_RISE_PX;
+        glassPanel(gui, layout.cardX(), cardY, layout.cardW(), layout.cardH(),
+                16f, reveal, 8f);
 
-        float githubW = layout.githubW;
-        float separatorW = layout.separatorW;
-        float discordW = layout.discordW;
-        float startX = layout.navStartX;
+        for (int i = 0; i < menuItems.size(); i++) {
+            float itemReveal = easeOutCubic(clamp01((elapsed - 0.38f - i * ITEM_STAGGER) * 2.5f));
+            if (itemReveal <= 0.01f) continue;
 
-        float reveal = easeOutCubic(clamp01((elapsed - 0.65f) * 3f));
-        int alpha = (int) (entryAlpha * reveal * 255);
-        if (alpha <= 0) return;
+            float hp = hoverProgress[i];
+            float rowX = layout.cardX() + COMPACT_CARD_PAD;
+            float rowW = layout.cardW() - COMPACT_CARD_PAD * 2f;
+            float rowY = layout.cardRowY(i) + (1f - reveal) * DOCK_RISE_PX;
 
-        // Github
-        int githubColor = lerpColor(
-                (alpha << 24) | (NAV_IDLE & 0x00FFFFFF),
-                (alpha << 24) | (NAV_HOVER & 0x00FFFFFF),
-                githubHover);
-        CustomFontRenderer.drawString(gui, navFont, githubText, startX, navY, githubColor);
+            if (hp > 0.01f) {
+                CustomRoundedRectRenderer.drawRoundedRect(gui,
+                        Math.round(rowX), Math.round(rowY + 2),
+                        Math.round(rowW), Math.round(COMPACT_ROW_H - 4), 12,
+                        scaleAlpha(lerpColor(HOVER_FILL, SELECTED_FILL, hp), reveal * hp));
+            }
 
-        // Github underline (center-out, accent)
-        if (githubUnderline > 0.01f) {
-            int ulAlpha = (int) (alpha * githubUnderline);
-            int ulColor = (ulAlpha << 24) | (ACCENT & 0x00FFFFFF);
-            float ulW = githubW * githubUnderline;
-            float ulX = startX + (githubW - ulW) / 2f;
-            float ulY = navY + NAV_FONT_SIZE + 2f;
-            CustomRectRenderer.drawRect(gui, (int) ulX, (int) ulY, (int) ulW, 1, ulColor);
-        }
-
-        // Separator
-        int sepColor = (alpha << 24) | (SEPARATOR_COLOR & 0x00FFFFFF);
-        float sepX = startX + githubW;
-        CustomFontRenderer.drawString(gui, navFont, separator, sepX, navY, sepColor);
-
-        // Discord
-        float discordX = sepX + separatorW;
-        int discordColor = lerpColor(
-                (alpha << 24) | (NAV_IDLE & 0x00FFFFFF),
-                (alpha << 24) | (NAV_HOVER & 0x00FFFFFF),
-                discordHover);
-        CustomFontRenderer.drawString(gui, navFont, discordText, discordX, navY, discordColor);
-
-        // Discord underline (center-out, accent)
-        if (discordUnderline > 0.01f) {
-            int ulAlpha = (int) (alpha * discordUnderline);
-            int ulColor = (ulAlpha << 24) | (ACCENT & 0x00FFFFFF);
-            float ulW = discordW * discordUnderline;
-            float ulX = discordX + (discordW - ulW) / 2f;
-            float ulY = navY + NAV_FONT_SIZE + 2f;
-            CustomRectRenderer.drawRect(gui, (int) ulX, (int) ulY, (int) ulW, 1, ulColor);
+            String label = menuItems.get(i).label();
+            float textY = rowY + (COMPACT_ROW_H - dockFont.lineHeight) / 2f;
+            int alpha = (int) (reveal * itemReveal * 255);
+            int color = lerpColor((alpha << 24) | (TEXT_BODY & 0x00FFFFFF),
+                    (alpha << 24) | (TEXT_HIGH & 0x00FFFFFF), hp);
+            drawCentered(gui, dockFont, label, rowX + rowW / 2f, textY, color);
         }
     }
 
     // ========================
-    // Footer: version info (right) + shortcut hints (left)
+    // Corner links + version
     // ========================
 
-    private void drawFooter(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
-        if (!layout.showFooter) return;
+    private void drawCorners(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         ensureFontsLoaded();
-        if (versionFont == null) return;
+        if (smallFont == null || !layout.showCorners()) return;
 
-        float reveal = easeOutCubic(clamp01((elapsed - 0.75f) * 3f));
-        int alpha = (int) (entryAlpha * reveal * 255);
-        if (alpha <= 0) return;
+        float reveal = easeOutCubic(clamp01((elapsed - 0.55f) * 2.5f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
+        int alpha = (int) (reveal * 255);
 
-        // ── Right: client name + version ──
-        String line1 = I18n.tr("Gemini Client");
-        String line2 = "v" + MOD_VERSION;
+        // Github · Discord（左下）
+        float x = layout.navX();
+        int githubColor = lerpColor((alpha << 24) | (TEXT_FAINT & 0x00FFFFFF),
+                (alpha << 24) | (TEXT_HIGH & 0x00FFFFFF), githubHover);
+        CustomFontRenderer.drawString(gui, smallFont, I18n.tr("Github"), x, layout.navY(), githubColor);
+        float sepX = x + layout.githubW();
+        CustomFontRenderer.drawString(gui, smallFont, "   ·   ", sepX, layout.navY(),
+                (alpha << 24) | (TEXT_GHOST & 0x00FFFFFF));
+        float discordX = sepX + layout.separatorW();
+        int discordColor = lerpColor((alpha << 24) | (TEXT_FAINT & 0x00FFFFFF),
+                (alpha << 24) | (TEXT_HIGH & 0x00FFFFFF), discordHover);
+        CustomFontRenderer.drawString(gui, smallFont, I18n.tr("Discord"), discordX, layout.navY(), discordColor);
 
-        float x1 = layout.footerNameX;
-        float x2 = layout.footerVersionX;
-        float y2 = layout.footerVersionY;
-        float y1 = layout.footerNameY;
-
-        int color = (alpha << 24) | (VERSION_COLOR & 0x00FFFFFF);
-
-        // Small accent square before the client name
-        int sqColor = (alpha << 24) | (ACCENT & 0x00FFFFFF);
-        float sqY = y1 + (VERSION_FONT_SIZE - 3f) / 2f;
-        CustomRectRenderer.drawRect(gui, (int) (x1 - 9), (int) sqY, 3, 3, sqColor);
-
-        CustomFontRenderer.drawString(gui, versionFont, line1, x1, y1, color);
-        CustomFontRenderer.drawString(gui, versionFont, line2, x2, y2, color);
-
-        if (layout.showHints) {
-            String hints = I18n.tr("↑↓  Select    Enter  Open");
-            int hintColor = (int) (alpha * 0.58f) << 24 | (HINT_COLOR & 0x00FFFFFF);
-            CustomFontRenderer.drawString(gui, versionFont, hints, layout.hintsX, y2, hintColor);
-        }
+        // 版本（右下）
+        CustomFontRenderer.drawString(gui, smallFont, "v" + MOD_VERSION, layout.versionX(), layout.navY(),
+                (alpha << 24) | (TEXT_GHOST & 0x00FFFFFF));
     }
 
     // ========================
-    // Background Rendering
+    // Utility buttons (top right)
     // ========================
 
-    private void renderBackground(GuiGraphicsExtractor gui, float elapsed) {
-        if (fileSystem != null && fileSystem.isCustomBackgroundEnabled()) {
-            renderCustomBackground(gui);
-        }
-        // Render grid particles if enabled
-        if (fileSystem != null && fileSystem.isParticlesEnabled()) {
-            InfiniteGridRenderer.render(elapsed);
-        } else if (fileSystem != null) {
-            // Particles disabled - skip rendering
-        }
-    }
-
-    private void renderCustomBackground(GuiGraphicsExtractor gui) {
-        if (!fileSystem.customBackgroundFileExists()) {
-            return;
-        }
-
-        Path bgFile = fileSystem.getCustomBackgroundFile();
-        if (bgFile != null) {
-            bgFile = bgFile.toAbsolutePath().normalize();
-        }
-        if (bgFile == null || !Files.exists(bgFile)) {
-            customBackgroundLoadFailed = true;
-            return;
-        }
-
-        if (customBackgroundFile == null || !customBackgroundFile.equals(bgFile)) {
-            releaseCustomBackground();
-            customBackgroundFile = bgFile;
-        }
-
-        if (JavaCvVideoBackground.isSupportedVideo(bgFile)) {
-            renderVideoBackground(gui, bgFile);
-            return;
-        }
-
-        if (customBackgroundLoadFailed || customBackgroundTexture == null) {
-            loadStaticBackground(bgFile);
-        }
-
-        drawCustomBackground(gui);
-    }
-
-    private void loadStaticBackground(Path bgFile) {
-        if (customBackgroundLoadFailed || customBackgroundTexture != null) {
-            return;
-        }
-
-        try {
-            NativeImage image = readBackgroundImage(bgFile);
-            if (image == null) {
-                customBackgroundLoadFailed = true;
-                return;
-            }
-
-            customBackgroundDynamicTexture = new DynamicTexture(() -> "custom_background", image);
-            customBackgroundTexture = Identifier.fromNamespaceAndPath("gemini", "custom_background");
-            minecraft.getTextureManager().register(customBackgroundTexture, customBackgroundDynamicTexture);
-        } catch (Exception e) {
-            customBackgroundLoadFailed = true;
-        }
-    }
-
-    private NativeImage readBackgroundImage(Path bgFile) {
-        try (FileInputStream fis = new FileInputStream(bgFile.toFile())) {
-            return NativeImage.read(fis);
-        } catch (IOException readError) {
-            return readBackgroundImageWithImageIo(bgFile);
-        }
-    }
-
-    private NativeImage readBackgroundImageWithImageIo(Path bgFile) {
-        try {
-            BufferedImage bufferedImage = ImageIO.read(bgFile.toFile());
-            if (bufferedImage == null) {
-                return null;
-            }
-
-            int width = bufferedImage.getWidth();
-            int height = bufferedImage.getHeight();
-            NativeImage image = new NativeImage(width, height, false);
-
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    image.setPixel(x, y, bufferedImage.getRGB(x, y));
-                }
-            }
-            return image;
-        } catch (Exception fallbackError) {
-            return null;
-        }
-    }
-
-    private void renderVideoBackground(GuiGraphicsExtractor gui, Path bgFile) {
-        if (customBackgroundLoadFailed) {
-            return;
-        }
-
-        if (customBackgroundVideo == null || !customBackgroundVideo.isFor(bgFile)) {
-            releaseCustomBackground();
-            customBackgroundFile = bgFile;
-            customBackgroundVideo = new JavaCvVideoBackground(bgFile);
-            customBackgroundVideo.start();
-        }
-
-        JavaCvVideoBackground.VideoFrame frame = customBackgroundVideo.pollFrame();
-        if (frame != null) {
-            try {
-                uploadVideoFrame(frame);
-            } finally {
-                customBackgroundVideo.releaseFrame(frame);
-            }
-        }
-
-        if (customBackgroundVideo.hasFailed()) {
-            customBackgroundLoadFailed = true;
-            return;
-        }
-
-        drawCustomBackground(gui);
-    }
-
-    private void uploadVideoFrame(JavaCvVideoBackground.VideoFrame frame) {
-        if (customBackgroundVideoTexture == null
-                || customBackgroundVideoTexture.width() != frame.width()
-                || customBackgroundVideoTexture.height() != frame.height()) {
-            releaseCustomBackgroundTexture();
-            customBackgroundVideoTexture = new GpuVideoTexture(
-                    () -> "custom_background_video", frame.width(), frame.height());
-            customBackgroundTexture = Identifier.fromNamespaceAndPath("gemini", "custom_background");
-            minecraft.getTextureManager().register(customBackgroundTexture, customBackgroundVideoTexture);
-        }
-
-        int byteCount = Math.multiplyExact(Math.multiplyExact(frame.width(), frame.height()), 4);
-        if (customBackgroundUploadBuffer == null || customBackgroundUploadBuffer.isClosed()
-                || customBackgroundUploadBuffer.size() < byteCount) {
-            closeVideoUploadBuffer();
-            customBackgroundUploadBuffer = RenderSystem.getDevice().createBuffer(
-                    () -> "custom_background_video_upload",
-                    GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_COPY_SRC,
-                    byteCount);
-        }
-
-        // FFmpeg's direct RGBA bytes are copied to one persistent upload buffer, then
-        // copied entirely on the GPU into a GpuTexture. This removes NativeImage's
-        // per-frame full-frame CPU copy from the video path.
-        CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        encoder.writeToBuffer(customBackgroundUploadBuffer.slice(0L, byteCount), frame.pixels().duplicate());
-        encoder.copyBufferToTexture(
-                customBackgroundUploadBuffer.slice(0L, byteCount),
-                0, 0, frame.width(), frame.height(),
-                customBackgroundVideoTexture.getTexture(),
-                0, 0, frame.width(), frame.height(), 0, 0);
-    }
-
-    private void drawCustomBackground(GuiGraphicsExtractor gui) {
-        if (customBackgroundTexture == null) {
-            return;
-        }
-
-        // Render the custom background with parallax effect
-        try {
-            // Calculate parallax offset based on mouse position
-            float parallaxOffsetX = ((mouseX / (float) this.width) - 0.5f) * 40f;
-            float parallaxOffsetY = ((mouseY / (float) this.height) - 0.5f) * 40f;
-
-            // Scale image by 110% to cover parallax movement and avoid tiling
-            float scale = 1.1f;
-            int scaledWidth = (int) (this.width * scale);
-            int scaledHeight = (int) (this.height * scale);
-
-            // Center the scaled image and apply parallax offset
-            int renderX = (int) (-(scaledWidth - this.width) / 2f + parallaxOffsetX);
-            int renderY = (int) (-(scaledHeight - this.height) / 2f + parallaxOffsetY);
-
-            // Render: blit(pipeline, texture, screenX, screenY, texU, texV, screenW, screenH, texWidth, texHeight, color)
-            gui.blit(RenderPipelines.GUI_TEXTURED, customBackgroundTexture,
-                    renderX, renderY, 0, 0, scaledWidth, scaledHeight, scaledWidth, scaledHeight, 0xFFFFFFFF);
-        } catch (Exception e) {
-            // Silently fail
-        }
-    }
-
-    /**
-     * Reloads the custom background texture.
-     * Called when a new wallpaper is selected from the selector screen.
-     */
-    public void reloadCustomBackground() {
-        releaseCustomBackground();
-        customBackgroundLoadFailed = false;
-    }
-
-    private void releaseCustomBackground() {
-        if (customBackgroundVideo != null) {
-            customBackgroundVideo.close();
-            customBackgroundVideo = null;
-        }
-        releaseCustomBackgroundTexture();
-        customBackgroundFile = null;
-        customBackgroundLoadFailed = false;
-    }
-
-    private void releaseCustomBackgroundTexture() {
-        closeVideoUploadBuffer();
-        if (customBackgroundTexture == null) {
-            customBackgroundDynamicTexture = null;
-            customBackgroundVideoTexture = null;
-            return;
-        }
-
-        AbstractTexture texture = minecraft.getTextureManager().getTexture(customBackgroundTexture);
-        if (texture != null) {
-            texture.close();
-        }
-        minecraft.getTextureManager().release(customBackgroundTexture);
-        customBackgroundTexture = null;
-        customBackgroundDynamicTexture = null;
-        customBackgroundVideoTexture = null;
-    }
-
-    private static void closeVideoUploadBuffer() {
-        if (customBackgroundUploadBuffer != null && !customBackgroundUploadBuffer.isClosed()) {
-            customBackgroundUploadBuffer.close();
-        }
-        customBackgroundUploadBuffer = null;
-    }
-
-    // ========================
-    // Background Toggle Button
-    // ========================
-
-    private void drawBackgroundToggle(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
+    private void drawUtilityButtons(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
         ensureFontsLoaded();
-        if (versionFont == null) return;
+        if (smallFont == null) return;
 
-        float reveal = easeOutCubic(clamp01((elapsed - 0.65f) * 3f));
-        int alpha = (int) (entryAlpha * reveal * 255);
-        if (alpha <= 0) return;
+        float reveal = easeOutCubic(clamp01((elapsed - 0.45f) * 2.5f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
 
-        int x = layout.bgToggleX;
-        int y = layout.bgToggleY;
-        int w = layout.bgToggleW;
-        int h = layout.bgToggleH;
-
-        boolean enabled = fileSystem != null && fileSystem.isCustomBackgroundEnabled();
+        FileSystem fileSystem = fs();
         boolean fileExists = fileSystem != null && fileSystem.customBackgroundFileExists();
+        boolean bgEnabled = fileSystem != null && fileSystem.isCustomBackgroundEnabled();
 
-        // Button background with hover effect (ghost style: fill + hairline only)
-        float hoverScale = 1f + bgToggleHover * 0.08f;
-        int hoverW = (int) (w * hoverScale);
-        int hoverH = (int) (h * hoverScale);
-        int hoverX = x - (hoverW - w) / 2;
-        int hoverY = y - (hoverH - h) / 2;
-
-        int bgFill = enabled ? scaleAlpha(0x581B2936, reveal) : scaleAlpha(0x3A161D28, reveal);
-        int bgOutline = enabled ? scaleAlpha(0x4489DDFF, reveal) : scaleAlpha(0x2489DDFF, reveal);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
-
-        // Icon: "BG" text
-        String iconText = "BG";
-        float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
-        float iconX = x + (w - iconW) / 2f;
-        float iconY = y + (h - VERSION_FONT_SIZE) / 2f;
-
-        int iconColor;
-        if (!fileExists) {
-            // Gray if no custom background file exists
-            iconColor = scaleAlpha(VERSION_COLOR, entryAlpha * reveal * 0.6f);
-        } else if (enabled) {
-            // Accent cyan when enabled
-            iconColor = scaleAlpha(ACCENT, entryAlpha * reveal);
-        } else {
-            // Normal gray when disabled but file exists
-            iconColor = scaleAlpha(NAV_IDLE, entryAlpha * reveal);
+        // BG 开关：启用时右上角常亮状态点
+        ghostIconButton(gui, smallFont, "BG", layout.bgCx(), layout.utilCy(), UTILITY_SIZE,
+                bgToggleHover, fileExists, reveal);
+        if (fileExists && bgEnabled) {
+            CustomRoundedRectRenderer.drawCircle(gui,
+                    layout.bgCx() + UTILITY_SIZE / 2f - 5f, layout.utilCy() - UTILITY_SIZE / 2f + 5f,
+                    4, scaleAlpha(TEXT_HIGH, reveal));
         }
 
-        CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);
+        // 壁纸选择器
+        ghostIconButton(gui, smallFont, "⚙", layout.gearCx(), layout.utilCy(), UTILITY_SIZE,
+                bgCycleHover, true, reveal);
 
-        // Status indicator dot
-        if (fileExists) {
-            int dotSize = 4;
-            int dotX = x + w - dotSize - 3;
-            int dotY = y + 3;
-            int dotColor = enabled
-                    ? scaleAlpha(0xFF89DDFF, reveal)  // Cyan when on
-                    : scaleAlpha(0xFF666666, reveal * 0.7f);  // Gray when off
-            CustomRoundedRectRenderer.drawRoundedRect(gui, dotX, dotY, dotSize, dotSize, 2, dotColor);
-        }
-    }
-
-    // ========================
-    // Background Cycle Button
-    // ========================
-
-    private void drawBackgroundCycle(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
-        ensureFontsLoaded();
-        if (versionFont == null) return;
-
-        // The selector stays visible so wallpapers can be added before enabling the background.
-        if (fileSystem == null) {
-            return;
-        }
-
-        float reveal = easeOutCubic(clamp01((elapsed - 0.65f) * 3f));
-        int alpha = (int) (entryAlpha * reveal * 255);
-        if (alpha <= 0) return;
-
-        int x = layout.bgCycleX;
-        int y = layout.bgCycleY;
-        int w = layout.bgCycleW;
-        int h = layout.bgCycleH;
-
-        // Button background with hover effect (ghost style: fill + hairline only)
-        float hoverScale = 1f + bgCycleHover * 0.08f;
-        int hoverW = (int) (w * hoverScale);
-        int hoverH = (int) (h * hoverScale);
-        int hoverX = x - (hoverW - w) / 2;
-        int hoverY = y - (hoverH - h) / 2;
-
-        int bgFill = scaleAlpha(0x581B2936, reveal);
-        int bgOutline = scaleAlpha(0x4489DDFF, reveal);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
-
-        // Icon: Gear symbol for background selector
-        String iconText = "⚙";
-        float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
-        float iconX = x + (w - iconW) / 2f;
-        float iconY = y + (h - VERSION_FONT_SIZE) / 2f - 3;
-
-        int iconColor = scaleAlpha(ACCENT, entryAlpha * reveal);
-        CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);
-    }
-
-    // ========================
-    // Language Switch Button
-    // ========================
-
-    private void drawBackgroundLanguage(GuiGraphicsExtractor gui, Layout layout, float elapsed) {
-        ensureFontsLoaded();
-        if (versionFont == null) return;
-        if (fileSystem == null) return;
-
-        float reveal = easeOutCubic(clamp01((elapsed - 0.65f) * 3f));
-        int alpha = (int) (entryAlpha * reveal * 255);
-        if (alpha <= 0) return;
-
-        int x = layout.bgLangX;
-        int y = layout.bgLangY;
-        int w = layout.bgLangW;
-        int h = layout.bgLangH;
-
-        // Button background with hover effect (ghost style: fill + hairline only)
-        float hoverScale = 1f + bgLangHover * 0.08f;
-        int hoverW = (int) (w * hoverScale);
-        int hoverH = (int) (h * hoverScale);
-        int hoverX = x - (hoverW - w) / 2;
-        int hoverY = y - (hoverH - h) / 2;
-
-        int bgFill = scaleAlpha(0x581B2936, reveal);
-        int bgOutline = scaleAlpha(0x4489DDFF, reveal);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, hoverX, hoverY, hoverW, hoverH, 8, bgFill);
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, hoverX, hoverY, hoverW, hoverH, 8, bgOutline, 1);
-
-        // Icon: 当前语言标签（中 / EN），宽度随语言自适应
-        String iconText = I18n.getLanguage().label();
-        float iconW = CustomFontRenderer.stringWidth(versionFont, iconText);
-        float iconX = x + (w - iconW) / 2f;
-        float iconY = y + (h - VERSION_FONT_SIZE) / 2f;
-
-        int iconColor = scaleAlpha(ACCENT, entryAlpha * reveal);
-        CustomFontRenderer.drawString(gui, versionFont, iconText, iconX, iconY, iconColor);
+        // 语言切换
+        ghostIconButton(gui, smallFont, I18n.getLanguage().label(), layout.langCx(), layout.utilCy(),
+                UTILITY_SIZE, bgLangHover, true, reveal);
     }
 
     // ========================
@@ -1183,57 +613,59 @@ public class MainMenuScreen extends Screen {
     @Override
     public boolean mouseClicked(@NotNull MouseButtonEvent mouse, boolean idk) {
         Layout layout = layout();
+        double mx = mouse.x();
+        double my = mouse.y();
+        FileSystem fileSystem = fs();
 
-        // Background toggle button
-        if (isBgToggleHover(layout, mouse.x(), mouse.y())) {
-            if (fileSystem != null) {
-                if (fileSystem.customBackgroundFileExists()) {
-                    fileSystem.toggleCustomBackground();
-                    if (fileSystem.isCustomBackgroundEnabled()) {
-                        // Re-create the background on the next render.
-                        customBackgroundLoadFailed = false;
-                    } else {
-                        // Stop the video decoder; it would otherwise keep decoding
-                        // at full speed while nothing consumes its frames.
-                        releaseCustomBackground();
-                    }
+        // BG 开关
+        if (isUtilHover(layout, mx, my, layout.bgCx())) {
+            if (fileSystem != null && fileSystem.customBackgroundFileExists()) {
+                fileSystem.toggleCustomBackground();
+                if (fileSystem.isCustomBackgroundEnabled()) {
+                    // 下一次渲染按当前壁纸重建
+                    MenuBackdrop.reload();
+                } else {
+                    // 关闭后停掉视频解码线程，避免空转
+                    MenuBackdrop.releaseAll();
                 }
             }
             return true;
         }
 
-        // Background selector button (gear icon, opens GUI)
-        if (isBgCycleHover(layout, mouse.x(), mouse.y())) {
+        // 壁纸选择器
+        if (isUtilHover(layout, mx, my, layout.gearCx())) {
             if (fileSystem != null) {
-                // Open background selector screen
                 this.minecraft.gui.setScreen(new BackgroundSelectorScreen(this));
             }
             return true;
         }
 
-        // Language switch button (中/EN)
-        if (isBgLangHover(layout, mouse.x(), mouse.y())) {
+        // 语言切换
+        if (isUtilHover(layout, mx, my, layout.langCx())) {
             if (fileSystem != null) {
                 fileSystem.toggleLanguage();
             }
-            // 重建本地化后的菜单项与标题
             firstInit = true;
             init();
             return true;
         }
 
-        // Navigation links
-        if (isNavGithubHover(layout, mouse.x(), mouse.y())) {
+        // 角落链接
+        if (layout.showCorners()) {
+            float linkH = smallFont == null ? 12 : smallFont.lineHeight + 8;
+            if (inRect(mx, my, layout.navX() - 4, layout.navY() - 4, layout.githubW() + 8, linkH)) {
 //            Util.getPlatform().openUri(GITHUB_URL);
-            return true;
-        }
-        if (isNavDiscordHover(layout, mouse.x(), mouse.y())) {
+                return true;
+            }
+            if (inRect(mx, my, layout.discordX() - 4, layout.navY() - 4, layout.discordW() + 8, linkH)) {
 //            Util.getPlatform().openUri(DISCORD_URL);
-            return true;
+                return true;
+            }
         }
 
+        // 菜单项
         for (int i = 0; i < menuItems.size(); i++) {
-            if (isMenuHover(layout, mouse.x(), mouse.y(), i)) {
+            if (isItemHover(layout, mx, my, i)) {
                 focusedIndex = i;
                 menuItems.get(i).action.run();
                 return true;
@@ -1244,54 +676,38 @@ public class MainMenuScreen extends Screen {
 
     @Override
     public void onFilesDrop(List<Path> files) {
-        if (fileSystem == null) {
-            fileSystem = Gemini.fileSystem;
+        if (MenuBackdrop.importWallpapers(files)) {
+            MenuBackdrop.reload();
         }
-        if (fileSystem == null) {
-            return;
-        }
-
-        fileSystem.importFirstWallpaper(files).ifPresent(path -> reloadCustomBackground());
     }
 
     @Override
     public boolean keyPressed(KeyEvent event) {
         int key = event.key();
+        int n = menuItems.size();
 
-        // Keyboard navigation: Up/Down arrows
-        if (key == InputConstants.KEY_DOWN || key == InputConstants.KEY_UP) {
-            int dir = (key == InputConstants.KEY_DOWN) ? 1 : -1;
-            if (focusedIndex < 0) focusedIndex = 0;
-            else focusedIndex = (focusedIndex + dir + menuItems.size()) % menuItems.size();
+        // 键盘导航：四方向均可移动 Dock 焦点
+        if (key == InputConstants.KEY_DOWN || key == InputConstants.KEY_RIGHT
+                || key == InputConstants.KEY_UP || key == InputConstants.KEY_LEFT) {
+            int dir = (key == InputConstants.KEY_DOWN || key == InputConstants.KEY_RIGHT) ? 1 : -1;
+            if (focusedIndex < 0) focusedIndex = dir > 0 ? 0 : n - 1;
+            else focusedIndex = (focusedIndex + dir + n) % n;
             return true;
         }
         // Enter / Numpad Enter
         if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
-            if (focusedIndex >= 0 && focusedIndex < menuItems.size()) {
+            if (focusedIndex >= 0 && focusedIndex < n) {
                 menuItems.get(focusedIndex).action.run();
                 return true;
             }
         }
-        // Shortcut keys: S, M, O, A, E
-        if (key == InputConstants.KEY_S) {
-            menuItems.get(0).action.run();
-            return true;
-        }
-        if (key == InputConstants.KEY_M) {
-            menuItems.get(1).action.run();
-            return true;
-        }
-        if (key == InputConstants.KEY_O) {
-            menuItems.get(2).action.run();
-            return true;
-        }
-        if (key == InputConstants.KEY_A) {
-            menuItems.get(3).action.run();
-            return true;
-        }
-        if (key == InputConstants.KEY_E) {
-            menuItems.get(4).action.run();
-            return true;
+        // 直达键: S, M, O, A, E
+        if (n == 5) {
+            if (key == InputConstants.KEY_S) { menuItems.get(0).action.run(); return true; }
+            if (key == InputConstants.KEY_M) { menuItems.get(1).action.run(); return true; }
+            if (key == InputConstants.KEY_O) { menuItems.get(2).action.run(); return true; }
+            if (key == InputConstants.KEY_A) { menuItems.get(3).action.run(); return true; }
+            if (key == InputConstants.KEY_E) { menuItems.get(4).action.run(); return true; }
         }
         return super.keyPressed(event);
     }
@@ -1304,49 +720,28 @@ public class MainMenuScreen extends Screen {
     @Override
     public void removed() {
         super.removed();
-        // Stop the background decoder when the menu closes (sub-screens, joining a
-        // world). It is a daemon thread, so it would otherwise keep decoding at
-        // full speed forever while nothing consumes its frames.
-        releaseCustomBackground();
+        // 引用计数归零（进入世界 / 打开其他界面）时才真正释放视频解码器；
+        // 主菜单 ↔ AltManager 互切时资源保持存活。
+        MenuBackdrop.release();
     }
 
     // ========================
     // Hit testing
     // ========================
 
-    private boolean isMenuHover(Layout layout, double mx, double my, int index) {
-        if (menuFont == null) return false;
-        float y = layout.menuY(index);
-        return mx >= layout.rowX && mx <= layout.rowX + layout.rowW
-                && my >= y - 7 && my <= y - 7 + layout.rowH;
+    private boolean isItemHover(Layout layout, double mx, double my, int index) {
+        if (dockFont == null) return false;
+        if (layout.compact()) {
+            return inRect(mx, my, layout.cardX(), layout.cardRowY(index),
+                    layout.cardW(), COMPACT_ROW_H);
+        }
+        return inRect(mx, my, layout.itemX(index), layout.dockY(),
+                layout.itemW()[index], layout.dockH());
     }
 
-    private boolean isNavGithubHover(Layout layout, double mx, double my) {
-        if (!layout.showNavigation || navFont == null) return false;
-        return mx >= layout.navStartX - 4 && mx <= layout.navStartX + layout.githubW + 4
-                && my >= layout.navY - 4 && my <= layout.navY + navFont.lineHeight + 4;
-    }
-
-    private boolean isNavDiscordHover(Layout layout, double mx, double my) {
-        if (!layout.showNavigation || navFont == null) return false;
-        float discordX = layout.discordX();
-        return mx >= discordX - 4 && mx <= discordX + layout.discordW + 4
-                && my >= layout.navY - 4 && my <= layout.navY + navFont.lineHeight + 4;
-    }
-
-    private boolean isBgToggleHover(Layout layout, double mx, double my) {
-        return mx >= layout.bgToggleX && mx <= layout.bgToggleX + layout.bgToggleW
-                && my >= layout.bgToggleY && my <= layout.bgToggleY + layout.bgToggleH;
-    }
-
-    private boolean isBgCycleHover(Layout layout, double mx, double my) {
-        return mx >= layout.bgCycleX && mx <= layout.bgCycleX + layout.bgCycleW
-                && my >= layout.bgCycleY && my <= layout.bgCycleY + layout.bgCycleH;
-    }
-
-    private boolean isBgLangHover(Layout layout, double mx, double my) {
-        return mx >= layout.bgLangX && mx <= layout.bgLangX + layout.bgLangW
-                && my >= layout.bgLangY && my <= layout.bgLangY + layout.bgLangH;
+    private boolean isUtilHover(Layout layout, double mx, double my, float cx) {
+        float r = UTILITY_SIZE / 2f + 2f;
+        return inRect(mx, my, cx - r, layout.utilCy() - r, r * 2, r * 2);
     }
 
     // ========================
@@ -1356,41 +751,10 @@ public class MainMenuScreen extends Screen {
     private static float computeSpacedWidth(GlyphFont font, String text, float spacing) {
         if (font == null) return 0;
         float w = 0;
-        for (int i = 0; i < text.length();) {
-            int cp = text.codePointAt(i);
-            String ch = new String(Character.toChars(cp));
-            w += CustomFontRenderer.stringWidth(font, ch) + spacing;
-            i += Character.charCount(cp);
+        for (int i = 0; i < text.length(); i++) {
+            w += CustomFontRenderer.stringWidth(font, text.substring(i, i + 1)) + spacing;
         }
         if (w > 0) w -= spacing;
         return w;
-    }
-
-    // ========================
-    // Easing / color utilities
-    // ========================
-
-    private static float clamp01(float v) {
-        return v < 0f ? 0f : (v > 1f ? 1f : v);
-    }
-
-    private static float easeOutCubic(float t) {
-        float u = 1f - clamp01(t);
-        return 1f - u * u * u;
-    }
-
-    private static int lerpColor(int a, int b, float t) {
-        float tp = Math.clamp(t, 0f, 1f);
-        int aa = a >>> 24, ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
-        int ba = b >>> 24, br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
-        return (Math.round(aa + (ba - aa) * tp) << 24)
-                | (Math.round(ar + (br - ar) * tp) << 16)
-                | (Math.round(ag + (bg - ag) * tp) << 8)
-                | Math.round(ab + (bb - ab) * tp);
-    }
-
-    private static int scaleAlpha(int argb, float scale) {
-        int a = Math.round((argb >>> 24) * clamp01(scale));
-        return (a << 24) | (argb & 0x00FFFFFF);
     }
 }

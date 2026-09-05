@@ -30,7 +30,8 @@
     "MixinMinecraft",
     "MixinMouseHandler",
     "MixinMultiPlayerGameMode",
-    "MixinTitleScreen"
+    "MixinTitleScreen",
+    "access.AccessLoadingOverlay"
   ],
   "injectors": {
     "defaultRequire": 1

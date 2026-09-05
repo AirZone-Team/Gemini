@@ -21,8 +21,14 @@ public class geminiLoader {
                 CustomRendererRegistry.registerAll(event::registerPipeline));
         // Pre-compile ClickGui shaders/fonts during the loading screen (runs
         // after the vanilla ShaderManager) so the first GUI open is hitch-free.
-        modBus.addListener(AddClientReloadListenersEvent.class, event ->
-                event.addListener(Identifier.fromNamespaceAndPath("gemini", "ui_shader_warmup"),
-                        UiShaderWarmup.createReloadListener()));
+        modBus.addListener(AddClientReloadListenersEvent.class, event -> {
+            event.addListener(Identifier.fromNamespaceAndPath("gemini", "ui_shader_warmup"),
+                    UiShaderWarmup.createReloadListener());
+            // Separate item: rasterise the client UI's full (Chinese) glyph set
+            // on the render thread so the loading screen waits for it and the
+            // main menu never shows the vanilla-font fallback.
+            event.addListener(Identifier.fromNamespaceAndPath("gemini", "ui_font_warmup"),
+                    UiShaderWarmup.createFontWarmupListener());
+        });
     }
 }

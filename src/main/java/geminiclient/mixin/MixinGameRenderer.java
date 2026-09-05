@@ -69,6 +69,11 @@ public class MixinGameRenderer {
         if (!CustomRendererRegistry.areShadersReady()) {
             return;
         }
+        // 全屏 Overlay（启动加载画面等）期间 HUD/RENDER_2D 不参与：
+        // Overlay 走独立 strata，HUD 模块会泄漏绘制到加载画面之上。
+        if (this.minecraft.gui.overlay() != null) {
+            return;
+        }
 
         int i = (int) this.minecraft.mouseHandler.getScaledXPos(this.minecraft.getWindow());
         int j = (int) this.minecraft.mouseHandler.getScaledYPos(this.minecraft.getWindow());

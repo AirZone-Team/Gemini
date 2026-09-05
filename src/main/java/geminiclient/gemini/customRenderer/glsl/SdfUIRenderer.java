@@ -111,6 +111,22 @@ public final class SdfUIRenderer {
             .withCull(false)
             .build();
 
+    /**
+     * 启动加载画面的四角星（astroid 隐式曲线 SDF）：描边带 + 四色渐变填充，
+     * fwidth 反走样。进度参数走 shapeParams，配色常量固化在
+     * {@code core/sdf_loader_star.frag.slang}。
+     */
+    public static final RenderPipeline SDF_STAR_PIPELINE = RenderPipeline.builder(
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
+            .withLocation(getIdentifier("pipeline/sdf_loader_star"))
+            .withVertexShader(getIdentifier("core/sdf_rounded"))
+            .withFragmentShader(getIdentifier("core/sdf_loader_star"))
+            .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+            .withVertexBinding(0, SDF_FORMAT)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
+            .withCull(false)
+            .build();
+
     public static final int ICON_HEART_FILLED = 0;
     public static final int ICON_HEART_OUTLINE = 1;
     public static final int ICON_CHEVRON_DOWN = 2;
@@ -135,6 +151,7 @@ public final class SdfUIRenderer {
         registry.accept(SDF_SHADOW_PIPELINE);
         registry.accept(SDF_WAVY_RING_PIPELINE);
         registry.accept(SDF_ICON_PIPELINE);
+        registry.accept(SDF_STAR_PIPELINE);
     }
 
     // ========================
@@ -297,6 +314,34 @@ public final class SdfUIRenderer {
                 -AA_MARGIN, -AA_MARGIN, side + AA_MARGIN, side + AA_MARGIN,
                 midRadius, thickness, progressShort, phaseShort,
                 topColor, topColor, bottomColor, bottomColor,
+                gui.peekScissorStack()));
+    }
+
+    /**
+     * 启动加载画面的四角星（参考图配色：左橙/上红/右蓝/下绿，中心为均值
+     * 混色，颜色常量固化在 {@code core/sdf_loader_star.frag.slang} 中）。
+     *
+     * @param radius   星形半径（中心到顶点，gui px）
+     * @param outlineP 描边揭示进度 0..1（自左顶点顺时针）；≥0.999 为整圈
+     * @param fillP    填充揭示进度 0..1（同方向扫入）；≥0.999 为满填充
+     */
+    public static void drawLoaderStar(GuiGraphicsExtractor gui, float cx, float cy,
+                                      float radius, float outlineP, float fillP) {
+        if (radius < 1f || (outlineP <= 0f && fillP <= 0f)) return;
+
+        int size = Math.max(2, Math.round(radius * 2f));
+        float qx0 = cx - size / 2f - AA_MARGIN, qy0 = cy - size / 2f - AA_MARGIN;
+        float qx1 = cx + size / 2f + AA_MARGIN, qy1 = cy + size / 2f + AA_MARGIN;
+
+        int outlineShort = (int) (Math.min(1f, Math.max(0f, outlineP)) * 10000);
+        int fillShort    = (int) (Math.min(1f, Math.max(0f, fillP)) * 10000);
+
+        gui.submitGuiElementRenderState(new SdfQuadState(
+                SDF_STAR_PIPELINE, new Matrix3x2f(gui.pose()),
+                qx0, qy0, qx1, qy1,
+                -AA_MARGIN, -AA_MARGIN, size + AA_MARGIN, size + AA_MARGIN,
+                size, size, outlineShort, fillShort,
+                0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
                 gui.peekScissorStack()));
     }
 

@@ -15,6 +15,7 @@ public class RotationManager implements MinecraftInstance {
 
     public static final int PRIORITY_KILLAURA = 10;
     public static final int PRIORITY_SCAFFOLD = 5;
+    public static final int PRIORITY_BREAKER = 7;
 
     public Rotation animationRotation = null;
     public Rotation lastAnimationRotation = null;

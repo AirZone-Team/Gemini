@@ -103,12 +103,14 @@ public class KillAura extends Module {
                     mc.gameMode.attack(mc.player, targetManager.current());
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     targetManager.onAttack(mc.player.distanceTo(targetManager.current()));
+                    indicators.onAttack();
                 }
             } else {
                 // 原版冷却模式
                 if (mc.player.getAttackStrengthScale(0.5f) >= 1.0f) {
                     mc.gameMode.attack(mc.player, targetManager.current());
                     mc.player.swing(InteractionHand.MAIN_HAND);
+                    indicators.onAttack();
                 }
             }
         } else {
@@ -128,7 +130,8 @@ public class KillAura extends Module {
         List<Entity> renderTargets = s.indicatorTargets.is("Current")
                 ? List.of(targetManager.current())
                 : targetManager.all();
-        indicators.render(event.poseStack(), renderTargets, event.partialTick());
+        indicators.render(event.poseStack(), renderTargets, targetManager.current(),
+                event.partialTick());
     }
 
     private void updateTargetAngles(Entity entity) {

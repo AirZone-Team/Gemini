@@ -2,13 +2,13 @@ package geminiclient.gemini.base.alt;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.base.I18n;
+import geminiclient.gemini.base.MenuBackdrop;
+import geminiclient.gemini.base.MenuUI;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
-import geminiclient.gemini.customRenderer.glsl.CustomBlurRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer.GlyphFont;
 import geminiclient.gemini.customRenderer.glsl.InfiniteGridRenderer;
-import geminiclient.gemini.customRenderer.glsl.SdfUIRenderer;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
@@ -25,12 +25,15 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
+import static geminiclient.gemini.base.MenuUI.*;
+
 /**
- * Alt Manager —— 与主菜单同一套视觉语言的账号管理界面（轻盈化玻璃风）。
+ * Alt Manager —— 双栏磨砂账号管理（单色设计语言）。
  *
- * <p>GLSL 透视网格上叠加低透明度的区域模糊、淡渐变玻璃面板与账号状态
- * 胶囊；阴影、描边与托盘均减淡，界面更干净通透。模态框使用轻柔遮罩
- * 与 SDF 柔和阴影，遮罩淡入时整体上浮。</p>
+ * <p>与主菜单共享同一张壁纸背景（{@link MenuBackdrop}），上面叠一层轻压暗；
+ * 左侧磨砂列表面板 + 右侧磨砂详情面板，窄窗口自动折叠回单栏。白色即强调
+ * 色：选中行用白色左条与高亮填充，主操作（应用）为白底胶囊按钮。模态框
+ * 与输入框使用同一套玻璃语言。</p>
  *
  * <p>功能：账号列表（名称 / 类型 / 应用状态）、Microsoft 登录（自动 +
  * 手动两种模式）、离线账号、删除、应用为当前会话账号。</p>
@@ -40,69 +43,41 @@ public class AltManagerScreen extends Screen {
     // ========================
     // Layout Constants
     // ========================
-    private static final float CONTENT_MAX_W = 1280f;
+    private static final float CONTENT_MAX_W = 1200f;
     private static final float CONTENT_MIN_PAD = 56f;
-    private static final float TITLE_Y = 34f;
-    private static final float SUBTITLE_Y = 78f;
-    private static final float LIST_TOP = 104f;
-    private static final float ROW_H = 42f;
-    private static final float ACTIONS_Y_FROM_BOTTOM = 84f;
-    private static final float STATUS_Y_FROM_BOTTOM = 110f;
-    private static final float FOOTER_BOTTOM_PAD = 30f;
-
-    // ========================
-    // Color Constants (ARGB)
-    // ========================
-    private static final int ACCENT          = 0xFF89DDFF;
-    private static final int TEXT_IDLE       = 0xFF9A9A9A;
-    private static final int TEXT_HOVER      = 0xFFEAF6FF;
-    private static final int TITLE_COLOR     = 0xFFFFFFFF;
-    private static final int TITLE_GRADIENT  = 0xFFA8DCFF;
-    private static final int SUBTITLE_COLOR  = 0xFF7A7A7A;
-    private static final int HINT_COLOR      = 0xFF4A4A4A;
-    private static final int VERSION_COLOR   = 0xFF666666;
-    private static final int ERROR_COLOR     = 0xFFFF8080;
-    private static final int WARN_COLOR      = 0xFFFFC87A;
-    private static final int PANEL_FILL      = 0xE8121216;
-    private static final int PLACEHOLDER     = 0xFF5A5A5A;
-    private static final int GLASS_TOP       = 0x6E17202A;
-    private static final int GLASS_BOTTOM    = 0x920A0E15;
-    private static final int GLASS_OUTLINE   = 0x388CC9DD;
-    private static final int ROW_HOVER_FILL  = 0x6E1A2B39;
-    private static final int ROW_SELECTED    = 0x7E213442;
-
-    private static final String MOD_VERSION = "0.1.0";
+    private static final float ROW_H = 52f;
+    private static final float LIST_INSET = 10f;   // 列表面板内边距
+    private static final float ADD_BTN_H = 30f;
+    private static final float ACTION_BTN_H = 34f;
 
     // ========================
     // Fonts
     // ========================
     // 全部面取自 MiSans-Bold：资源中唯一含完整中文字形的 MiSans 文件（Source
     // Han Sans 子集不含 CJK，无法渲染中文，已弃用）。
-    private static final Identifier FONT_BOLD =
-            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
-    private static final Identifier FONT_MEDIUM =
-            Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
-    private static final Identifier FONT_LIGHT =
+    private static final Identifier FONT_REGULAR =
             Identifier.fromNamespaceAndPath("gemini", "font/misans-bold.ttf");
 
-    private static GlyphFont titleFont;      // bold 24
-    private static GlyphFont bodyFont;       // light 12 — 副标题 / 正文 / 状态
-    private static GlyphFont nameFont;       // medium 14 — 列表账号名
-    private static GlyphFont tinyFont;       // light 10 — 列表次级信息
-    private static GlyphFont linkFont;       // medium 12 — 排版链接
-    private static GlyphFont hintFont;       // light 11 — 底部提示 / 角标
-    private static GlyphFont modalTitleFont; // bold 17
-    private static GlyphFont fieldFont;      // medium 13 — 输入框
+    private static GlyphFont titleFont;      // 24 — 页面标题
+    private static GlyphFont detailFont;     // 18 — 详情账号名
+    private static GlyphFont bodyFont;       // 12 — 副标题 / 正文 / 状态
+    private static GlyphFont nameFont;       // 14 — 列表账号名
+    private static GlyphFont tinyFont;       // 10 — 列表次级信息
+    private static GlyphFont linkFont;       // 12 — 按钮 / 链接
+    private static GlyphFont hintFont;       // 11 — 底部提示 / 角标
+    private static GlyphFont modalTitleFont; // 17
+    private static GlyphFont fieldFont;      // 13 — 输入框
 
     private static void ensureFontsLoaded() {
-        if (titleFont == null)      titleFont = CustomFontRenderer.loadFont(FONT_BOLD, 24f);
-        if (bodyFont == null)       bodyFont = CustomFontRenderer.loadFont(FONT_LIGHT, 12f);
-        if (nameFont == null)       nameFont = CustomFontRenderer.loadFont(FONT_MEDIUM, 14f);
-        if (tinyFont == null)       tinyFont = CustomFontRenderer.loadFont(FONT_LIGHT, 10f);
-        if (linkFont == null)       linkFont = CustomFontRenderer.loadFont(FONT_MEDIUM, 12f);
-        if (hintFont == null)       hintFont = CustomFontRenderer.loadFont(FONT_LIGHT, 11f);
-        if (modalTitleFont == null) modalTitleFont = CustomFontRenderer.loadFont(FONT_BOLD, 17f);
-        if (fieldFont == null)      fieldFont = CustomFontRenderer.loadFont(FONT_MEDIUM, 13f);
+        if (titleFont == null)      titleFont = CustomFontRenderer.loadFont(FONT_REGULAR, 24f);
+        if (detailFont == null)     detailFont = CustomFontRenderer.loadFont(FONT_REGULAR, 18f);
+        if (bodyFont == null)       bodyFont = CustomFontRenderer.loadFont(FONT_REGULAR, 12f);
+        if (nameFont == null)       nameFont = CustomFontRenderer.loadFont(FONT_REGULAR, 14f);
+        if (tinyFont == null)       tinyFont = CustomFontRenderer.loadFont(FONT_REGULAR, 10f);
+        if (linkFont == null)       linkFont = CustomFontRenderer.loadFont(FONT_REGULAR, 12f);
+        if (hintFont == null)       hintFont = CustomFontRenderer.loadFont(FONT_REGULAR, 11f);
+        if (modalTitleFont == null) modalTitleFont = CustomFontRenderer.loadFont(FONT_REGULAR, 17f);
+        if (fieldFont == null)      fieldFont = CustomFontRenderer.loadFont(FONT_REGULAR, 13f);
     }
 
     /**
@@ -116,18 +91,18 @@ public class AltManagerScreen extends Screen {
         try {
             ensureFontsLoaded();
             String warmupText = "1234567890.-+×▶←→·";
-            GlyphFont[] faces = { titleFont, bodyFont, nameFont, tinyFont,
+            GlyphFont[] faces = { titleFont, detailFont, bodyFont, nameFont, tinyFont,
                     linkFont, hintFont, modalTitleFont, fieldFont };
             for (GlyphFont face : faces) {
                 if (face == null) {
                     continue;
                 }
                 for (int cp = 0x20; cp <= 0x7E; cp++) {
-                    face.getGlyph(cp);
+                    face.getGlyphBlocking(cp);
                 }
                 for (int i = 0; i < warmupText.length(); ) {
                     int cp = warmupText.codePointAt(i);
-                    face.getGlyph(cp);
+                    face.getGlyphBlocking(cp);
                     i += Character.charCount(cp);
                 }
             }
@@ -142,13 +117,10 @@ public class AltManagerScreen extends Screen {
     private static final float HOVER_SPEED      = 12f;
     private static final float ENTRY_FADE_SPEED = 4f;
     private static final float ENTRY_STAGGER    = 0.05f;
-    private static final float TITLE_STAGGER    = 0.045f;
-    private static final float ENTRY_SLIDE_PX   = 16f;
-    private static final float HOVER_SLIDE_PX   = 5f;
-    private static final float DIM_FACTOR       = 0.30f;
+    private static final float ENTRY_SLIDE_PX   = 14f;
     private static final float MODAL_SPEED      = 10f;
     private static final float SCROLL_SPEED     = 14f;
-    private static final float TITLE_SPACING_PX = 9f;
+    private static final float PANES_RISE_PX    = 12f;
 
     // ========================
     // Inner Types
@@ -160,7 +132,6 @@ public class AltManagerScreen extends Screen {
     private static final class HoverSet {
         private float[] values = new float[0];
 
-        /** 只增不缩，保留已有进度。 */
         void ensure(int n) {
             if (values.length < n) values = java.util.Arrays.copyOf(values, n);
         }
@@ -184,9 +155,28 @@ public class AltManagerScreen extends Screen {
     private record PanelRect(float x, float y, float w, float h) {}
 
     /** 单一权威屏幕布局，绘制和命中测试都从这里取坐标。 */
-    private record ScreenLayout(float contentLeft, float contentRight, float contentWidth,
-                                float titleY, float subtitleY, float listTop, float listViewportH,
-                                float actionsY, float statusY, float footerY, boolean compact) {}
+    private record Layout(float contentLeft, float contentRight, float contentWidth,
+                          float titleY, float subtitleY,
+                          float addMsX, float addOffX, float addBtnY,
+                          float addMsW, float addOffW,
+                          boolean twoPane,
+                          float panesTop, float panesH,
+                          float listX, float listW,
+                          float detailX, float detailW,
+                          float statusY, float hintsY) {
+
+        float listTop() {
+            return panesTop + LIST_INSET;
+        }
+
+        float listViewH() {
+            return panesH - LIST_INSET * 2f;
+        }
+
+        float actionRowY() {
+            return panesTop + panesH + 14f;
+        }
+    }
 
     private record LinkBounds(int index, float x, float y, float w, float h, float textX, float textY) {}
 
@@ -202,7 +192,6 @@ public class AltManagerScreen extends Screen {
     private int selected = -1;
     private int hoveredRow = -1;
     private float[] rowHover = new float[0];
-    private float anyHover;
     private float entryAlpha;
     private long screenOpenTime;
     private long lastFrameMs;
@@ -219,7 +208,9 @@ public class AltManagerScreen extends Screen {
     private Modal closingModal; // 淡出期间继续渲染（不可交互）
     private float modalAlpha;
 
-    // 操作链接
+    // 头部「添加」按钮悬停
+    private final HoverSet addHover = new HoverSet();
+    // 详情 / 紧凑操作按钮悬停（应用、删除）
     private final HoverSet actionHover = new HoverSet();
 
     // 状态消息（底部瞬时提示）
@@ -247,6 +238,8 @@ public class AltManagerScreen extends Screen {
                 break;
             }
         }
+        // 引用计数：主菜单 ↔ AltManager 互切时壁纸资源保持存活
+        MenuBackdrop.acquire();
         screenOpenTime = System.currentTimeMillis();
         lastFrameMs = screenOpenTime;
     }
@@ -267,13 +260,19 @@ public class AltManagerScreen extends Screen {
         float dt = Math.min((now - lastFrameMs) / 1000f, 0.1f);
         lastFrameMs = now;
         float elapsed = (now - screenOpenTime) / 1000f;
-        screenLayout();
+        Layout l = screenLayout();
 
         entryAlpha += (1f - entryAlpha) * dt * ENTRY_FADE_SPEED;
         if (entryAlpha > 0.99f) entryAlpha = 1f;
 
-        // ── 1. GLSL 背景 ─────────────────────────────
-        InfiniteGridRenderer.render(elapsed);
+        // ── 1. 背景：与主菜单共享的壁纸；无壁纸时回退 GLSL 网格 ──
+        MenuBackdrop.render(gui, this.width, this.height, mouseX, mouseY);
+        if (!MenuBackdrop.isActive()) {
+            InfiniteGridRenderer.render(elapsed);
+        }
+        // 轻压暗，保证白色文字与玻璃面板在亮壁纸上可读
+        CustomRectRenderer.drawRect(gui, 0, 0, this.width, this.height,
+                scaleAlpha(0x3D000000, entryAlpha));
 
         // ── 2. 动画与异步任务轮询 ─────────────────────
         boolean interactive = modal == null;
@@ -285,23 +284,28 @@ public class AltManagerScreen extends Screen {
         }
         pollApplying();
 
-        // ── 3. 磨砂工作区 ───────────────────────────
-        drawWorkspaceChrome(gui, elapsed);
+        float rise = (1f - easeOutCubic(clamp01((elapsed - 0.1f) * 2.2f))) * PANES_RISE_PX;
 
-        // ── 4. 头部 ─────────────────────────────────
-        drawHeader(gui, elapsed);
+        // ── 3. 头部 ─────────────────────────────────
+        drawHeader(gui, l, elapsed, interactive, mouseX, mouseY, dt);
 
-        // ── 5. 账号列表 ─────────────────────────────
+        // ── 4. 列表面板 ─────────────────────────────
         if (accounts.isEmpty()) {
-            drawEmptyState(gui, elapsed);
+            drawEmptyState(gui, l, elapsed, rise);
         } else {
-            drawList(gui, mouseX, mouseY, elapsed, interactive);
+            drawList(gui, l, mouseX, mouseY, elapsed, interactive, rise);
         }
 
-        // ── 6. 操作链接 / 状态消息 / 页脚 ─────────────
-        drawActions(gui, mouseX, mouseY, dt, elapsed, interactive);
-        drawStatus(gui, now);
-        drawFooter(gui, elapsed);
+        // ── 5. 详情面板 / 紧凑操作行 ─────────────────
+        if (l.twoPane()) {
+            drawDetailPane(gui, l, elapsed, rise, interactive, mouseX, mouseY, dt);
+        } else {
+            drawCompactActions(gui, l, elapsed, rise, interactive, mouseX, mouseY, dt);
+        }
+
+        // ── 6. 状态消息 / 页脚提示 ───────────────────
+        drawStatus(gui, l, now);
+        drawHints(gui, l, elapsed);
 
         // ── 7. 模态框（最后提交，压在最上层）─────────
         if (modal != null) {
@@ -311,109 +315,50 @@ public class AltManagerScreen extends Screen {
         }
     }
 
-    private void drawWorkspaceChrome(GuiGraphicsExtractor gui, float elapsed) {
-        float reveal = easeOutCubic(clamp01((elapsed - 0.15f) * 2.8f)) * entryAlpha;
-        if (reveal <= 0.01f) return;
-
-        int x = Math.round(screenLayout().contentLeft() - 16f);
-        int y = Math.round(screenLayout().listTop() - 10f + (1f - reveal) * 8f);
-        int w = Math.round(screenLayout().contentWidth() + 32f);
-        int h = Math.max(72, Math.round(screenLayout().listViewportH() + 18f));
-        int r = 14;
-
-        SdfUIRenderer.drawShadow(gui, x, y, w, h, r,
-                0, 5, 16, scaleAlpha(0x3C000000, reveal));
-        CustomBlurRenderer.render(x, y, w, h, r,
-                scaleAlpha(0x2E101820, reveal), 6f);
-        CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui, x, y, w, h, r,
-                scaleAlpha(GLASS_TOP, reveal), scaleAlpha(GLASS_BOTTOM, reveal));
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, x, y, w, h, r,
-                scaleAlpha(GLASS_OUTLINE, reveal), 1);
-    }
-
     // ========================
-    // 头部
+    // 布局
     // ========================
 
-    private void drawHeader(GuiGraphicsExtractor gui, float elapsed) {
-        // 标题：逐字揭示 + 白→青渐变（与主菜单一致）
-        String title = "ALT MANAGER";
-        float left = screenLayout().contentLeft();
-        float cx = left;
-        int letterIndex = 0;
-        int letterCount = title.replace(" ", "").length();
-
-        for (int i = 0; i < title.length();) {
-            int cp = title.codePointAt(i);
-            String ch = new String(Character.toChars(cp));
-            float chW = CustomFontRenderer.stringWidth(titleFont, ch);
-            if (!ch.isBlank()) {
-                float reveal = easeOutCubic(clamp01((elapsed - 0.05f - letterIndex * TITLE_STAGGER) * 3f));
-                int alpha = (int) (entryAlpha * reveal * 255);
-                if (alpha > 0) {
-                    float t = letterCount <= 1 ? 0f : (float) letterIndex / (letterCount - 1);
-                    int base = lerpColor(TITLE_COLOR, TITLE_GRADIENT, t);
-                    CustomFontRenderer.drawString(gui, titleFont, ch, cx, screenLayout().titleY(),
-                            (alpha << 24) | (base & 0x00FFFFFF));
-                }
-                letterIndex++;
-            }
-            cx += chW + TITLE_SPACING_PX;
-            i += Character.charCount(cp);
-        }
-
-        // 强调线：从左侧画出
-        float titleW = computeSpacedWidth(titleFont, title, TITLE_SPACING_PX);
-        float progress = easeOutCubic(clamp01((elapsed - 0.35f) * 2.4f));
-        if (progress > 0.01f) {
-            int a = (int) (entryAlpha * progress * 255);
-            CustomRectRenderer.drawRect(gui, Math.round(left), (int) (screenLayout().titleY() + 30f),
-                    (int) (titleW * 0.28f * progress), 1, (a << 24) | (ACCENT & 0x00FFFFFF));
-        }
-
-        // 副标题：账号数 + 当前会话
-        float reveal = easeOutCubic(clamp01((elapsed - 0.45f) * 2.5f));
-        int subAlpha = (int) (entryAlpha * reveal * 255);
-        if (subAlpha > 0) {
-            String sub = I18n.trf("AltManagerSubtitle", accounts.size(),
-                    AltManager.currentSessionName());
-            sub = ellipsize(bodyFont, sub, screenLayout().contentWidth());
-            CustomFontRenderer.drawString(gui, bodyFont, sub, left, screenLayout().subtitleY(),
-                    (subAlpha << 24) | (SUBTITLE_COLOR & 0x00FFFFFF));
-        }
-    }
-
-    // ========================
-    // 账号列表
-    // ========================
-
-    private ScreenLayout screenLayout() {
+    private Layout screenLayout() {
         float pad = Math.max(12f, Math.min(CONTENT_MIN_PAD, this.width * 0.06f));
         float contentW = Math.max(1f, Math.min(CONTENT_MAX_W, this.width - pad * 2f));
         float left = (this.width - contentW) / 2f;
-        boolean compact = this.width < 620 || this.height < 330;
-        float titleY = compact ? 18f : TITLE_Y;
-        float subtitleY = compact ? 60f : SUBTITLE_Y;
-        float listTop = compact ? 82f : LIST_TOP;
+        boolean twoPane = this.width >= 700 && this.height >= 400;
 
-        Link[] links = buildActionLinks();
-        LinkLayout measured = layoutLinks(links, left, 0f, contentW);
-        boolean wrapped = measured.bounds().stream().anyMatch(b -> b.textY() > 0f);
-        float actionsY = wrapped
-                ? Math.max(listTop, this.height - 58f - measured.height() + 5f)
-                : this.height - ACTIONS_Y_FROM_BOTTOM;
-        float statusY = Math.min(this.height - STATUS_Y_FROM_BOTTOM, actionsY - 28f);
-        float footerY = this.height - FOOTER_BOTTOM_PAD;
-        float viewportH = Math.max(0f, statusY - 8f - listTop);
+        float titleY = 30f;
+        float subtitleY = titleY + 36f;
 
-        ScreenLayout result = new ScreenLayout(left, left + contentW, contentW, titleY,
-                subtitleY, listTop, viewportH, actionsY, statusY, footerY, compact);
+        // 右上「添加」按钮
+        float addMsW = (linkFont == null ? 90f : CustomFontRenderer.stringWidth(linkFont, I18n.tr("+ Microsoft 账号"))) + 30f;
+        float addOffW = (linkFont == null ? 70f : CustomFontRenderer.stringWidth(linkFont, I18n.tr("+ 离线账号"))) + 30f;
+        float addOffX = left + contentW - addOffW;
+        float addMsX = addOffX - addMsW - 10f;
+        float addBtnY = titleY - 4f;
+
+        float panesTop = subtitleY + 20f;
+        float bottomReserve = twoPane ? 62f : 108f;
+        float panesH = Math.max(130f, this.height - bottomReserve - panesTop);
+
+        float detailW = twoPane ? Math.clamp(contentW * 0.36f, 250f, 380f) : 0f;
+        float listW = twoPane ? Math.max(1f, contentW - detailW - 14f) : contentW;
+        float detailX = left + listW + 14f;
+
+        float statusY = this.height - 30f;
+        float hintsW = hintFont == null ? 0f
+                : CustomFontRenderer.stringWidth(hintFont, I18n.tr("↑↓  选择    Enter  应用    Delete  删除    Esc  返回"));
+        float hintsY = this.height - 30f;
+
+        Layout result = new Layout(left, left + contentW, contentW, titleY, subtitleY,
+                addMsX, addOffX, addBtnY, addMsW, addOffW,
+                twoPane, panesTop, panesH, left, listW, detailX, detailW,
+                statusY, hintsY);
+
         if (layoutWidth != this.width || layoutHeight != this.height
-                || Math.abs(layoutViewportH - viewportH) > 0.01f) {
+                || Math.abs(layoutViewportH - result.listViewH()) > 0.01f) {
             layoutWidth = this.width;
             layoutHeight = this.height;
-            layoutViewportH = viewportH;
-            float max = Math.max(0f, accounts.size() * ROW_H - viewportH);
+            layoutViewportH = result.listViewH();
+            float max = Math.max(0f, accounts.size() * ROW_H - result.listViewH());
             targetScroll = Math.clamp(targetScroll, 0f, max);
             scrollOffset = Math.clamp(scrollOffset, 0f, max);
         }
@@ -421,8 +366,55 @@ public class AltManagerScreen extends Screen {
     }
 
     private float maxScroll() {
-        return Math.max(0f, accounts.size() * ROW_H - screenLayout().listViewportH());
+        return Math.max(0f, accounts.size() * ROW_H - screenLayout().listViewH());
     }
+
+    // ========================
+    // 头部
+    // ========================
+
+    private void drawHeader(GuiGraphicsExtractor gui, Layout l, float elapsed,
+                            boolean interactive, int mouseX, int mouseY, float dt) {
+        float reveal = easeOutCubic(clamp01((elapsed - 0.05f) * 2.5f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
+        int alpha = (int) (reveal * 255);
+
+        // 标题
+        CustomFontRenderer.drawString(gui, titleFont, I18n.tr("Alt Manager"),
+                l.contentLeft(), l.titleY(), (alpha << 24) | (TEXT_HIGH & 0x00FFFFFF));
+
+        // 副标题：账号数 + 当前会话
+        float subReveal = easeOutCubic(clamp01((elapsed - 0.15f) * 2.5f));
+        int subAlpha = (int) (alpha * subReveal);
+        if (subAlpha > 0) {
+            String sub = I18n.trf("AltManagerSubtitle", accounts.size(),
+                    AltManager.currentSessionName());
+            sub = ellipsize(bodyFont, sub, l.contentWidth());
+            CustomFontRenderer.drawString(gui, bodyFont, sub, l.contentLeft(), l.subtitleY(),
+                    (subAlpha << 24) | (TEXT_BODY & 0x00FFFFFF));
+        }
+
+        // 右上「添加」按钮
+        boolean busy = applyingFuture != null && !applyingFuture.isDone();
+        addHover.ensure(2);
+        float[][] addRects = {
+                {l.addMsX(), l.addBtnY(), l.addMsW(), ADD_BTN_H},
+                {l.addOffX(), l.addBtnY(), l.addOffW(), ADD_BTN_H},
+        };
+        String[] addLabels = {I18n.tr("+ Microsoft 账号"), I18n.tr("+ 离线账号")};
+        for (int i = 0; i < 2; i++) {
+            float[] r = addRects[i];
+            boolean over = interactive && !busy
+                    && MenuUI.inRect(mouseX, mouseY, r[0], r[1], r[2], r[3]);
+            addHover.update(i, over, dt);
+            ghostButton(gui, linkFont, addLabels[i], r[0], r[1], r[2], r[3],
+                    addHover.get(i), alpha / 255f * (busy ? 0.4f : 1f));
+        }
+    }
+
+    // ========================
+    // 账号列表
+    // ========================
 
     private void updateRowHover(int mouseX, int mouseY, float dt, boolean interactive) {
         if (rowHover.length != accounts.size()) rowHover = new float[accounts.size()];
@@ -431,207 +423,286 @@ public class AltManagerScreen extends Screen {
             boolean over = i == hoveredRow;
             rowHover[i] += ((over ? 1f : 0f) - rowHover[i]) * dt * HOVER_SPEED;
         }
-        float anyTarget = hoveredRow >= 0 ? 1f : 0f;
-        anyHover += (anyTarget - anyHover) * dt * HOVER_SPEED;
     }
 
     private int rowAt(double mx, double my) {
-        float viewH = screenLayout().listViewportH();
-        if (mx < screenLayout().contentLeft() - 12 || mx > screenLayout().contentRight()) return -1;
-        if (my < screenLayout().listTop() || my > screenLayout().listTop() + viewH) return -1;
-        int row = (int) ((my - screenLayout().listTop() + scrollOffset) / ROW_H);
+        Layout l = screenLayout();
+        if (mx < l.listX() || mx > l.listX() + l.listW()) return -1;
+        if (my < l.listTop() || my > l.listTop() + l.listViewH()) return -1;
+        int row = (int) ((my - l.listTop() + scrollOffset) / ROW_H);
         return row >= 0 && row < accounts.size() ? row : -1;
     }
 
-    private void drawList(GuiGraphicsExtractor gui, int mouseX, int mouseY, float elapsed, boolean interactive) {
-        float viewH = screenLayout().listViewportH();
+    private void drawList(GuiGraphicsExtractor gui, Layout l, int mouseX, int mouseY,
+                          float elapsed, boolean interactive, float rise) {
+        float viewH = l.listViewH();
         if (viewH <= 0f || this.width <= 0) return;
-        gui.enableScissor(0, Math.max(0, (int) screenLayout().listTop() - 2), this.width,
-                Math.min(this.height, (int) (screenLayout().listTop() + viewH) + 2));
+
+        gui.enableScissor(Math.max(0, (int) l.listX()), Math.max(0, (int) l.listTop()),
+                Math.min(this.width, (int) (l.listX() + l.listW())),
+                Math.min(this.height, (int) (l.listTop() + viewH)));
+
+        float rowX = l.listX() + LIST_INSET + 6f;
+        float rowW = l.listW() - (LIST_INSET + 6f) * 2f;
 
         for (int i = 0; i < accounts.size(); i++) {
             AltAccount acc = accounts.get(i);
-            float rowY = screenLayout().listTop() + i * ROW_H - scrollOffset;
-            if (rowY + ROW_H < screenLayout().listTop() - 4 || rowY > screenLayout().listTop() + viewH + 4) continue;
+            float rowY = l.listTop() + i * ROW_H - scrollOffset;
+            if (rowY + ROW_H < l.listTop() - 4 || rowY > l.listTop() + viewH + 4) continue;
 
-            float reveal = easeOutCubic(clamp01((elapsed - 0.30f - i * ENTRY_STAGGER) * 3f));
+            float reveal = easeOutCubic(clamp01((elapsed - 0.2f - i * ENTRY_STAGGER) * 3f));
             if (reveal <= 0.01f) continue;
             float slideIn = (1f - reveal) * -ENTRY_SLIDE_PX;
 
             float hp = interactive ? rowHover[i] : 0f;
             boolean isSelected = i == selected;
 
-            float dim = 1f - DIM_FACTOR * anyHover * (1f - hp);
-            int alpha = (int) (entryAlpha * reveal * dim * 255);
+            int alpha = (int) (entryAlpha * reveal * 255);
             if (alpha <= 0) continue;
 
-            float left = screenLayout().contentLeft();
-            int cardX = Math.round(left - 8f);
-            int cardY = Math.round(rowY + 3f);
-            int cardW = Math.max(40, Math.round(screenLayout().contentRight() - cardX - 8f));
-            int cardH = Math.round(ROW_H - 6f);
-            float cardStrength = Math.max(hp, isSelected ? 0.68f : 0f);
-            if (cardStrength > 0.01f) {
-                int fill = isSelected ? ROW_SELECTED : ROW_HOVER_FILL;
-                CustomRoundedRectRenderer.drawRoundedRectHorizGrad(gui,
-                        cardX, cardY, cardW, cardH, 8,
-                        scaleAlpha(fill, reveal * cardStrength),
-                        scaleAlpha(0x5414202A, reveal * cardStrength));
-                CustomRoundedRectRenderer.drawRoundedOutline(gui,
-                        cardX, cardY, cardW, cardH, 8,
-                        scaleAlpha(isSelected ? ACCENT : GLASS_OUTLINE,
-                                reveal * cardStrength * (isSelected ? 0.42f : 0.55f)), 1);
+            float rx = rowX + slideIn;
+            float ry = rowY + rise;
+
+            // 行填充：悬停淡白填充；选中更亮 + 白色左条
+            float strength = Math.max(hp, isSelected ? 1f : 0f);
+            if (strength > 0.01f) {
+                CustomRoundedRectRenderer.drawRoundedRect(gui, Math.round(rx), Math.round(ry + 4),
+                        Math.round(rowW), Math.round(ROW_H - 8), 10,
+                        scaleAlpha(isSelected ? SELECTED_FILL : HOVER_FILL, reveal * strength));
+                if (isSelected) {
+                    CustomRectRenderer.drawRect(gui, Math.round(rx), Math.round(ry + 14),
+                            2, Math.round(ROW_H - 28),
+                            ((int) (alpha * 0.9f * reveal) << 24) | (TEXT_HIGH & 0x00FFFFFF));
+                }
             }
 
-            // 指示条：悬停生长；选中常驻
-            float lineH = ROW_H - 14f;
-            float barTarget = Math.max(hp, isSelected ? 0.9f : 0f);
-            if (barTarget > 0.01f) {
-                float barH = lineH * barTarget;
-                float barY = rowY + (ROW_H - barH) / 2f - 1f;
-                int barAlpha = (int) (alpha * barTarget);
-                CustomRectRenderer.drawRect(gui, Math.round(left - 12f + slideIn), (int) barY,
-                        2, (int) barH, (barAlpha << 24) | (ACCENT & 0x00FFFFFF));
-            }
-
-            float textX = left + 16f + slideIn + hp * HOVER_SLIDE_PX;
+            float textX = rx + 16f + hp * 2f;
 
             // 账号名
             int nameColor = lerpColor(
-                    (alpha << 24) | ((isSelected ? TEXT_HOVER : TEXT_IDLE) & 0x00FFFFFF),
-                    (alpha << 24) | (TEXT_HOVER & 0x00FFFFFF), hp);
-            String displayName = ellipsize(nameFont, acc.getName(), Math.max(30f, screenLayout().contentRight() - textX - 92f));
-            CustomFontRenderer.drawString(gui, nameFont, displayName, textX, rowY + 5f, nameColor);
+                    (alpha << 24) | ((isSelected ? TEXT_HIGH : TEXT_BODY) & 0x00FFFFFF),
+                    (alpha << 24) | (TEXT_HIGH & 0x00FFFFFF), Math.max(hp, isSelected ? 0.5f : 0f));
+            String displayName = ellipsize(nameFont, acc.getName(),
+                    Math.max(30f, rowW - 16f - 110f));
+            CustomFontRenderer.drawString(gui, nameFont, displayName, textX, ry + 8f, nameColor);
 
             // 次级信息：类型 · 短 UUID
             String sub = acc.typeLabel() + "  ·  " + acc.shortUuid();
-            int subAlpha = (int) (alpha * 0.75f);
-            sub = ellipsize(tinyFont, sub, Math.max(30f, screenLayout().contentRight() - textX - 92f));
-            CustomFontRenderer.drawString(gui, tinyFont, sub, textX, rowY + 24f,
-                    (subAlpha << 24) | (SUBTITLE_COLOR & 0x00FFFFFF));
+            int subAlpha = (int) (alpha * 0.8f);
+            sub = ellipsize(tinyFont, sub, Math.max(30f, rowW - 16f - 110f));
+            CustomFontRenderer.drawString(gui, tinyFont, sub, textX, ry + 27f,
+                    (subAlpha << 24) | (TEXT_FAINT & 0x00FFFFFF));
 
-            // 右侧：应用状态
-            drawRowStatus(gui, acc, rowY, alpha);
+            // 右侧状态
+            drawRowStatus(gui, acc, rx, ry, rowW, alpha, reveal);
         }
 
         gui.disableScissor();
-        drawScrollbar(gui, viewH);
+        drawScrollbar(gui, l);
     }
 
-    private void drawRowStatus(GuiGraphicsExtractor gui, AltAccount acc, float rowY, int rowAlpha) {
-        String text;
-        int color;
-        if (AltManager.isCurrent(acc)) {
-            text = I18n.tr("使用中");
-            color = ACCENT;
-        } else if (acc.isActive()) {
-            text = I18n.tr("上次使用");
-            color = VERSION_COLOR;
+    private void drawRowStatus(GuiGraphicsExtractor gui, AltAccount acc, float rowX, float rowY,
+                               float rowW, int rowAlpha, float reveal) {
+        boolean current = AltManager.isCurrent(acc);
+        boolean lastUsed = !current && acc.isActive();
+        if (!current && !lastUsed) return;
+
+        String text = I18n.tr(current ? "使用中" : "上次使用");
+        int color = current ? TEXT_HIGH : TEXT_FAINT;
+        float textW = CustomFontRenderer.stringWidth(hintFont, text);
+        float a = rowAlpha / 255f * reveal;
+
+        if (current) {
+            // 白点胶囊
+            float chipW = textW + 30f;
+            float chipH = hintFont.lineHeight + 10f;
+            float chipX = rowX + rowW - chipW - 6f;
+            float chipY = rowY + (ROW_H - chipH) / 2f;
+            CustomRoundedRectRenderer.drawRoundedRect(gui, Math.round(chipX), Math.round(chipY),
+                    Math.round(chipW), Math.round(chipH), Math.round(chipH / 2f),
+                    scaleAlpha(SELECTED_FILL, a));
+            float dotY = chipY + (chipH - 4) / 2f;
+            CustomRoundedRectRenderer.drawRoundedRect(gui, Math.round(chipX + 11), Math.round(dotY),
+                    4, 4, 2, scaleAlpha(TEXT_HIGH, a));
+            CustomFontRenderer.drawString(gui, hintFont, text, chipX + 21f,
+                    chipY + (chipH - hintFont.lineHeight) / 2f, scaleAlpha(TEXT_HIGH, a));
         } else {
-            return;
-        }
-        float w = CustomFontRenderer.stringWidth(hintFont, text);
-        float x = screenLayout().contentRight() - w;
-        float y = rowY + (ROW_H - hintFont.lineHeight) / 2f - 1f;
-        int a = (int) (rowAlpha * 0.95f);
-        int chipX = Math.round(x - 17f);
-        int chipY = Math.round(y - 5f);
-        int chipW = Math.round(w + 25f);
-        int chipH = Math.round(hintFont.lineHeight + 10f);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, chipX, chipY, chipW, chipH,
-                chipH / 2, scaleAlpha(color, a / 255f * 0.10f));
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, chipX, chipY, chipW, chipH,
-                chipH / 2, scaleAlpha(color, a / 255f * 0.38f), 1);
-        CustomFontRenderer.drawString(gui, hintFont, text, x, y, (a << 24) | (color & 0x00FFFFFF));
-        if (AltManager.isCurrent(acc)) {
-            float sqY = y + (hintFont.lineHeight - 3f) / 2f;
-            CustomRectRenderer.drawRect(gui, (int) (x - 8), (int) sqY, 3, 3,
-                    (a << 24) | (ACCENT & 0x00FFFFFF));
+            float x = rowX + rowW - textW - 16f;
+            float y = rowY + (ROW_H - hintFont.lineHeight) / 2f;
+            CustomFontRenderer.drawString(gui, hintFont, text, x, y,
+                    scaleAlpha(TEXT_FAINT, a * 0.9f));
         }
     }
 
-    private void drawScrollbar(GuiGraphicsExtractor gui, float viewH) {
+    private void drawScrollbar(GuiGraphicsExtractor gui, Layout l) {
+        float viewH = l.listViewH();
         if (viewH <= 0f) return;
         float max = maxScroll();
         if (max <= 0.5f) return;
         float contentH = accounts.size() * ROW_H;
         float barH = Math.min(viewH, Math.max(Math.min(24f, viewH), viewH * viewH / contentH));
-        float barY = screenLayout().listTop() + (viewH - barH) * (scrollOffset / max);
-        int alpha = (int) (entryAlpha * 0.35f * 255);
-        CustomRectRenderer.drawRect(gui, Math.round(screenLayout().contentRight() + 12f), (int) barY, 2, (int) barH,
-                (alpha << 24) | (ACCENT & 0x00FFFFFF));
+        float barY = l.listTop() + (viewH - barH) * (scrollOffset / max);
+        float barX = l.listX() + l.listW() - 8f;
+        CustomRectRenderer.drawRect(gui, Math.round(barX), Math.round(barY), 2, Math.round(barH),
+                scaleAlpha(0x40FFFFFF, entryAlpha));
     }
 
-    private void drawEmptyState(GuiGraphicsExtractor gui, float elapsed) {
-        float reveal = easeOutCubic(clamp01((elapsed - 0.4f) * 2f));
-        int alpha = (int) (entryAlpha * reveal * 255);
-        if (alpha <= 0) return;
-        float cy = screenLayout().listTop() + screenLayout().listViewportH() / 2f - 20f;
+    private void drawEmptyState(GuiGraphicsExtractor gui, Layout l, float elapsed, float rise) {
+        float reveal = easeOutCubic(clamp01((elapsed - 0.3f) * 2f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
+        float cy = l.listTop() + l.listViewH() / 2f - 14f + rise;
+        float centerX = l.listX() + l.listW() / 2f;
+
         String line1 = I18n.tr("列表为空");
-        String line2 = I18n.tr("使用下方链接添加 Microsoft 或离线账号");
-        float w1 = CustomFontRenderer.stringWidth(nameFont, line1);
-        float w2 = CustomFontRenderer.stringWidth(bodyFont, line2);
-        float centerX = screenLayout().contentLeft() + screenLayout().contentWidth() / 2f;
-        int a1 = (int) (alpha * 0.8f);
-        int a2 = (int) (alpha * 0.55f);
-        CustomFontRenderer.drawString(gui, nameFont, line1, centerX - w1 / 2f, cy,
-                (a1 << 24) | (TEXT_IDLE & 0x00FFFFFF));
-        CustomFontRenderer.drawString(gui, bodyFont, line2, centerX - w2 / 2f, cy + 20f,
-                (a2 << 24) | (SUBTITLE_COLOR & 0x00FFFFFF));
+        String line2 = I18n.tr("点击右上角按钮添加 Microsoft 或离线账号");
+        drawCentered(gui, nameFont, line1, centerX, cy - 8f, scaleAlpha(TEXT_BODY, reveal));
+        drawCentered(gui, bodyFont, line2, centerX, cy + 14f, scaleAlpha(TEXT_FAINT, reveal * 0.9f));
     }
 
     // ========================
-    // 操作链接 / 状态 / 页脚
+    // 详情面板（双栏）
     // ========================
 
-    private Link[] buildActionLinks() {
+    private void drawDetailPane(GuiGraphicsExtractor gui, Layout l, float elapsed, float rise,
+                                boolean interactive, int mouseX, int mouseY, float dt) {
+        float reveal = easeOutCubic(clamp01((elapsed - 0.22f) * 2.4f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
+
+        float px = l.detailX();
+        float py = l.panesTop() + rise;
+        float pw = l.detailW();
+        float ph = l.panesH();
+        glassPanel(gui, px, py, pw, ph, 16f, reveal, 8f);
+
         boolean busy = applyingFuture != null && !applyingFuture.isDone();
-        boolean hasSel = selected >= 0 && selected < accounts.size() && !busy;
-        return new Link[]{
-                new Link(I18n.tr("+ Microsoft 账号"), TEXT_IDLE, !busy,
-                        () -> openModal(new MicrosoftModal())),
-                new Link(I18n.tr("+ 离线账号"), TEXT_IDLE, !busy,
-                        () -> openModal(new OfflineModal())),
-                new Link(I18n.tr("应用"), TEXT_IDLE, hasSel, this::applySelected),
-                new Link(I18n.tr("删除"), TEXT_IDLE, hasSel,
-                        () -> openModal(new DeleteModal(accounts.get(selected)))),
-        };
+        boolean hasSel = selected >= 0 && selected < accounts.size();
+        AltAccount acc = hasSel ? accounts.get(selected) : null;
+
+        if (!hasSel || acc == null) {
+            drawCentered(gui, bodyFont, I18n.tr("未选择账号"),
+                    px + pw / 2f, py + ph / 2f - bodyFont.lineHeight / 2f,
+                    scaleAlpha(TEXT_FAINT, reveal));
+            return;
+        }
+
+        float pad = 22f;
+        int alpha = (int) (reveal * 255);
+
+        // 头像：首字母圆形
+        float avatarD = 52f;
+        float acx = px + pad + avatarD / 2f;
+        float acy = py + pad + avatarD / 2f;
+        String name = acc.getName();
+        String initial = name.isEmpty() ? "?"
+                : new String(Character.toChars(name.codePointAt(0))).toUpperCase(Locale.ROOT);
+        CustomRoundedRectRenderer.drawCircle(gui, acx, acy, Math.round(avatarD),
+                scaleAlpha(SELECTED_FILL, reveal));
+        CustomRoundedRectRenderer.drawRing(gui, acx, acy, Math.round(avatarD / 2f - 1), 1,
+                scaleAlpha(0x30FFFFFF, reveal));
+        drawCentered(gui, titleFont, initial, acx, acy - titleFont.lineHeight / 2f,
+                scaleAlpha(TEXT_HIGH, reveal));
+
+        // 账号名 + 类型
+        float nameX = acx + avatarD / 2f + 14f;
+        float nameMaxW = px + pw - pad - nameX;
+        CustomFontRenderer.drawString(gui, detailFont, ellipsize(detailFont, name, Math.max(30f, nameMaxW)),
+                nameX, acy - detailFont.lineHeight - 3f, scaleAlpha(TEXT_HIGH, alpha / 255f));
+        CustomFontRenderer.drawString(gui, tinyFont, acc.typeLabel(),
+                nameX, acy + 2f, scaleAlpha(TEXT_BODY, alpha / 255f));
+
+        // 分隔线
+        float dividerY = py + pad + avatarD + 16f;
+        CustomRectRenderer.drawRect(gui, Math.round(px + pad), Math.round(dividerY),
+                Math.round(pw - pad * 2), 1, scaleAlpha(0x14FFFFFF, reveal));
+
+        // 字段（UUID / 状态）
+        if (ph >= 250f) {
+            float fieldX = px + pad;
+            float uuidLabelY = dividerY + 16f;
+            CustomFontRenderer.drawString(gui, tinyFont, "UUID", fieldX, uuidLabelY,
+                    scaleAlpha(TEXT_FAINT, reveal));
+            CustomFontRenderer.drawString(gui, bodyFont,
+                    ellipsize(bodyFont, String.valueOf(acc.getUuid()), Math.max(30f, pw - pad * 2f)),
+                    fieldX, uuidLabelY + 13f, scaleAlpha(TEXT_HIGH, alpha / 255f));
+
+            float statusLabelY = uuidLabelY + 38f;
+            CustomFontRenderer.drawString(gui, tinyFont, I18n.tr("状态"), fieldX, statusLabelY,
+                    scaleAlpha(TEXT_FAINT, reveal));
+            int statusColor = AltManager.isCurrent(acc) ? TEXT_HIGH
+                    : acc.isActive() ? TEXT_BODY : TEXT_FAINT;
+            String statusText = I18n.tr(AltManager.isCurrent(acc) ? "使用中"
+                    : acc.isActive() ? "上次使用" : "未使用");
+            CustomFontRenderer.drawString(gui, bodyFont, statusText,
+                    fieldX, statusLabelY + 13f, scaleAlpha(statusColor, alpha / 255f));
+        }
+
+        // 底部按钮：应用（主）/ 删除（幽灵）
+        float btnW = (pw - pad * 2f - 10f) / 2f;
+        float btnY = py + ph - pad - ACTION_BTN_H;
+        actionHover.ensure(2);
+        boolean enabled = hasSel && !busy;
+
+        boolean overApply = interactive && enabled
+                && MenuUI.inRect(mouseX, mouseY, px + pad, btnY, btnW, ACTION_BTN_H);
+        actionHover.update(0, overApply, dt);
+        float applyScale = enabled ? alpha / 255f : alpha / 255f * 0.3f;
+        primaryButton(gui, linkFont, I18n.tr("应用"), px + pad, btnY, btnW, ACTION_BTN_H,
+                actionHover.get(0), applyScale);
+
+        float delX = px + pad + btnW + 10f;
+        boolean overDelete = interactive && enabled
+                && MenuUI.inRect(mouseX, mouseY, delX, btnY, btnW, ACTION_BTN_H);
+        actionHover.update(1, overDelete, dt);
+        ghostButton(gui, linkFont, I18n.tr("删除"), delX, btnY, btnW, ACTION_BTN_H,
+                actionHover.get(1), applyScale);
     }
 
-    private void drawActions(GuiGraphicsExtractor gui, int mouseX, int mouseY, float dt,
-                             float elapsed, boolean interactive) {
-        float reveal = easeOutCubic(clamp01((elapsed - 0.6f) * 3f));
-        int alpha = (int) (entryAlpha * reveal * 255);
-        if (alpha <= 0) return;
+    // ========================
+    // 紧凑模式操作行（单栏折叠）
+    // ========================
 
-        Link[] links = buildActionLinks();
-        float y = screenLayout().actionsY();
-        float left = screenLayout().contentLeft();
+    private void drawCompactActions(GuiGraphicsExtractor gui, Layout l, float elapsed, float rise,
+                                    boolean interactive, int mouseX, int mouseY, float dt) {
+        float reveal = easeOutCubic(clamp01((elapsed - 0.3f) * 2.4f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
 
-        float trayW = Math.min(screenLayout().contentWidth() + 24f, 520f);
-        LinkLayout linkLayout = layoutLinks(links, left, y, Math.max(1f, trayW - 24f));
-        int trayX = Math.round(left - 12f);
-        int trayY = Math.round(y - 12f);
-        int trayH = Math.round(linkLayout.height() + 14f);
-        CustomBlurRenderer.render(trayX, trayY, trayW, trayH, 10,
-                scaleAlpha(0x26101820, reveal), 4f);
-        CustomRoundedRectRenderer.drawRoundedRect(gui, trayX, trayY,
-                Math.round(trayW), trayH, 10, scaleAlpha(0x50101720, reveal));
-        CustomRoundedRectRenderer.drawRoundedOutline(gui, trayX, trayY,
-                Math.round(trayW), trayH, 10, scaleAlpha(GLASS_OUTLINE, reveal * 0.5f), 1);
+        boolean busy = applyingFuture != null && !applyingFuture.isDone();
+        boolean hasSel = selected >= 0 && selected < accounts.size();
+        boolean enabled = hasSel && !busy;
 
-        drawLinks(gui, links, actionHover, interactive ? mouseX : -1, interactive ? mouseY : -1,
-                dt, linkLayout, alpha);
+        float btnW = 110f;
+        float delW = 90f;
+        float btnY = l.actionRowY() + rise;
+        float delX = l.contentRight() - delW;
+        float applyX = delX - btnW - 10f;
+        int alpha = (int) (reveal * 255);
+
+        actionHover.ensure(2);
+        boolean overApply = interactive && enabled
+                && MenuUI.inRect(mouseX, mouseY, applyX, btnY, btnW, ACTION_BTN_H);
+        actionHover.update(0, overApply, dt);
+        primaryButton(gui, linkFont, I18n.tr("应用"), applyX, btnY, btnW, ACTION_BTN_H,
+                actionHover.get(0), enabled ? alpha / 255f : alpha / 255f * 0.3f);
+
+        boolean overDelete = interactive && enabled
+                && MenuUI.inRect(mouseX, mouseY, delX, btnY, delW, ACTION_BTN_H);
+        actionHover.update(1, overDelete, dt);
+        ghostButton(gui, linkFont, I18n.tr("删除"), delX, btnY, delW, ACTION_BTN_H,
+                actionHover.get(1), enabled ? alpha / 255f : alpha / 255f * 0.3f);
     }
 
-    private void drawStatus(GuiGraphicsExtractor gui, long now) {
+    // ========================
+    // 状态 / 提示
+    // ========================
+
+    private void drawStatus(GuiGraphicsExtractor gui, Layout l, long now) {
         boolean busy = applyingFuture != null && !applyingFuture.isDone();
         String msg;
         int color;
         float alphaScale;
         if (busy) {
             msg = applyingStatus + dots(now);
-            color = ACCENT;
+            color = TEXT_HIGH;
             alphaScale = 1f;
         } else {
             if (statusMessage == null) return;
@@ -644,146 +715,44 @@ public class AltManagerScreen extends Screen {
             msg = statusMessage;
             color = statusColor;
         }
-        int alpha = (int) (entryAlpha * alphaScale * 255);
+        float alpha = entryAlpha * alphaScale;
         if (alpha <= 0) return;
-        CustomFontRenderer.drawString(gui, bodyFont, msg, screenLayout().contentLeft(),
-                screenLayout().statusY(), (alpha << 24) | (color & 0x00FFFFFF));
+        CustomFontRenderer.drawString(gui, bodyFont, ellipsize(bodyFont, msg, l.contentWidth() - 8f),
+                l.contentLeft(), l.statusY(), scaleAlpha(color, alpha));
     }
 
-    private void drawFooter(GuiGraphicsExtractor gui, float elapsed) {
-        float reveal = easeOutCubic(clamp01((elapsed - 0.7f) * 3f));
-        int alpha = (int) (entryAlpha * reveal * 255);
-        if (alpha <= 0) return;
-        if (screenLayout().compact() && this.height < 250) return;
-        float y = screenLayout().footerY();
+    private void drawHints(GuiGraphicsExtractor gui, Layout l, float elapsed) {
+        float reveal = easeOutCubic(clamp01((elapsed - 0.45f) * 2.5f)) * entryAlpha;
+        if (reveal <= 0.01f) return;
+        if (this.height < 250) return;
 
         String hints = I18n.tr("↑↓  选择    Enter  应用    Delete  删除    Esc  返回");
-        hints = ellipsize(hintFont, hints, Math.max(1f, screenLayout().contentWidth() - 110f));
-        CustomFontRenderer.drawString(gui, hintFont, hints, screenLayout().contentLeft(), y,
-                (alpha << 24) | (HINT_COLOR & 0x00FFFFFF));
-
-        String line1 = I18n.tr("Gemini Client");
-        String line2 = "v" + MOD_VERSION;
-        float w1 = CustomFontRenderer.stringWidth(hintFont, line1);
-        float w2 = CustomFontRenderer.stringWidth(hintFont, line2);
-        float x1 = screenLayout().contentRight() - w1;
-        float x2 = screenLayout().contentRight() - w2;
-        float y2 = y;
-        float y1 = y2 - 11f - 3f;
-        int color = (alpha << 24) | (VERSION_COLOR & 0x00FFFFFF);
-        float sqY = y1 + (11f - 3f) / 2f;
-        CustomRectRenderer.drawRect(gui, (int) (x1 - 9), (int) sqY, 3, 3,
-                (alpha << 24) | (ACCENT & 0x00FFFFFF));
-        CustomFontRenderer.drawString(gui, hintFont, line1, x1, y1, color);
-        CustomFontRenderer.drawString(gui, hintFont, line2, x2, y2, color);
+        float hintsW = CustomFontRenderer.stringWidth(hintFont, hints);
+        float x = Math.max(l.contentLeft(), l.contentRight() - hintsW);
+        CustomFontRenderer.drawString(gui, hintFont, hints, x, l.hintsY(),
+                scaleAlpha(TEXT_GHOST, reveal));
     }
 
     // ========================
-    // 链接绘制（水平排版链接：悬停下划线）
-    // ========================
-
-    private LinkLayout layoutLinks(Link[] links, float x, float y, float maxWidth) {
-        float gap = CustomFontRenderer.stringWidth(linkFont, "    ·    ");
-        float lineStep = linkFont.lineHeight + 14f;
-        float cx = x;
-        float cy = y;
-        float right = x;
-        List<LinkBounds> bounds = new ArrayList<>(links.length);
-        for (int i = 0; i < links.length; i++) {
-            float textW = CustomFontRenderer.stringWidth(linkFont, links[i].label());
-            float pillW = textW + 14f;
-            if (cx > x && cx + pillW > x + Math.max(1f, maxWidth)) {
-                cx = x;
-                cy += lineStep;
-            }
-            bounds.add(new LinkBounds(i, cx - 7f, cy - 5f, pillW,
-                    linkFont.lineHeight + 10f, cx, cy));
-            right = Math.max(right, cx + textW);
-            cx += textW + gap;
-        }
-        return new LinkLayout(bounds, Math.max(0f, right - x),
-                bounds.isEmpty() ? 0f : cy - y + linkFont.lineHeight + 10f);
-    }
-
-    private void drawHLinks(GuiGraphicsExtractor gui, Link[] links, HoverSet hover,
-                            int mouseX, int mouseY, float dt, float x, float y, int baseAlpha) {
-        drawLinks(gui, links, hover, mouseX, mouseY, dt,
-                layoutLinks(links, x, y, linkMaxWidth(x)), baseAlpha);
-    }
-
-    private void drawLinks(GuiGraphicsExtractor gui, Link[] links, HoverSet hover,
-                           int mouseX, int mouseY, float dt, LinkLayout layout, int baseAlpha) {
-        hover.ensure(links.length);
-        for (LinkBounds b : layout.bounds()) {
-            Link link = links[b.index()];
-            boolean over = link.enabled() && mouseX >= b.x() && mouseX <= b.x() + b.w()
-                    && mouseY >= b.y() && mouseY <= b.y() + b.h();
-            hover.update(b.index(), over, dt);
-            float hp = hover.get(b.index());
-            int idle = link.enabled() ? link.idleColor() : HINT_COLOR;
-            int a = baseAlpha * (idle >>> 24) / 255;
-            CustomRoundedRectRenderer.drawRoundedRect(gui, Math.round(b.x()), Math.round(b.y()),
-                    Math.round(b.w()), Math.round(b.h()), 6,
-                    scaleAlpha(0xFF24323D, baseAlpha / 255f * ((link.enabled() ? 0.16f : 0.06f) + hp * 0.34f)));
-            CustomRoundedRectRenderer.drawRoundedOutline(gui, Math.round(b.x()), Math.round(b.y()),
-                    Math.round(b.w()), Math.round(b.h()), 6,
-                    scaleAlpha(hp > 0.01f ? ACCENT : GLASS_OUTLINE,
-                            baseAlpha / 255f * (0.35f + hp * 0.55f)), 1);
-            CustomFontRenderer.drawString(gui, linkFont, link.label(), b.textX(), b.textY(),
-                    lerpColor((a << 24) | (idle & 0x00FFFFFF),
-                            (a << 24) | (TEXT_HOVER & 0x00FFFFFF), hp));
-            if (hp > 0.01f) {
-                float textW = CustomFontRenderer.stringWidth(linkFont, link.label());
-                float ulW = textW * hp;
-                CustomRectRenderer.drawRect(gui, (int) (b.textX() + (textW - ulW) / 2f),
-                        (int) (b.textY() + linkFont.lineHeight + 2f), (int) ulW, 1,
-                        ((int) (a * hp) << 24) | (ACCENT & 0x00FFFFFF));
-            }
-        }
-    }
-
-    private int hLinkAt(Link[] links, float x, float y, double mx, double my) {
-        return linkAt(layoutLinks(links, x, y, linkMaxWidth(x)), mx, my);
-    }
-
-    private float linkMaxWidth(float x) {
-        Modal active = modal != null ? modal : closingModal;
-        if (active != null) {
-            PanelRect p = active.panel();
-            if (x >= p.x() && x <= p.x() + p.w()) return Math.max(1f, p.x() + p.w() - active.inset(p) - x);
-        }
-        return Math.max(1f, AltManagerScreen.this.width - x - 12f);
-    }
-
-    private int linkAt(LinkLayout layout, double mx, double my) {
-        for (LinkBounds b : layout.bounds()) {
-            if (mx >= b.x() && mx <= b.x() + b.w() && my >= b.y() && my <= b.y() + b.h()) {
-                return b.index();
-            }
-        }
-        return -1;
-    }
-
-    // ========================
-    // 账号操作
+    // 账号操作（后端调用保持不变）
     // ========================
 
     private void applySelected() {
         if (selected < 0 || selected >= accounts.size()) return;
         if (applyingFuture != null && !applyingFuture.isDone()) {
-            showStatus(I18n.tr("正在应用账号，请稍候…"), WARN_COLOR);
+            showStatus(I18n.tr("正在应用账号，请稍候…"), WARN);
             return;
         }
         AltAccount acc = accounts.get(selected);
         if (acc.getType() == AltAccount.Type.OFFLINE) {
             AltManager.apply(acc, accounts);
-            showStatus(I18n.trf("已应用离线账号：%s", acc.getName()), ACCENT);
+            showStatus(I18n.trf("已应用离线账号：%s", acc.getName()), TEXT_HIGH);
             return;
         }
         // Microsoft：优先用 refreshToken 静默刷新，失败则回退本地令牌
         if (acc.getRefreshToken().isEmpty()) {
             AltManager.apply(acc, accounts);
-            showStatus(I18n.trf("已应用 Microsoft 账号：%s（本地令牌）", acc.getName()), ACCENT);
+            showStatus(I18n.trf("已应用 Microsoft 账号：%s（本地令牌）", acc.getName()), TEXT_HIGH);
             return;
         }
         applyingTarget = acc;
@@ -803,7 +772,7 @@ public class AltManagerScreen extends Screen {
         try {
             AltAccount acc = applyingFuture.get();
             AltManager.apply(acc, accounts);
-            showStatus(I18n.trf("已应用 Microsoft 账号：%s（令牌已刷新）", acc.getName()), ACCENT);
+            showStatus(I18n.trf("已应用 Microsoft 账号：%s（令牌已刷新）", acc.getName()), TEXT_HIGH);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             fallbackApply(target, I18n.tr("刷新被中断"));
@@ -819,9 +788,9 @@ public class AltManagerScreen extends Screen {
     private void fallbackApply(AltAccount target, String reason) {
         if (target != null && accounts.contains(target)) {
             AltManager.apply(target, accounts);
-            showStatus(I18n.trf("刷新失败（%s），已使用本地令牌应用", reason), WARN_COLOR);
+            showStatus(I18n.trf("刷新失败（%s），已使用本地令牌应用", reason), WARN);
         } else {
-            showStatus(I18n.trf("刷新失败：%s", reason), ERROR_COLOR);
+            showStatus(I18n.trf("刷新失败：%s", reason), ERROR);
         }
     }
 
@@ -834,7 +803,7 @@ public class AltManagerScreen extends Screen {
                 AltManager.save(accounts);
                 selected = i;
                 ensureRowVisible(i);
-                showStatus(I18n.trf("已更新 Microsoft 账号：%s", result.name()), ACCENT);
+                showStatus(I18n.trf("已更新 Microsoft 账号：%s", result.name()), TEXT_HIGH);
                 return;
             }
         }
@@ -844,7 +813,7 @@ public class AltManagerScreen extends Screen {
         AltManager.save(accounts);
         selected = accounts.size() - 1;
         ensureRowVisible(selected);
-        showStatus(I18n.trf("已添加 Microsoft 账号：%s", result.name()), ACCENT);
+        showStatus(I18n.trf("已添加 Microsoft 账号：%s", result.name()), TEXT_HIGH);
     }
 
     private void addOfflineAccount(String name) {
@@ -853,7 +822,7 @@ public class AltManagerScreen extends Screen {
         AltManager.save(accounts);
         selected = accounts.size() - 1;
         ensureRowVisible(selected);
-        showStatus(I18n.trf("已添加离线账号：%s", name), ACCENT);
+        showStatus(I18n.trf("已添加离线账号：%s", name), TEXT_HIGH);
     }
 
     private boolean hasDuplicateName(String name) {
@@ -872,7 +841,7 @@ public class AltManagerScreen extends Screen {
     private void ensureRowVisible(int i) {
         float rowTop = i * ROW_H;
         float rowBottom = rowTop + ROW_H;
-        float viewH = screenLayout().listViewportH();
+        float viewH = screenLayout().listViewH();
         if (rowTop < targetScroll) targetScroll = rowTop;
         else if (rowBottom > targetScroll + viewH) targetScroll = rowBottom - viewH;
         clampScroll();
@@ -898,14 +867,34 @@ public class AltManagerScreen extends Screen {
         }
         if (closingModal != null) return true; // 淡出期间吞掉点击
 
-        // 操作链接
-        Link[] links = buildActionLinks();
-        float linkY = screenLayout().actionsY();
-        int linkIdx = linkAt(layoutLinks(links, screenLayout().contentLeft(), linkY,
-                Math.max(1f, Math.min(screenLayout().contentWidth() + 24f, 520f) - 24f)), mouse.x(), mouse.y());
-        if (linkIdx >= 0 && links[linkIdx].enabled()) {
-            links[linkIdx].action().run();
-            return true;
+        Layout l = screenLayout();
+        boolean busy = applyingFuture != null && !applyingFuture.isDone();
+        boolean hasSel = selected >= 0 && selected < accounts.size();
+
+        // 头部「添加」按钮
+        if (!busy) {
+            if (MenuUI.inRect(mouse.x(), mouse.y(), l.addMsX(), l.addBtnY(), l.addMsW(), ADD_BTN_H)) {
+                openModal(new MicrosoftModal());
+                return true;
+            }
+            if (MenuUI.inRect(mouse.x(), mouse.y(), l.addOffX(), l.addBtnY(), l.addOffW(), ADD_BTN_H)) {
+                openModal(new OfflineModal());
+                return true;
+            }
+        }
+
+        // 详情面板 / 紧凑操作行按钮
+        if (hasSel && !busy) {
+            float[] btn = actionButtonRect(l, 0);
+            float[] del = actionButtonRect(l, 1);
+            if (MenuUI.inRect(mouse.x(), mouse.y(), btn[0], btn[1], btn[2], btn[3])) {
+                applySelected();
+                return true;
+            }
+            if (MenuUI.inRect(mouse.x(), mouse.y(), del[0], del[1], del[2], del[3])) {
+                openModal(new DeleteModal(accounts.get(selected)));
+                return true;
+            }
         }
 
         // 列表行：单击选中，双击应用
@@ -924,6 +913,24 @@ public class AltManagerScreen extends Screen {
             return true;
         }
         return super.mouseClicked(mouse, idk);
+    }
+
+    /**
+     * 操作按钮矩形：0 = 应用（主），1 = 删除（幽灵）。
+     * 双栏在详情面板底部；单栏在列表下方的操作行。
+     */
+    private float[] actionButtonRect(Layout l, int index) {
+        if (l.twoPane()) {
+            float pad = 22f;
+            float btnW = (l.detailW() - pad * 2f - 10f) / 2f;
+            float btnY = l.panesTop() + l.panesH() - pad - ACTION_BTN_H;
+            float x = index == 0 ? l.detailX() + pad : l.detailX() + pad + btnW + 10f;
+            return new float[]{x, btnY, btnW, ACTION_BTN_H};
+        }
+        float btnW = index == 0 ? 110f : 90f;
+        float delX = l.contentRight() - 90f;
+        float x = index == 0 ? delX - 110f - 10f : delX;
+        return new float[]{x, l.actionRowY(), btnW, ACTION_BTN_H};
     }
 
     @Override
@@ -984,6 +991,12 @@ public class AltManagerScreen extends Screen {
     }
 
     @Override
+    public void removed() {
+        super.removed();
+        MenuBackdrop.release();
+    }
+
+    @Override
     public boolean isPauseScreen() {
         return false;
     }
@@ -1005,7 +1018,7 @@ public class AltManagerScreen extends Screen {
         modal = null;
     }
 
-    /** 模态框基类：面板由屏幕统一绘制（阴影/圆角/标题），内容子类负责。 */
+    /** 模态框基类：面板由屏幕统一绘制（磨砂玻璃 + 标题 + 分隔线），内容子类负责。 */
     private abstract class Modal {
         abstract String title();
         abstract float panelHeight();
@@ -1021,7 +1034,7 @@ public class AltManagerScreen extends Screen {
         void onClose() {}
 
         float inset(PanelRect p) {
-            return Math.clamp(p.w() * 0.06f, 12f, 26f);
+            return Math.clamp(p.w() * 0.06f, 14f, 26f);
         }
 
         float contentY(PanelRect p, float normalOffset) {
@@ -1051,27 +1064,18 @@ public class AltManagerScreen extends Screen {
 
             PanelRect p = panel();
 
-            // 区域模糊 + 阴影 + 分层渐变面板
-            CustomBlurRenderer.render(p.x(), p.y(), p.w(), p.h(), 14,
-                    scaleAlpha(0x6A141922, a), 8f);
-            int shadowA = (int) (a * 0x40);
-            SdfUIRenderer.drawShadow(gui, (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(),
-                    14, 0, 6, 18, (shadowA << 24));
-            CustomRoundedRectRenderer.drawRoundedRectVertGrad(gui,
-                    (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(), 14,
-                    scaleAlpha(0xD819212B, a), scaleAlpha(PANEL_FILL, a));
-            SdfUIRenderer.drawOutline(gui, (int) p.x(), (int) p.y(), (int) p.w(), (int) p.h(),
-                    14, scaleAlpha(0xFF3B5261, a), 1);
+            // 磨砂玻璃面板
+            glassPanel(gui, p.x(), p.y(), p.w(), p.h(), 16f, a, 8f);
 
-            // 标题 + 强调线
+            // 标题 + 分隔线
             float inset = inset(p);
             String panelTitle = ellipsize(modalTitleFont, title(), Math.max(1f, p.w() - inset * 2f));
             CustomFontRenderer.drawString(gui, modalTitleFont, panelTitle,
-                    p.x() + inset, p.y() + 20, scaleAlpha(TITLE_COLOR, a));
-            CustomRectRenderer.drawRect(gui, (int) (p.x() + inset), (int) (p.y() + 46),
-                    26, 1, scaleAlpha(ACCENT, a));
+                    p.x() + inset, p.y() + 20, scaleAlpha(TEXT_HIGH, a));
+            CustomRectRenderer.drawRect(gui, Math.round(p.x() + inset), Math.round(p.y() + 48),
+                    Math.round(p.w() - inset * 2f), 1, scaleAlpha(0x14FFFFFF, a));
 
-            gui.enableScissor(Math.max(0, (int) p.x()), Math.max(0, (int) (p.y() + Math.min(49f, p.h()))),
+            gui.enableScissor(Math.max(0, (int) p.x()), Math.max(0, (int) (p.y() + Math.min(52f, p.h()))),
                     Math.min(AltManagerScreen.this.width, (int) (p.x() + p.w())),
                     Math.min(AltManagerScreen.this.height, (int) (p.y() + p.h())));
             extractContent(gui, p, mouseX, mouseY, dt, now, a);
@@ -1169,24 +1173,24 @@ public class AltManagerScreen extends Screen {
             int fieldW = Math.round(width + 20f);
             int fieldH = Math.round(font.lineHeight + 16f);
             CustomRoundedRectRenderer.drawRoundedRect(gui, fieldX, fieldY, fieldW, fieldH,
-                    8, scaleAlpha(0x8A090D13, alphaScale));
+                    8, scaleAlpha(0x59141414, alphaScale));
             CustomRoundedRectRenderer.drawRoundedOutline(gui, fieldX, fieldY, fieldW, fieldH,
-                    8, scaleAlpha(0xA0507183, alphaScale), 1);
+                    8, scaleAlpha(0x2EFFFFFF, alphaScale), 1);
 
             gui.enableScissor((int) x - 2, (int) y - 4,
                     (int) (x + width) + 2, (int) (y + font.lineHeight) + 4);
             if (text.length() == 0) {
                 CustomFontRenderer.drawString(gui, font, placeholder, x, y,
-                        scaleAlpha(PLACEHOLDER, alphaScale));
+                        scaleAlpha(TEXT_FAINT, alphaScale));
             } else {
                 CustomFontRenderer.drawString(gui, font, text.toString(),
-                        x - scrollX, y, scaleAlpha(TEXT_HOVER, alphaScale));
+                        x - scrollX, y, scaleAlpha(TEXT_HIGH, alphaScale));
             }
             // 光标（550ms 闪烁）
             if ((nowMs / 550) % 2 == 0) {
                 int cx = (int) (x + caretX - scrollX);
                 CustomRectRenderer.drawRect(gui, cx, (int) y - 1, 1, (int) font.lineHeight,
-                        scaleAlpha(ACCENT, alphaScale));
+                        scaleAlpha(TEXT_HIGH, alphaScale));
             }
             gui.disableScissor();
         }
@@ -1252,26 +1256,27 @@ public class AltManagerScreen extends Screen {
 
         private void extractChoice(GuiGraphicsExtractor gui, PanelRect p,
                                    int mouseX, int mouseY, float dt, float a) {
-            drawBodyLines(gui, p, a, 58f,
+            drawBodyLines(gui, p, a, 66f,
                     I18n.tr("自动模式：打开浏览器并在本地接收登录回调（推荐）。"),
                     I18n.tr("手动模式：自行完成登录后粘贴浏览器重定向链接。"));
             String[] items = {I18n.tr("自动登录（推荐）"), I18n.tr("手动粘贴链接"), I18n.tr("取消")};
             vHover.ensure(items.length);
             for (int i = 0; i < items.length; i++) {
-                float itemY = contentY(p, 108f + i * 26f);
+                float itemY = contentY(p, 118f + i * 28f);
                 boolean over = mouseX >= p.x() + 20 && mouseX <= p.x() + p.w() - 20
-                        && mouseY >= itemY - 4 && mouseY <= itemY + linkFont.lineHeight + 4;
+                        && mouseY >= itemY - 5 && mouseY <= itemY + linkFont.lineHeight + 5;
                 vHover.update(i, over, dt);
                 float hp = vHover.get(i);
                 if (hp > 0.01f) {
-                    float barH = linkFont.lineHeight * hp;
-                    CustomRectRenderer.drawRect(gui, (int) (p.x() + inset(p)),
-                            (int) (itemY + (linkFont.lineHeight - barH) / 2f), 2, (int) barH,
-                            scaleAlpha(ACCENT, a * hp));
+                    CustomRoundedRectRenderer.drawRoundedRect(gui,
+                            Math.round(p.x() + inset(p) - 10), Math.round(itemY - 5),
+                            Math.round(p.w() - (inset(p) - 10) * 2f),
+                            Math.round(linkFont.lineHeight + 10), 8,
+                            scaleAlpha(HOVER_FILL, a * hp));
                 }
-                int color = lerpColor(scaleAlpha(TEXT_IDLE, a), scaleAlpha(TEXT_HOVER, a), hp);
+                int color = lerpColor(scaleAlpha(TEXT_BODY, a), scaleAlpha(TEXT_HIGH, a), hp);
                 CustomFontRenderer.drawString(gui, linkFont, items[i],
-                        p.x() + 34 + hp * HOVER_SLIDE_PX, itemY, color);
+                        p.x() + inset(p) + 2f, itemY, color);
             }
         }
 
@@ -1285,37 +1290,33 @@ public class AltManagerScreen extends Screen {
             String status = statusText.isEmpty() ? I18n.tr("等待浏览器回调") : statusText;
             status = ellipsize(bodyFont, status, Math.max(1f, p.w() - inset(p) * 2f - 18f));
             CustomFontRenderer.drawString(gui, bodyFont, status + dots(now),
-                    p.x() + inset(p), contentY(p, 62f), scaleAlpha(TEXT_HOVER, a));
+                    p.x() + inset(p), contentY(p, 66f), scaleAlpha(TEXT_HIGH, a));
 
             long remain = Math.max(0, 300 - (now - waitStartMs) / 1000);
             String countdown = String.format(Locale.ROOT, I18n.tr("剩余 %d:%02d"), remain / 60, remain % 60);
             CustomFontRenderer.drawString(gui, bodyFont, countdown,
-                    p.x() + inset(p), contentY(p, 82f), scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 86f), scaleAlpha(TEXT_BODY, a));
 
             CustomFontRenderer.drawString(gui, bodyFont, I18n.tr("页面没有打开？可以改用手动模式自行复制链接。"),
-                    p.x() + inset(p), contentY(p, 102f), scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 106f), scaleAlpha(TEXT_FAINT, a));
 
             Link[] links = waitingLinks();
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
-                    p.x() + inset(p), contentY(p, 140f), (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 142f), (int) (a * 255));
         }
 
         private void extractManual(GuiGraphicsExtractor gui, PanelRect p,
                                    int mouseX, int mouseY, float dt, long now, float a) {
-            drawBodyLines(gui, p, a, 58f,
+            drawBodyLines(gui, p, a, 64f,
                     I18n.tr("在浏览器中完成登录后，地址栏会跳转到 localhost 链接"),
                     I18n.tr("（页面可能无法打开）——复制完整链接粘贴到下方："));
 
-            float fieldY = contentY(p, 100f);
+            float fieldY = contentY(p, 104f);
             urlField.render(gui, fieldFont, p.x() + inset(p), fieldY, Math.max(1f, p.w() - inset(p) * 2f), now, a);
-            // 输入框强调下划线
-            CustomRectRenderer.drawRect(gui, (int) (p.x() + inset(p)),
-                    (int) (fieldY + fieldFont.lineHeight + 5f),
-                    (int) (Math.max(1f, p.w() - inset(p) * 2f)), 1, scaleAlpha(ACCENT, a));
 
             Link[] links = manualLinks();
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
-                    p.x() + inset(p), contentY(p, 168f), (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 170f), (int) (a * 255));
         }
 
         private void extractProgress(GuiGraphicsExtractor gui, PanelRect p,
@@ -1323,33 +1324,31 @@ public class AltManagerScreen extends Screen {
             String status = statusText.isEmpty() ? I18n.tr("正在与微软服务器通信") : statusText;
             status = ellipsize(bodyFont, status, Math.max(1f, p.w() - inset(p) * 2f - 18f));
             CustomFontRenderer.drawString(gui, bodyFont, status + dots(now),
-                    p.x() + inset(p), contentY(p, 66f), scaleAlpha(TEXT_HOVER, a));
+                    p.x() + inset(p), contentY(p, 70f), scaleAlpha(TEXT_HIGH, a));
             CustomFontRenderer.drawString(gui, bodyFont, I18n.tr("请稍候，正在完成令牌交换…"),
-                    p.x() + inset(p), contentY(p, 88f), scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 92f), scaleAlpha(TEXT_FAINT, a));
 
-            Link[] links = {new Link(I18n.tr("取消"), TEXT_IDLE, true, this::cancelLogin)};
+            Link[] links = {new Link(I18n.tr("取消"), TEXT_BODY, true, this::cancelLogin)};
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
-                    p.x() + inset(p), contentY(p, 122f), (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 126f), (int) (a * 255));
         }
 
         private void extractError(GuiGraphicsExtractor gui, PanelRect p,
                                   int mouseX, int mouseY, float dt, float a) {
             List<String> lines = errorLines();
-            float y = contentY(p, 58f);
-            int lineIndex = 0;
-            for (String line : lines) {
-                CustomFontRenderer.drawString(gui, bodyFont, ellipsize(bodyFont, line,
+            float y = contentY(p, 64f);
+            for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+                CustomFontRenderer.drawString(gui, bodyFont, ellipsize(bodyFont, lines.get(lineIndex),
                         Math.max(1f, p.w() - inset(p) * 2f)), p.x() + inset(p), y,
-                        scaleAlpha(ERROR_COLOR, a));
-                lineIndex++;
-                y = contentY(p, 58f + lineIndex * 16f);
+                        scaleAlpha(ERROR, a));
+                y = contentY(p, 64f + (lineIndex + 1) * 16f);
             }
             Link[] links = {
-                    new Link(I18n.tr("返回"), TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
-                    new Link(I18n.tr("关闭"), TEXT_IDLE, true, AltManagerScreen.this::closeModal),
+                    new Link(I18n.tr("返回"), TEXT_BODY, true, () -> setState(MsState.CHOICE)),
+                    new Link(I18n.tr("关闭"), TEXT_BODY, true, AltManagerScreen.this::closeModal),
             };
             drawHLinks(gui, links, hHover, mouseX, mouseY, dt,
-                    p.x() + inset(p), contentY(p, 58f + lines.size() * 16f + 14f),
+                    p.x() + inset(p), contentY(p, 64f + lines.size() * 16f + 12f),
                     (int) (a * 255));
         }
 
@@ -1359,7 +1358,7 @@ public class AltManagerScreen extends Screen {
                 float y = contentY(p, offsetY + i * 16f);
                 String line = ellipsize(bodyFont, lines[i], Math.max(1f, p.w() - inset(p) * 2f));
                 CustomFontRenderer.drawString(gui, bodyFont, line, p.x() + inset(p), y,
-                        scaleAlpha(SUBTITLE_COLOR, a));
+                        scaleAlpha(TEXT_BODY, a));
             }
         }
 
@@ -1367,26 +1366,26 @@ public class AltManagerScreen extends Screen {
 
         private Link[] waitingLinks() {
             return new Link[]{
-                    new Link(I18n.tr("改用手动模式"), TEXT_IDLE, true, () -> {
+                    new Link(I18n.tr("改用手动模式"), TEXT_BODY, true, () -> {
                         cancelLogin();
                         setState(MsState.MANUAL);
                     }),
-                    new Link(I18n.tr("取消"), TEXT_IDLE, true, this::cancelLogin),
+                    new Link(I18n.tr("取消"), TEXT_BODY, true, this::cancelLogin),
             };
         }
 
         private Link[] manualLinks() {
             boolean hasInput = !urlField.text().isBlank();
             return new Link[]{
-                    new Link(I18n.tr("打开授权页面"), TEXT_IDLE, true, () -> {
+                    new Link(I18n.tr("打开授权页面"), TEXT_BODY, true, () -> {
                         try {
                             MicrosoftAuthService.openAuthorizationPage();
                         } catch (MicrosoftAuthService.AuthException e) {
                             fail(e.getMessage());
                         }
                     }),
-                    new Link(I18n.tr("开始登录"), TEXT_IDLE, hasInput, this::startManualLogin),
-                    new Link(I18n.tr("返回"), TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
+                    new Link(I18n.tr("开始登录"), TEXT_BODY, hasInput, this::startManualLogin),
+                    new Link(I18n.tr("返回"), TEXT_BODY, true, () -> setState(MsState.CHOICE)),
             };
         }
 
@@ -1455,11 +1454,10 @@ public class AltManagerScreen extends Screen {
             switch (state) {
                 case CHOICE -> {
                     String[] items = {I18n.tr("自动登录（推荐）"), I18n.tr("手动粘贴链接"), I18n.tr("取消")};
-                    float y = contentY(p, 108f);
                     for (int i = 0; i < items.length; i++) {
-                        float itemY = contentY(p, 108f + i * 26f);
+                        float itemY = contentY(p, 118f + i * 28f);
                         if (mx >= p.x() + 20 && mx <= p.x() + p.w() - 20
-                                && my >= itemY - 4 && my <= itemY + linkFont.lineHeight + 4) {
+                                && my >= itemY - 5 && my <= itemY + linkFont.lineHeight + 5) {
                             if (i == 0) startAutoLogin();
                             else if (i == 1) setState(MsState.MANUAL);
                             else closeModal();
@@ -1469,25 +1467,25 @@ public class AltManagerScreen extends Screen {
                 }
                 case WAITING -> {
                     Link[] links = waitingLinks();
-                    int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 140f), mx, my);
+                    int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 142f), mx, my);
                     if (idx >= 0 && links[idx].enabled()) links[idx].action().run();
                 }
                 case MANUAL -> {
                     Link[] links = manualLinks();
-                    int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 168f), mx, my);
+                    int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 170f), mx, my);
                     if (idx >= 0 && links[idx].enabled()) links[idx].action().run();
                 }
                 case PROGRESS -> {
-                    Link[] links = {new Link(I18n.tr("取消"), TEXT_IDLE, true, this::cancelLogin)};
-                    int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 122f), mx, my);
+                    Link[] links = {new Link(I18n.tr("取消"), TEXT_BODY, true, this::cancelLogin)};
+                    int idx = hLinkAt(links, p.x() + inset(p), contentY(p, 126f), mx, my);
                     if (idx >= 0) links[idx].action().run();
                 }
                 case ERROR -> {
                     List<String> lines = errorLines();
-                    float y = contentY(p, 58f + lines.size() * 16f + 14f);
+                    float y = contentY(p, 64f + lines.size() * 16f + 12f);
                     Link[] links = {
-                            new Link(I18n.tr("返回"), TEXT_IDLE, true, () -> setState(MsState.CHOICE)),
-                            new Link(I18n.tr("关闭"), TEXT_IDLE, true, AltManagerScreen.this::closeModal),
+                            new Link(I18n.tr("返回"), TEXT_BODY, true, () -> setState(MsState.CHOICE)),
+                            new Link(I18n.tr("关闭"), TEXT_BODY, true, AltManagerScreen.this::closeModal),
                     };
                     int idx = hLinkAt(links, p.x() + inset(p), y, mx, my);
                     if (idx >= 0) links[idx].action().run();
@@ -1563,13 +1561,13 @@ public class AltManagerScreen extends Screen {
 
         @Override
         float panelHeight() {
-            return 226f;
+            return 220f;
         }
 
         private Link[] links() {
             return new Link[]{
-                    new Link(I18n.tr("添加"), TEXT_IDLE, true, this::submit),
-                    new Link(I18n.tr("取消"), TEXT_IDLE, true, AltManagerScreen.this::closeModal),
+                    new Link(I18n.tr("添加"), TEXT_HIGH, true, this::submit),
+                    new Link(I18n.tr("取消"), TEXT_BODY, true, AltManagerScreen.this::closeModal),
             };
         }
 
@@ -1596,27 +1594,24 @@ public class AltManagerScreen extends Screen {
                             int mouseX, int mouseY, float dt, long now, float a) {
             CustomFontRenderer.drawString(gui, bodyFont,
                     I18n.tr("离线账号无需联网验证，仅适用于离线模式服务器。"),
-                    p.x() + inset(p), contentY(p, 58f), scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 64f), scaleAlpha(TEXT_BODY, a));
 
-            float fieldY = contentY(p, 88f);
+            float fieldY = contentY(p, 96f);
             nameField.render(gui, fieldFont, p.x() + inset(p), fieldY, Math.max(1f, p.w() - inset(p) * 2f), now, a);
-            CustomRectRenderer.drawRect(gui, (int) (p.x() + inset(p)),
-                    (int) (fieldY + fieldFont.lineHeight + 5f),
-                    (int) (Math.max(1f, p.w() - inset(p) * 2f)), 1, scaleAlpha(ACCENT, a));
 
             if (!errorText.isEmpty()) {
                 CustomFontRenderer.drawString(gui, bodyFont, errorText,
-                        p.x() + inset(p), contentY(p, 128f), scaleAlpha(ERROR_COLOR, a));
+                        p.x() + inset(p), contentY(p, 132f), scaleAlpha(ERROR, a));
             }
 
             drawHLinks(gui, links(), hHover, mouseX, mouseY, dt,
-                    p.x() + inset(p), contentY(p, 160f), (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 158f), (int) (a * 255));
         }
 
         @Override
         void mouseClicked(double mx, double my) {
             PanelRect p = panel();
-            int idx = hLinkAt(links(), p.x() + inset(p), contentY(p, 160f), mx, my);
+            int idx = hLinkAt(links(), p.x() + inset(p), contentY(p, 158f), mx, my);
             if (idx >= 0 && links()[idx].enabled()) links()[idx].action().run();
         }
 
@@ -1660,20 +1655,20 @@ public class AltManagerScreen extends Screen {
 
         @Override
         float panelHeight() {
-            return 196f;
+            return 190f;
         }
 
         private Link[] links() {
             return new Link[]{
-                    new Link(I18n.tr("删除"), ERROR_COLOR, true, () -> {
+                    new Link(I18n.tr("删除"), ERROR, true, () -> {
                         int idx = accounts.indexOf(target);
                         AltManager.remove(target, accounts);
                         if (selected >= accounts.size()) selected = accounts.size() - 1;
                         if (idx >= 0 && selected > idx) selected--;
-                        showStatus(I18n.trf("已删除账号：%s", target.getName()), ACCENT);
+                        showStatus(I18n.trf("已删除账号：%s", target.getName()), TEXT_HIGH);
                         closeModal();
                     }),
-                    new Link(I18n.tr("取消"), TEXT_IDLE, true, AltManagerScreen.this::closeModal),
+                    new Link(I18n.tr("取消"), TEXT_BODY, true, AltManagerScreen.this::closeModal),
             };
         }
 
@@ -1682,18 +1677,18 @@ public class AltManagerScreen extends Screen {
                             int mouseX, int mouseY, float dt, long now, float a) {
             CustomFontRenderer.drawString(gui, bodyFont,
                     I18n.trf("确定删除账号 %s（%s）？", target.getName(), target.typeLabel()),
-                    p.x() + inset(p), contentY(p, 62f), scaleAlpha(TEXT_HOVER, a));
+                    p.x() + inset(p), contentY(p, 68f), scaleAlpha(TEXT_HIGH, a));
             CustomFontRenderer.drawString(gui, bodyFont, I18n.tr("此操作不可撤销。"),
-                    p.x() + inset(p), contentY(p, 80f), scaleAlpha(SUBTITLE_COLOR, a));
+                    p.x() + inset(p), contentY(p, 86f), scaleAlpha(TEXT_BODY, a));
 
             drawHLinks(gui, links(), hHover, mouseX, mouseY, dt,
-                    p.x() + inset(p), contentY(p, 130f), (int) (a * 255));
+                    p.x() + inset(p), contentY(p, 128f), (int) (a * 255));
         }
 
         @Override
         void mouseClicked(double mx, double my) {
             PanelRect p = panel();
-            int idx = hLinkAt(links(), p.x() + inset(p), contentY(p, 130f), mx, my);
+            int idx = hLinkAt(links(), p.x() + inset(p), contentY(p, 128f), mx, my);
             if (idx >= 0 && links()[idx].enabled()) links()[idx].action().run();
         }
 
@@ -1712,12 +1707,88 @@ public class AltManagerScreen extends Screen {
     }
 
     // ========================
-    // 杂项工具
+    // 链接绘制（悬停胶囊；水平排版）
     // ========================
 
-    private static String dots(long nowMs) {
-        return ".".repeat((int) ((nowMs / 400) % 4));
+    private LinkLayout layoutLinks(Link[] links, float x, float y, float maxWidth) {
+        float gap = CustomFontRenderer.stringWidth(linkFont, "    ") + 10f;
+        float lineStep = linkFont.lineHeight + 16f;
+        float cx = x;
+        float cy = y;
+        float right = x;
+        List<LinkBounds> bounds = new ArrayList<>(links.length);
+        for (int i = 0; i < links.length; i++) {
+            float textW = CustomFontRenderer.stringWidth(linkFont, links[i].label());
+            float pillW = textW + 20f;
+            if (cx > x && cx + pillW > x + Math.max(1f, maxWidth)) {
+                cx = x;
+                cy += lineStep;
+            }
+            bounds.add(new LinkBounds(i, cx - 10f, cy - 6f, pillW,
+                    linkFont.lineHeight + 12f, cx, cy));
+            right = Math.max(right, cx + textW);
+            cx += pillW + gap;
+        }
+        return new LinkLayout(bounds, Math.max(0f, right - x),
+                bounds.isEmpty() ? 0f : cy - y + linkFont.lineHeight + 12f);
     }
+
+    private void drawHLinks(GuiGraphicsExtractor gui, Link[] links, HoverSet hover,
+                            int mouseX, int mouseY, float dt, float x, float y, int baseAlpha) {
+        drawLinks(gui, links, hover, mouseX, mouseY, dt,
+                layoutLinks(links, x, y, linkMaxWidth(x)), baseAlpha);
+    }
+
+    private void drawLinks(GuiGraphicsExtractor gui, Link[] links, HoverSet hover,
+                           int mouseX, int mouseY, float dt, LinkLayout layout, int baseAlpha) {
+        hover.ensure(links.length);
+        for (LinkBounds b : layout.bounds()) {
+            Link link = links[b.index()];
+            boolean over = link.enabled() && mouseX >= b.x() && mouseX <= b.x() + b.w()
+                    && mouseY >= b.y() && mouseY <= b.y() + b.h();
+            hover.update(b.index(), over, dt);
+            float hp = hover.get(b.index());
+            float a = baseAlpha / 255f;
+
+            if (link.enabled()) {
+                CustomRoundedRectRenderer.drawRoundedRect(gui, Math.round(b.x()), Math.round(b.y()),
+                        Math.round(b.w()), Math.round(b.h()), Math.round(b.h() / 2f),
+                        scaleAlpha(HOVER_FILL, a * (0.45f + hp * 0.55f)));
+                CustomRoundedRectRenderer.drawRoundedOutline(gui, Math.round(b.x()), Math.round(b.y()),
+                        Math.round(b.w()), Math.round(b.h()), Math.round(b.h() / 2f),
+                        scaleAlpha(lerpColor(0x2AFFFFFF, 0x66FFFFFF, hp), a), 1);
+            }
+            int idle = link.enabled() ? link.idleColor() : TEXT_GHOST;
+            CustomFontRenderer.drawString(gui, linkFont, link.label(), b.textX(), b.textY(),
+                    lerpColor(scaleAlpha(idle, a), scaleAlpha(TEXT_HIGH, a), link.enabled() ? hp : 0f));
+        }
+    }
+
+    private int hLinkAt(Link[] links, float x, float y, double mx, double my) {
+        return linkAt(layoutLinks(links, x, y, linkMaxWidth(x)), mx, my);
+    }
+
+    private float linkMaxWidth(float x) {
+        Modal active = modal != null ? modal : closingModal;
+        if (active != null) {
+            PanelRect p = active.panel();
+            if (x >= p.x() && x <= p.x() + p.w()) return Math.max(1f, p.x() + p.w() - active.inset(p) - x);
+        }
+        return Math.max(1f, AltManagerScreen.this.width - x - 12f);
+    }
+
+    private int linkAt(LinkLayout layout, double mx, double my) {
+        for (LinkBounds b : layout.bounds()) {
+            if (mx >= b.x() && mx <= b.x() + b.w() && my >= b.y() && my <= b.y() + b.h()) {
+                return b.index();
+            }
+        }
+        return -1;
+    }
+
+    // ========================
+    // 杂项工具
+    // ========================
 
     private static String extractMessage(Throwable t) {
         if (t == null) return I18n.tr("未知错误");
@@ -1725,56 +1796,5 @@ public class AltManagerScreen extends Screen {
         String msg = t.getMessage();
         return msg == null || msg.isBlank()
                 ? I18n.trf("未知错误（%s）", t.getClass().getSimpleName()) : msg;
-    }
-
-    private static int scaleAlpha(int argb, float scale) {
-        int a = (int) ((argb >>> 24) * clamp01(scale));
-        return (a << 24) | (argb & 0x00FFFFFF);
-    }
-
-    private static float computeSpacedWidth(GlyphFont font, String text, float spacing) {
-        if (font == null) return 0;
-        float w = 0;
-        for (int i = 0; i < text.length();) {
-            int cp = text.codePointAt(i);
-            String ch = new String(Character.toChars(cp));
-            w += CustomFontRenderer.stringWidth(font, ch) + spacing;
-            i += Character.charCount(cp);
-        }
-        if (w > 0) w -= spacing;
-        return w;
-    }
-
-    private static String ellipsize(GlyphFont font, String text, float maxWidth) {
-        if (text == null || text.isEmpty() || maxWidth <= 0f) return "";
-        if (CustomFontRenderer.stringWidth(font, text) <= maxWidth) return text;
-        String suffix = "…";
-        if (CustomFontRenderer.stringWidth(font, suffix) > maxWidth) return "";
-        int end = text.length();
-        while (end > 0) {
-            end = text.offsetByCodePoints(end, -1);
-            String candidate = text.substring(0, end) + suffix;
-            if (CustomFontRenderer.stringWidth(font, candidate) <= maxWidth) return candidate;
-        }
-        return suffix;
-    }
-
-    private static float clamp01(float v) {
-        return v < 0f ? 0f : (v > 1f ? 1f : v);
-    }
-
-    private static float easeOutCubic(float t) {
-        float u = 1f - clamp01(t);
-        return 1f - u * u * u;
-    }
-
-    private static int lerpColor(int a, int b, float t) {
-        float tp = Math.clamp(t, 0f, 1f);
-        int aa = a >>> 24, ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
-        int ba = b >>> 24, br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
-        return (Math.round(aa + (ba - aa) * tp) << 24)
-                | (Math.round(ar + (br - ar) * tp) << 16)
-                | (Math.round(ag + (bg - ag) * tp) << 8)
-                | Math.round(ab + (bb - ab) * tp);
     }
 }

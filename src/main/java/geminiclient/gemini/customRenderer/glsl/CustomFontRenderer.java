@@ -42,6 +42,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -100,6 +101,15 @@ public class CustomFontRenderer {
     private static final int UV_STRIDE = 2;
     private static final int COL_STRIDE = 4;
     private static final String FALLBACK_FONT_NAME = "SansSerif";
+
+    /**
+     * Codepoints at or above this (CJK radicals and blocks, fullwidth forms,
+     * Hangul, ...) carry no meaningful GPOS pair kerning, so {@link #kern}
+     * short-circuits for them instead of building a {@link TextLayout} per
+     * pair. Latin, punctuation and general punctuation below the threshold
+     * keep full kerning.
+     */
+    private static final int KERN_MAX_CODEPOINT = 0x2E80;
 
     // MSDF generation parameters. MsdfGenerator.RANGE is the single source of
     // truth for the field range. The representable extent is RANGE/2 on
@@ -161,6 +171,13 @@ public class CustomFontRenderer {
         public final float advanceX;
         boolean hasImage;
         int pageIndex;
+        /**
+         * Atlas cell placement in atlas pixels, assigned together with the
+         * UVs on the render thread while packing. The cell's pixels are
+         * filled once background MSDF generation completes (see
+         * {@link GlyphFont#applyRaster}).
+         */
+        int slotPx, slotPy, slotW, slotH;
 
         Glyph(float width, float height, float bearingX, float bearingY, float advanceX,
               boolean hasImage, int pageIndex) {
@@ -192,6 +209,46 @@ public class CustomFontRenderer {
             return TextureSetup.singleTexture(
                     texture.getTextureView(), texture.getSampler());
         }
+
+        /**
+         * Sub-region texture upload — replaces the whole-page re-send of the
+         * entire 4096×4096 (64 MiB) atlas whenever a single glyph appeared.
+         * A fresh glyph now ships only its own cell (a few dozen KB).
+         *
+         * <p>{@code rgba} is row-major RGBA, exactly the layout
+         * {@link MsdfGenerator} produces; the GL backend consumes it as
+         * {@code glTexSubImage2D(GL_RGBA, UNSIGNED_BYTE)} with
+         * {@code UNPACK_ROW_LENGTH} set to the region width.</p>
+         *
+         * <p>The bytes are staged through a <b>direct</b> ByteBuffer: LWJGL's
+         * {@code glTexSubImage2D} reads the buffer's native address, which is
+         * null for a heap buffer — passing one dereferences garbage in the
+         * driver and hard-crashes the JVM (observed as
+         * {@code EXCEPTION_ACCESS_VIOLATION} in nvoglv64.dll).</p>
+         */
+        void uploadRegion(int x, int y, int w, int h, byte[] rgba) {
+            ByteBuffer buf = directUploadBuffer(rgba.length);
+            buf.put(rgba).flip();
+            RenderSystem.getDevice().createCommandEncoder().writeToTexture(
+                    texture.getTexture(), buf, 0, 0, x, y, w, h);
+        }
+    }
+
+    /**
+     * Direct staging buffer for atlas uploads, grown on demand to the largest
+     * cell size seen. Only touched from the render thread — every upload site
+     * (per-glyph regions, the metadata texel) runs there.
+     */
+    private static ByteBuffer directUploadBuffer;
+
+    private static ByteBuffer directUploadBuffer(int bytes) {
+        ByteBuffer buf = directUploadBuffer;
+        if (buf == null || buf.capacity() < bytes) {
+            buf = ByteBuffer.allocateDirect(Math.max(bytes, 4096));
+            directUploadBuffer = buf;
+        }
+        buf.clear();
+        return buf;
     }
 
     /**
@@ -208,8 +265,6 @@ public class CustomFontRenderer {
                     .getClampToEdge(FilterMode.LINEAR);
         }
     }
-
-    private record AtlasSlot(int px, int py, int pw, int ph) {}
 
     // ========================
     //  GlyphFont
@@ -240,8 +295,17 @@ public class CustomFontRenderer {
         int currentPageIdx = -1;
 
         int cursorX, cursorY, rowHeight;
-        final Map<Integer, AtlasSlot> pendingSlots = new HashMap<>();
-        final Map<Integer, byte[]> pendingMsdfData = new HashMap<>();
+
+        /**
+         * Set by {@link CustomFontRenderer#dispose}; background generation
+         * jobs check it before doing work and before their results are
+         * applied, so a disposed font never touches its freed atlas.
+         */
+        volatile boolean disposed;
+
+        public boolean isDisposed() {
+            return disposed;
+        }
 
         private java.awt.Font fallbackFont;
 
@@ -307,8 +371,24 @@ public class CustomFontRenderer {
             page.texture = new FontAtlasTexture(page.textureId, nativeImage);
             mc.getTextureManager().register(page.textureId, page.texture);
 
+            // Atlas updates ship as cell sub-regions only, so the metadata
+            // texel must reach the GPU on its own — 16 bytes, once per page.
+            uploadMetadataTexel(page);
+
             pages.add(page);
             currentPageIdx = pages.size() - 1;
+        }
+
+        private static void uploadMetadataTexel(AtlasPage page) {
+            int encoded = (int) Math.round(MsdfGenerator.RANGE * MsdfGenerator.METADATA_RANGE_SCALE);
+            // writeToTexture consumes R,G,B,A bytes; NativeImage's ABGR packing
+            // puts the low byte in the R channel (see writeMetadataTexel).
+            // Must be a direct buffer — see directUploadBuffer.
+            ByteBuffer meta = directUploadBuffer(4);
+            meta.put(new byte[] {(byte) encoded, (byte) (encoded >>> 8), 0, (byte) 0xFF})
+                    .flip();
+            RenderSystem.getDevice().createCommandEncoder().writeToTexture(
+                    page.texture.getTexture(), meta, 0, 0, 0, 0, 1, 1);
         }
 
         /**
@@ -330,54 +410,48 @@ public class CustomFontRenderer {
             image.setPixel(0, 0, (0xFF << 24) | (high << 8) | low);
         }
 
-        public Glyph getGlyph(int codePoint) {
+        /**
+         * Render-thread lookup used by drawing and measuring. Returns the
+         * glyph for {@code codePoint}, creating its metrics and atlas cell on
+         * first use and queueing MSDF generation on the background thread
+         * ({@link FontGlyphExecutor}) — the calling frame never waits for
+         * field generation. Until the field has been applied, the glyph
+         * reports {@code hasImage == false} and the draw path renders it
+         * through the vanilla fallback.
+         */
+        Glyph getOrCreateGlyph(int codePoint) {
             Glyph glyph = glyphs.get(codePoint);
             if (glyph != null) {
                 return glyph;
             }
-            return rasterize(codePoint);
+            return createGlyphMetrics(codePoint, false);
         }
 
         /**
-         * Pair kerning adjustment in logical (screen) units, added to the pen
-         * before drawing {@code cur}. Extracted once per pair through a
-         * two-codepoint {@link TextLayout} on {@link #kernFont} (which applies
-         * the font's GPOS pair positioning) and cached. Pairs involving
-         * codepoints the primary face cannot display get 0 — mixed-face
-         * kerning data is meaningless.
+         * Blocking variant for the loading-screen warmup paths: generates the
+         * MSDF inline on the calling (render) thread. Only intended where a
+         * stall is expected and acceptable (resource-reload apply phase).
          */
-        float kern(int prev, int cur) {
-            if (prev < 0) {
-                return 0f;
+        public Glyph getGlyphBlocking(int codePoint) {
+            Glyph glyph = glyphs.get(codePoint);
+            if (glyph != null) {
+                return glyph;
             }
-            long key = ((long) prev << 32) | (cur & 0xFFFFFFFFL);
-            Float cached = kernCache.get(key);
-            if (cached != null) {
-                return cached;
-            }
-            float k = computeKern(prev, cur);
-            kernCache.put(key, k);
-            return k;
+            return createGlyphMetrics(codePoint, true);
         }
 
-        private float computeKern(int prev, int cur) {
-            if (!rasterFont.canDisplay(prev) || !rasterFont.canDisplay(cur)) {
-                return 0f;
-            }
-            String pair = new String(new int[] { prev, cur }, 0, 2);
-            float kerned = new TextLayout(pair, kernFont, frc).getAdvance() / rasterScale;
-            float raw = getGlyph(prev).advanceX + getGlyph(cur).advanceX;
-            float k = kerned - raw;
-            // Defensive: a broken layout result must never collapse or
-            // explode spacing. Legitimate kerns stay well under 50% of the
-            // pair's raw width.
-            return Math.abs(k) > 0.5f * raw ? 0f : k;
-        }
-
-        private Glyph rasterize(int codePoint) {
-            if (pages.isEmpty()) {
-                newCpuPage();
-            }
+        /**
+         * Font-path prefix of the old synchronous {@code rasterize}: extracts
+         * typographic metrics, reserves an atlas cell, sets the glyph's UVs
+         * up front, and either generates the field inline (warmup) or hands
+         * the outline to the background executor. All atlas packing state
+         * (cursor, page rotation) stays confined to the render thread.
+         */
+        private Glyph createGlyphMetrics(int codePoint, boolean generateSynchronously) {
+            // Apply finished background generations before touching the
+            // packing cursor, so a page rotation never leaves un-applied
+            // cells behind on the rotated-out page.
+            FontGlyphExecutor.drain();
 
             java.awt.Font fontToUse = rasterFont;
             if (!rasterFont.canDisplay(codePoint)) {
@@ -405,9 +479,12 @@ public class CustomFontRenderer {
             if (visualW <= 0 || visualH <= 0) {
                 // 缺失字形（如 MiSans 没有的符号/emoji）：无法生成 MSDF。
                 // advance 改用 vanilla 字体宽度，使 stringWidth 的测量与
-                // drawGrouped 中 vanilla 兜底绘制的推进保持一致。
+                // drawGrouped 中 vanilla 兜底绘制的推进保持一致。结果缓存，
+                // 避免每帧为同一个缺失字符重复走 AWT 测量。
                 float fallbackAdvance = mc.font != null ? mc.font.width(charStr) : advance;
-                return new Glyph(0, 0, 0, 0, fallbackAdvance, false, -1);
+                Glyph fallback = new Glyph(0, 0, 0, 0, fallbackAdvance, false, -1);
+                glyphs.put(codePoint, fallback);
+                return fallback;
             }
 
             int cellWidth = (int) Math.ceil(visualW) + SDF_PADDING * 2;
@@ -420,7 +497,6 @@ public class CustomFontRenderer {
             }
 
             if (cursorY + cellHeight > ATLAS_SIZE) {
-                flushCurrentPage();
                 newCpuPage();
             }
 
@@ -435,26 +511,34 @@ public class CustomFontRenderer {
             float drawX = SDF_PADDING - (float) visualBounds.getX();
             float drawY = SDF_PADDING - (float) visualBounds.getY();
 
-            // --- MTSDF generation: vector outline -> multi-channel + true SDF ---
+            // --- Outline extraction (cheap); MSDF generation moves off-thread ---
             Shape outline = glyphVector.getOutline(drawX, drawY);
-            // Per channel: 0 = RANGE/2 px outside, 128 = on the edge,
-            // 255 = RANGE/2 px inside. The shader reads median(R, G, B),
-            // while A retains the true SDF for effects that require it.
-            byte[] msdfPixels = MsdfGenerator.generate(outline, cellWidth, cellHeight);
 
-            // Build the Glyph and register in maps BEFORE flushCurrentPage
-            // (flushCurrentPage needs glyphs.get() to succeed).
-            // Screen-space quad size and bearings are the atlas-cell
-            // dimensions divided by the raster scale.
+            AtlasPage page = pages.get(currentPageIdx);
             Glyph glyph = new Glyph(
                     cellWidth / rasterScale,
                     cellHeight / rasterScale,
                     ((float) visualBounds.getX() - SDF_PADDING) / rasterScale,
                     ((float) visualBounds.getY() - SDF_PADDING) / rasterScale,
-                    advance, true, -1);
+                    advance, false, currentPageIdx);
+            glyph.slotPx = cellX;
+            glyph.slotPy = cellY;
+            glyph.slotW = cellWidth;
+            glyph.slotH = cellHeight;
+            // UVs are derivable the moment the cell is reserved — set them
+            // now so applyRaster only has to flip hasImage.
+            glyph.u0 = cellX * page.invW;
+            glyph.v0 = cellY * page.invH;
+            glyph.u1 = (cellX + cellWidth) * page.invW;
+            glyph.v1 = (cellY + cellHeight) * page.invH;
             glyphs.put(codePoint, glyph);
-            pendingMsdfData.put(codePoint, msdfPixels);
-            pendingSlots.put(codePoint, new AtlasSlot(cellX, cellY, cellWidth, cellHeight));
+
+            if (generateSynchronously) {
+                applyRaster(codePoint, MsdfGenerator.generate(outline, cellWidth, cellHeight));
+            } else {
+                FontGlyphExecutor.submit(new FontGlyphExecutor.PendingGlyph(
+                        this, codePoint, outline, cellWidth, cellHeight));
+            }
 
             cursorX += cellWidth;
             if (cellHeight > rowHeight) {
@@ -464,64 +548,84 @@ public class CustomFontRenderer {
             return glyph;
         }
 
-        private void flushCurrentPage() {
-            if (pendingSlots.isEmpty() || currentPageIdx < 0) {
+        /**
+         * Render thread only: writes a finished MSDF into the glyph's atlas
+         * cell, uploads the cell as a texture sub-region, and marks the glyph
+         * renderable. Invoked from {@link FontGlyphExecutor#drain} for
+         * background results and inline by the blocking warmup path.
+         */
+        void applyRaster(int codePoint, byte[] msdfPixels) {
+            if (disposed || msdfPixels == null) {
                 return;
             }
+            Glyph glyph = glyphs.get(codePoint);
+            if (glyph == null || glyph.hasImage
+                    || glyph.pageIndex < 0 || glyph.pageIndex >= pages.size()) {
+                return;
+            }
+            AtlasPage page = pages.get(glyph.pageIndex);
 
-            AtlasPage page = pages.get(currentPageIdx);
+            // Keep the CPU-side atlas copy in sync (debug dumps, full-page
+            // semantics) — a few thousand setPixel calls per glyph.
             NativeImage nativeImage = page.nativeImage;
-            float invW = page.invW;
-            float invH = page.invH;
-
-            for (Map.Entry<Integer, AtlasSlot> entry : pendingSlots.entrySet()) {
-                int codePoint = entry.getKey();
-                Glyph glyph = glyphs.get(codePoint);
-                if (glyph == null) {
-                    LOGGER.warn("[MTSDF] flushCurrentPage: glyph NULL for codepoint {}, UVs will NOT be set!", codePoint);
-                    continue;
-                }
-                AtlasSlot slot = entry.getValue();
-
-                glyph.u0 = slot.px * invW;
-                glyph.v0 = slot.py * invH;
-                glyph.u1 = (slot.px + slot.pw) * invW;
-                glyph.v1 = (slot.py + slot.ph) * invH;
-                glyph.pageIndex = currentPageIdx;
-
-                // Upload MTSDF bytes to NativeImage (RGBA, 4 bytes per pixel).
-                // NativeImage stores ABGR: A=bits31..24, B=23..16, G=15..8, R=7..0
-                byte[] msdfPixels = pendingMsdfData.get(codePoint);
-                if (msdfPixels != null) {
-                    for (int y = 0; y < slot.ph; y++) {
-                        int rowBase = y * slot.pw * 4;
-                        int dstY = slot.py + y;
-                        for (int x = 0; x < slot.pw; x++) {
-                            int i = rowBase + x * 4;
-                            int r = msdfPixels[i] & 0xFF;
-                            int g = msdfPixels[i + 1] & 0xFF;
-                            int b = msdfPixels[i + 2] & 0xFF;
-                            int a = msdfPixels[i + 3] & 0xFF;
-                            nativeImage.setPixel(slot.px + x, dstY,
-                                    (a << 24) | (b << 16) | (g << 8) | r);
-                        }
-                    }
-                } else {
-                    LOGGER.warn("[MTSDF] flushCurrentPage: msdfPixels NULL for codepoint {}", codePoint);
+            for (int y = 0; y < glyph.slotH; y++) {
+                int rowBase = y * glyph.slotW * 4;
+                for (int x = 0; x < glyph.slotW; x++) {
+                    int i = rowBase + x * 4;
+                    int r = msdfPixels[i] & 0xFF;
+                    int g = msdfPixels[i + 1] & 0xFF;
+                    int b = msdfPixels[i + 2] & 0xFF;
+                    int a = msdfPixels[i + 3] & 0xFF;
+                    nativeImage.setPixel(glyph.slotPx + x, glyph.slotPy + y,
+                            (a << 24) | (b << 16) | (g << 8) | r);
                 }
             }
-            pendingSlots.clear();
-            pendingMsdfData.clear();
-            page.texture.upload();
+            page.uploadRegion(glyph.slotPx, glyph.slotPy, glyph.slotW, glyph.slotH, msdfPixels);
+            glyph.hasImage = true;
+        }
 
-            // Debug: dump atlas to file (uncomment to inspect)
-            // dumpAtlasToPng(this, new File("atlas_debug.png"));
+        /**
+         * Pair kerning adjustment in logical (screen) units, added to the pen
+         * before drawing {@code cur}. Extracted once per pair through a
+         * two-codepoint {@link TextLayout} on {@link #kernFont} (which applies
+         * the font's GPOS pair positioning) and cached. Pairs involving
+         * codepoints the primary face cannot display get 0 — mixed-face
+         * kerning data is meaningless.
+         */
+        float kern(int prev, int cur) {
+            // GPOS pair kerning only exists for Latin/typographic ranges; CJK
+            // blocks, fullwidth forms and Hangul have none, so skip the
+            // TextLayout round-trip entirely for those pairs (a 20-character
+            // Chinese sentence would otherwise build ~190 layouts once each).
+            if (prev < 0 || prev >= KERN_MAX_CODEPOINT || cur >= KERN_MAX_CODEPOINT) {
+                return 0f;
+            }
+            long key = ((long) prev << 32) | (cur & 0xFFFFFFFFL);
+            Float cached = kernCache.get(key);
+            if (cached != null) {
+                return cached;
+            }
+            float k = computeKern(prev, cur);
+            kernCache.put(key, k);
+            return k;
+        }
+
+        private float computeKern(int prev, int cur) {
+            if (!rasterFont.canDisplay(prev) || !rasterFont.canDisplay(cur)) {
+                return 0f;
+            }
+            String pair = new String(new int[] { prev, cur }, 0, 2);
+            float kerned = new TextLayout(pair, kernFont, frc).getAdvance() / rasterScale;
+            float raw = getOrCreateGlyph(prev).advanceX + getOrCreateGlyph(cur).advanceX;
+            float k = kerned - raw;
+            // Defensive: a broken layout result must never collapse or
+            // explode spacing. Legitimate kerns stay well under 50% of the
+            // pair's raw width.
+            return Math.abs(k) > 0.5f * raw ? 0f : k;
         }
 
         void ensureReady() {
-            if (!pendingSlots.isEmpty()) {
-                flushCurrentPage();
-            }
+            FontGlyphExecutor.drain();
         }
     }
 
@@ -593,26 +697,6 @@ public class CustomFontRenderer {
     }
 
     // ========================
-    //  Current TTF font state
-    // ========================
-
-    private static volatile GlyphFont currentTtfGlyphFont;
-    private static volatile String currentTtfFontName;
-
-    public static GlyphFont getCurrentTtfGlyphFont() {
-        return currentTtfGlyphFont;
-    }
-
-    public static String getCurrentTtfFontName() {
-        return currentTtfFontName;
-    }
-
-    public static void setCurrentTtfGlyphFont(GlyphFont font, String name) {
-        currentTtfGlyphFont = font;
-        currentTtfFontName = name;
-    }
-
-    // ========================
     //  Measurement
     // ========================
 
@@ -621,6 +705,10 @@ public class CustomFontRenderer {
      * advances plus pair kerning — the same layout code path as
      * {@link #drawString(GuiGraphicsExtractor, GlyphFont, String, float, float, IntFunction)},
      * so measured and rendered widths always agree.
+     *
+     * <p>Measurement never triggers MSDF generation: it only resolves glyph
+     * metrics (cheap AWT calls, cached per glyph), so measuring a string full
+     * of unseen characters no longer stalls the render thread.</p>
      */
     public static float stringWidth(GlyphFont font, String text) {
         float width = 0f;
@@ -628,7 +716,7 @@ public class CustomFontRenderer {
         for (int i = 0; i < text.length();) {
             int codePoint = text.codePointAt(i);
             width += font.kern(prevCp, codePoint)
-                    + font.getGlyph(codePoint).advanceX;
+                    + font.getOrCreateGlyph(codePoint).advanceX;
             prevCp = codePoint;
             i += Character.charCount(codePoint);
         }
@@ -637,6 +725,42 @@ public class CustomFontRenderer {
 
     public static int stringWidth(Font font, String text) {
         return font.width(text);
+    }
+
+    /**
+     * Vertical center of a string's visible ink when drawn at {@code y}
+     * (the line-box top used by {@code drawString}).
+     *
+     * <p>Screen quads are the ink box expanded symmetrically by
+     * {@link #SDF_PADDING}, so the quad midpoint is the ink midpoint.
+     * Decorations such as indicator bars should center on this, not on
+     * {@code lineHeight / 2}: the line box adds ascent headroom above
+     * Latin caps and descent below the baseline, and CJK glyphs sit low
+     * in that box, so a line-box-centered bar rides visibly high.</p>
+     */
+    public static float stringInkCenterY(GlyphFont font, String text, float y) {
+        if (font == null) {
+            return y;
+        }
+        if (text == null || text.isEmpty()) {
+            return y + font.lineHeight / 2f;
+        }
+        float baseline = Math.round(y + font.ascent) + 0.5f;
+        float top = Float.MAX_VALUE, bottom = -Float.MAX_VALUE;
+        for (int i = 0; i < text.length(); ) {
+            int cp = text.codePointAt(i);
+            i += Character.charCount(cp);
+            Glyph glyph = font.getGlyphBlocking(cp);
+            if (glyph.width <= 0f || glyph.height <= 0f) {
+                continue; // 缺失字形无 ink（由 vanilla 字体兜底绘制）
+            }
+            top = Math.min(top, glyph.bearingY);
+            bottom = Math.max(bottom, glyph.bearingY + glyph.height);
+        }
+        if (top > bottom) {
+            return y + font.lineHeight / 2f;
+        }
+        return baseline + (top + bottom) / 2f;
     }
 
     // ========================
@@ -902,7 +1026,10 @@ public class CustomFontRenderer {
     private static void prefetch(GlyphFont font, String text) {
         for (int i = 0; i < text.length();) {
             int codePoint = text.codePointAt(i);
-            font.getGlyph(codePoint);
+            // Metrics-only: unseen glyphs get their atlas cell reserved and a
+            // background generation queued — this frame renders them through
+            // the vanilla fallback instead of stalling.
+            font.getOrCreateGlyph(codePoint);
             i += Character.charCount(codePoint);
         }
     }
@@ -919,7 +1046,7 @@ public class CustomFontRenderer {
         int charIndex = 0;
         for (int i = 0; i < text.length();) {
             int codePoint = text.codePointAt(i);
-            Glyph glyph = font.getGlyph(codePoint);
+            Glyph glyph = font.getOrCreateGlyph(codePoint);
             cursorX += font.kern(prevCp, codePoint);
             if (glyph.hasImage) {
                 groups.computeIfAbsent(glyph.pageIndex, k -> new ArrayList<>())
@@ -1169,6 +1296,9 @@ public class CustomFontRenderer {
     // ========================
 
     public static void dispose(GlyphFont font) {
+        // Stop background generations before freeing the atlas: queued jobs
+        // and in-flight results are dropped by the disposed check.
+        font.disposed = true;
         for (AtlasPage page : font.pages) {
             if (page.texture != null) {
                 mc.getTextureManager().release(page.textureId);
@@ -1176,16 +1306,12 @@ public class CustomFontRenderer {
             }
         }
         font.pages.clear();
-        font.pendingSlots.clear();
-        font.pendingMsdfData.clear();
         font.glyphs.clear();
         font.kernCache.clear();
     }
 
     public static void flushAllPages() {
-        for (GlyphFont font : FONT_CACHE.values()) {
-            font.ensureReady();
-        }
+        FontGlyphExecutor.drain();
     }
 
     public static void disposeAll() {

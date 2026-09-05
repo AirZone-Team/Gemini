@@ -54,6 +54,7 @@ public final class KillAuraIndicatorRenderer {
     public static final int MATERIAL_CRESCENT = 4;
     public static final int MATERIAL_SIGIL = 5;
     public static final int MATERIAL_EYE = 6;
+    public static final int MATERIAL_STAR = 7;
 
     public static final RenderPipeline KILLAURA_DOTS_PIPELINE = RenderPipeline.builder(
                     GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)

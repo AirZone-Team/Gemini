@@ -16,7 +16,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -41,8 +40,6 @@ public final class FileSystem {
     private static final String DEFAULT_CONFIG_NAME = "config";
     private static final String CONFIG_EXTENSION = ".json";
     private static final String ALTS_CONFIG_NAME = "alts";
-    private static final String DEFAULT_FONT_NAME = "Default";
-    private static final String TTF_EXTENSION = ".ttf";
     private static final String BACKGROUND_CONFIG_FILE_NAME = "background.json";
     private static final Set<String> SUPPORTED_BACKGROUND_EXTENSIONS = Set.of(
             ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".webm");
@@ -62,7 +59,6 @@ public final class FileSystem {
     private final Path configDirectory;
     private final Path configNameFile;
     private final Path altsFile;
-    private final Path ttfDirectory;
     private final Path backgroundDirectory;
     private final Path backgroundConfigFile;
 
@@ -81,7 +77,6 @@ public final class FileSystem {
         this.configDirectory = geminiDirectory.resolve("configs");
         this.configNameFile = geminiDirectory.resolve("configName.txt");
         this.altsFile = configDirectory.resolve("alts.json");
-        this.ttfDirectory = geminiDirectory.resolve("ttf");
         this.backgroundDirectory = geminiDirectory.resolve("background");
         this.backgroundConfigFile = backgroundDirectory.resolve(BACKGROUND_CONFIG_FILE_NAME);
 
@@ -98,7 +93,6 @@ public final class FileSystem {
 
     private void ensureDirectoriesExist() {
         ensureDirectory(configDirectory, "config");
-        ensureDirectory(ttfDirectory, "TTF");
         ensureDirectory(backgroundDirectory, "background");
     }
 
@@ -500,50 +494,6 @@ public final class FileSystem {
             counter++;
         }
         return target;
-    }
-
-    // -------------------------------------------------------------------------
-    // Fonts
-    // -------------------------------------------------------------------------
-
-    public List<String> scanTtfFonts() {
-        if (!Files.isDirectory(ttfDirectory)) {
-            return List.of();
-        }
-
-        List<String> fonts = new ArrayList<>();
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(ttfDirectory,
-                path -> Files.isRegularFile(path)
-                        && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(TTF_EXTENSION))) {
-            for (Path path : stream) {
-                String fileName = path.getFileName().toString();
-                fonts.add(fileName.substring(0, fileName.length() - TTF_EXTENSION.length()));
-            }
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to scan TTF directory: " + ttfDirectory, e);
-        }
-
-        fonts.sort(String.CASE_INSENSITIVE_ORDER);
-        return List.copyOf(fonts);
-    }
-
-    public File getTtfFontFile(String rawName) {
-        if (rawName == null || DEFAULT_FONT_NAME.equalsIgnoreCase(rawName.trim())) {
-            return null;
-        }
-
-        String fontName = rawName.trim();
-        if (!isSafeSinglePathSegment(fontName)) {
-            LOGGER.warning(() -> "Invalid TTF font name: " + rawName);
-            return null;
-        }
-
-        Path fontRoot = ttfDirectory.toAbsolutePath().normalize();
-        Path fontFile = fontRoot.resolve(fontName + TTF_EXTENSION).normalize();
-        if (!fontFile.startsWith(fontRoot) || !Files.isRegularFile(fontFile)) {
-            return null;
-        }
-        return fontFile.toFile();
     }
 
     // -------------------------------------------------------------------------

@@ -174,6 +174,7 @@ public final class I18n {
         pair("BackTrack", "回溯", "BackTrack");
         pair("Blink", "闪烁", "Blink");
         pair("BlockESP", "方块ESP", "BlockESP");
+        pair("Breaker", "隔墙破坏", "Breaker");
         pair("ClickGui", "界面配置", "ClickGui");
         pair("Crit", "暴击", "Crit");
         pair("Disabler", "禁用器", "Disabler");
@@ -183,7 +184,6 @@ public final class I18n {
         pair("Fall00", "无摔落", "Fall00");
         pair("FullLight", "满亮度", "FullLight");
         pair("GhostAfterImage", "幻影残影", "GhostAfterImage");
-        pair("Glow", "发光", "Glow");
         pair("Heypixel", "空岛", "Heypixel");
         pair("InstancedParticle", "实例粒子", "InstancedParticle");
         pair("InvManager", "物品管理", "InvManager");
@@ -277,7 +277,6 @@ public final class I18n {
         pair("Color Mode", "颜色模式", "Color Mode");
         pair("Color Variation", "颜色变化", "Color Variation");
         pair("CombatSwitch", "战斗切换", "CombatSwitch");
-        pair("Comet Vortex", "彗星漩涡", "Comet Vortex");
         pair("Compact", "紧凑", "Compact");
         pair("Core Burst", "核心爆发", "Core Burst");
         pair("Core Color", "核心颜色", "Core Color");
@@ -355,21 +354,28 @@ public final class I18n {
         pair("Impact Scaling", "撞击缩放", "Impact Scaling");
         pair("Impact Size", "撞击大小", "Impact Size");
         pair("Impact Vignette", "撞击暗角", "Impact Vignette");
-        pair("IndicatorColors", "指示器颜色", "IndicatorColors");
-        pair("IndicatorDoubleHelix", "指示器双螺旋", "IndicatorDoubleHelix");
-        pair("IndicatorHelixHeight", "指示器螺旋高度", "IndicatorHelixHeight");
-        pair("IndicatorHelixTurns", "指示器螺旋圈数", "IndicatorHelixTurns");
+        // ── KillAura Sorcery Array 指示器（魔导咒阵）──
+        pair("Acquire Flash", "锁定闪光", "Acquire Flash");
+        pair("Attack Pulse", "攻击脉冲", "Attack Pulse");
+        pair("Aura Ring", "身后咒环", "Aura Ring");
+        pair("Ground Sigil", "地面法阵", "Ground Sigil");
+        pair("IndicatorGlow", "指示器辉光", "IndicatorGlow");
+        pair("IndicatorLayers", "指示器图层", "IndicatorLayers");
+        pair("Orbit Comets", "环绕彗星", "Orbit Comets");
+        pair("Star Motes", "星屑", "Star Motes");
+        pair("Theme", "主题", "Theme");
+        pair("ThemeAccent", "主题点缀色", "ThemeAccent");
+        pair("ThemePrimary", "主题主色", "ThemePrimary");
+        pair("ThemeRainbowSpeed", "主题彩虹速度", "ThemeRainbowSpeed");
+        pair("ThemeSecondary", "主题次色", "ThemeSecondary");
+
         pair("IndicatorOpacity", "指示器透明度", "IndicatorOpacity");
         pair("IndicatorParticleSize", "指示器粒子大小", "IndicatorParticleSize");
         pair("IndicatorParticles", "指示器粒子", "IndicatorParticles");
-        pair("IndicatorPrimary", "指示器主色", "IndicatorPrimary");
         pair("IndicatorPulse", "指示器脉冲", "IndicatorPulse");
         pair("IndicatorPulseSpeed", "指示器脉冲速度", "IndicatorPulseSpeed");
         pair("IndicatorRadius", "指示器半径", "IndicatorRadius");
-        pair("IndicatorRainbowSpeed", "指示器彩虹速度", "IndicatorRainbowSpeed");
         pair("IndicatorRotationSpeed", "指示器旋转速度", "IndicatorRotationSpeed");
-        pair("IndicatorSecondary", "指示器次色", "IndicatorSecondary");
-        pair("IndicatorStyle", "指示器样式", "IndicatorStyle");
         pair("IndicatorTargets", "指示器目标", "IndicatorTargets");
         pair("IndicatorYOffset", "指示器Y偏移", "IndicatorYOffset");
         pair("Intensity", "强度", "Intensity");
@@ -476,7 +482,6 @@ public final class I18n {
         pair("Primary", "主色", "Primary");
         pair("Primary Color", "主色", "Primary Color");
         pair("Priority", "优先级", "Priority");
-        pair("Prismatic Cage", "棱镜笼", "Prismatic Cage");
         pair("Progress Bar", "进度条", "Progress Bar");
         pair("Progress Ring", "进度环", "Progress Ring");
         pair("Projectile Halo", "投射物光环", "Projectile Halo");
@@ -490,6 +495,7 @@ public final class I18n {
         pair("RandomAimInterval", "随机瞄准间隔", "RandomAimInterval");
         pair("RandomEasing", "随机缓动", "RandomEasing");
         pair("Range", "范围", "Range");
+        pair("RayCheck", "射线检测", "RayCheck");
         pair("RayTrace", "射线检测", "RayTrace");
         pair("ReactionDelay", "反应延迟", "ReactionDelay");
         pair("Rect", "矩形", "Rect");
@@ -536,7 +542,6 @@ public final class I18n {
         pair("Shockwave", "冲击波", "Shockwave");
         pair("Shockwave Rings", "冲击波圆环", "Shockwave Rings");
         pair("Shooting Stars", "流星", "Shooting Stars");
-        pair("SideCheck", "侧面检测", "SideCheck");
         pair("SilentRotate", "静默旋转", "SilentRotate");
         pair("Size", "大小", "Size");
         pair("Size Variation", "大小变化", "Size Variation");
@@ -666,13 +671,11 @@ public final class I18n {
         pair("Dashed", "虚线", "Dashed");
         pair("EaseInOutCubic", "立方缓入缓出", "EaseInOutCubic");
         pair("Elastic", "弹性", "Elastic");
-        pair("Energy Helix", "能量螺旋", "Energy Helix");
         pair("Expanded", "展开", "Expanded");
         pair("Fade", "渐隐", "Fade");
         pair("Fishing Rod", "钓鱼竿", "Fishing Rod");
         pair("Frost", "冰霜", "Frost");
         pair("GodBridge", "上帝搭路", "GodBridge");
-        pair("Health Ring", "生命圆环", "Health Ring");
         pair("Horizontal", "水平", "Horizontal");
         pair("Hotbar", "快捷栏", "Hotbar");
         pair("hurtTime", "受击时间", "hurtTime");
@@ -689,7 +692,6 @@ public final class I18n {
         pair("All", "全部", "All");
         pair("Angle", "角度", "Angle");
         pair("Arcane", "奥术", "Arcane");
-        pair("Arcane Array", "奥术阵列", "Arcane Array");
         pair("Aurora", "极光", "Aurora");
         pair("Axe", "斧", "Axe");
         pair("Bezier", "贝塞尔", "Bezier");
@@ -845,6 +847,9 @@ public final class I18n {
         pair("Add BackGround..", "添加背景..", "Add BackGround..");
         pair("Animated", "动态", "Animated");
         pair("Select Wallpaper", "选择壁纸", "Select Wallpaper");
+        pair("启用壁纸", "启用壁纸", "Enable Wallpaper");
+        pair("关闭壁纸", "关闭壁纸", "Disable Wallpaper");
+        pair("拖入文件可添加壁纸", "拖入文件可添加壁纸", "Drop image files here to add");
 
         // ── AltManager ──
         pair("Alt Manager Title", "账号管理", "Alt Manager");
@@ -855,6 +860,11 @@ public final class I18n {
         pair("列表为空", "列表为空", "List is empty");
         pair("使用下方链接添加 Microsoft 或离线账号", "使用下方链接添加 Microsoft 或离线账号",
                 "Use the links below to add a Microsoft or offline account");
+        pair("点击右上角按钮添加 Microsoft 或离线账号", "点击右上角按钮添加 Microsoft 或离线账号",
+                "Use the buttons in the top-right to add a Microsoft or offline account");
+        pair("未选择账号", "未选择账号", "No account selected");
+        pair("未使用", "未使用", "Not in use");
+        pair("状态", "状态", "Status");
         pair("+ Microsoft 账号", "+ Microsoft 账号", "+ Microsoft account");
         pair("+ 离线账号", "+ 离线账号", "+ Offline account");
         pair("应用", "应用", "Apply");

@@ -2,6 +2,7 @@ package geminiclient.gemini.modules.impl.visual;
 
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
+import geminiclient.gemini.event.events.impl.Render3DEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
 import geminiclient.gemini.utils.RenderUtils;
@@ -26,7 +27,7 @@ import org.jspecify.annotations.NonNull;
 
 public class ESP extends Module {
     private final ListValue modes = new ListValue("Modes","2D",new String[]{
-            "2D","3D"
+            "2D","3D","Glow"
     });
     private final BoolValue showPlayers = new BoolValue("Players", true);
     private final BoolValue showMobs = new BoolValue("Mobs", false);
@@ -43,7 +44,7 @@ public class ESP extends Module {
 
     @EventTarget
     public void onRender2D(Render2DEvent event) {
-        if (mc.level == null || mc.player == null)
+        if (mc.level == null || mc.player == null || !modes.is("2D"))
             return;
 
         Camera camera = mc.gameRenderer.mainCamera();
@@ -62,12 +63,40 @@ public class ESP extends Module {
             int outline = outlineColor.getColor();
             int t = Math.round(lineThickness.getValue());
 
-            if (modes.is("2D"))
-                draw2DBox(gui, minX, minY, maxX, maxY, t, fillColor, outline);
-            else {
-                RenderUtils.drawFilledBox(entity.getBoundingBox(),fillColor);
-            }
+            draw2DBox(gui, minX, minY, maxX, maxY, t, fillColor, outline);
         }
+    }
+
+    @EventTarget
+    public void onRender3D(Render3DEvent event) {
+        if (mc.level == null || mc.player == null || !modes.is("3D"))
+            return;
+
+        float partialTick = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+        int fill = boxColor.getColor();
+        // 全不透明的填充会挡住视野，压成半透明
+        if (((fill >>> 24) & 0xFF) >= 0xE0)
+            fill = (fill & 0x00FFFFFF) | 0x40000000;
+        int outline = outlineColor.getColor();
+        float width = lineThickness.getValue();
+
+        for (Entity entity : mc.level.entitiesForRendering()) {
+            if (!isValid(entity))
+                continue;
+
+            AABB box = interpolatedBox(entity, partialTick);
+            RenderUtils.drawFilledBox(box, fill);
+            RenderUtils.drawOutlineBox(box, outline, width);
+        }
+    }
+
+    /** 将实体碰撞盒平移到 partialTick 插值位置，与实体模型渲染对齐。 */
+    private AABB interpolatedBox(Entity entity, float partialTick) {
+        AABB bb = entity.getBoundingBox();
+        return bb.move(
+                Mth.lerp(partialTick, entity.xo, entity.getX()) - entity.getX(),
+                Mth.lerp(partialTick, entity.yo, entity.getY()) - entity.getY(),
+                Mth.lerp(partialTick, entity.zo, entity.getZ()) - entity.getZ());
     }
 
     /**
@@ -172,6 +201,14 @@ public class ESP extends Module {
         gui.fill(x1, y1, x1 + t, y2, outlineColor);
         // Right edge
         gui.fill(x2 - t, y1, x2, y2, outlineColor);
+    }
+
+    /**
+     * Glow 模式查询：供 {@link geminiclient.mixin.MixinMinecraft} 判断实体是否应呈现
+     * 原版发光轮廓。仅在 ESP 启用且模式为 Glow 时生效，并套用实体过滤。
+     */
+    public boolean shouldGlow(Entity entity) {
+        return enabled && modes.is("Glow") && isValid(entity);
     }
 
     private boolean isValid(Entity entity) {

@@ -103,46 +103,64 @@ public final class KillAuraSettings {
     public final FloatValue adrenalineBoost = new FloatValue("AdrenalineBoost", 0.12f, 0f, 0.5f,
             () -> noCoolDown.enabled);
 
-    // Target visuals
+    // Target visuals — Sorcery Array（魔导咒阵）
     public final BoolValue targetIndicator = new BoolValue("TargetIndicator", true);
-    public final ListValue indicatorStyle = new ListValue("IndicatorStyle", "Arcane Array",
-            new String[]{"Arcane Array", "Energy Helix", "Health Ring"},
+    public final ListValue theme = new ListValue("Theme", "Seraphic", new String[]{
+            "Seraphic", "Arcane", "Cyber", "Void", "Inferno", "Frost", "Prism",
+            "Custom", "Rainbow", "Health"
+    }, () -> targetIndicator.enabled);
+    public final ColorValue themePrimaryColor = new ColorValue("ThemePrimary", 0xFFFFD978,
+            () -> targetIndicator.enabled && theme.is("Custom"));
+    public final ColorValue themeSecondaryColor = new ColorValue("ThemeSecondary", 0xFFFF6FD8,
+            () -> targetIndicator.enabled && theme.is("Custom"));
+    public final ColorValue themeAccentColor = new ColorValue("ThemeAccent", 0xFFF8FCFF,
+            () -> targetIndicator.enabled && theme.is("Custom"));
+    public final FloatValue themeRainbowSpeed = new FloatValue("ThemeRainbowSpeed",
+            0.7f, 0.0f, 3.0f, () -> targetIndicator.enabled && theme.is("Rainbow"));
+    public final BoolValue groundSigilLayer = new BoolValue("Ground Sigil", true,
             () -> targetIndicator.enabled);
-    public final BoolValue orbitingOrbsEffect = new BoolValue("Comet Vortex", true);
-    public final BoolValue pulseSphereEffect = new BoolValue("Prismatic Cage");
-    public final BoolValue runeCrownEffect = new BoolValue("Rune Crown", true);
-    public final CheckboxValue targetEffects = new CheckboxValue("TargetEffects", new BoolValue[]{
-            orbitingOrbsEffect, pulseSphereEffect, runeCrownEffect
-    });
+    public final BoolValue auraRingLayer = new BoolValue("Aura Ring", true,
+            () -> targetIndicator.enabled);
+    public final BoolValue orbitCometsLayer = new BoolValue("Orbit Comets", true,
+            () -> targetIndicator.enabled);
+    public final BoolValue runeCrownLayer = new BoolValue("Rune Crown", false,
+            () -> targetIndicator.enabled);
+    public final BoolValue starMotesLayer = new BoolValue("Star Motes", false,
+            () -> targetIndicator.enabled);
+    public final BoolValue attackPulseLayer = new BoolValue("Attack Pulse", true,
+            () -> targetIndicator.enabled && groundSigilLayer.enabled);
+    public final BoolValue acquireFlashLayer = new BoolValue("Acquire Flash", true,
+            () -> targetIndicator.enabled);
+    public final CheckboxValue indicatorLayers = new CheckboxValue("IndicatorLayers",
+            new BoolValue[]{
+                    groundSigilLayer, auraRingLayer, orbitCometsLayer,
+                    runeCrownLayer, starMotesLayer, attackPulseLayer, acquireFlashLayer
+            });
     public final ListValue indicatorTargets = new ListValue("IndicatorTargets", "Current",
             new String[]{"Current", "All"});
-    public final ListValue indicatorColorMode = new ListValue("IndicatorColors", "Health",
-            new String[]{"Health", "Custom", "Rainbow"});
-    public final ColorValue indicatorPrimaryColor = new ColorValue("IndicatorPrimary", 0xFF64E8FF,
-            () -> indicatorColorMode.is("Custom"));
-    public final ColorValue indicatorSecondaryColor = new ColorValue("IndicatorSecondary", 0xFFC06CFF,
-            () -> indicatorColorMode.is("Custom"));
-    public final FloatValue indicatorRainbowSpeed = new FloatValue("IndicatorRainbowSpeed",
-            0.15f, 0.0f, 2.0f, () -> indicatorColorMode.is("Rainbow"));
-    public final IntValue indicatorParticleCount = new IntValue("IndicatorParticles", 24, 6, 64);
-    public final FloatValue indicatorRadius = new FloatValue("IndicatorRadius", 1.25f, 0.5f, 2.5f);
+    public final IntValue indicatorParticleCount = new IntValue("IndicatorParticles", 24, 6, 64,
+            () -> targetIndicator.enabled
+                    && (orbitCometsLayer.enabled || runeCrownLayer.enabled || starMotesLayer.enabled));
+    public final FloatValue indicatorRadius = new FloatValue("IndicatorRadius", 1.3f, 0.5f, 2.5f,
+            () -> targetIndicator.enabled);
     public final FloatValue indicatorParticleSize = new FloatValue("IndicatorParticleSize",
-            0.065f, 0.015f, 0.20f);
-    public final FloatValue indicatorOpacity = new FloatValue("IndicatorOpacity", 0.80f, 0.05f, 1.0f);
+            0.065f, 0.015f, 0.20f,
+            () -> targetIndicator.enabled
+                    && (orbitCometsLayer.enabled || runeCrownLayer.enabled || starMotesLayer.enabled));
+    public final FloatValue indicatorOpacity = new FloatValue("IndicatorOpacity", 0.85f, 0.05f, 1.0f,
+            () -> targetIndicator.enabled);
     public final FloatValue indicatorRotationSpeed = new FloatValue("IndicatorRotationSpeed",
-            0.35f, -2.5f, 2.5f);
-    public final FloatValue indicatorPulse = new FloatValue("IndicatorPulse", 0.16f, 0.0f, 1.0f);
+            0.5f, -2.5f, 2.5f, () -> targetIndicator.enabled);
+    public final FloatValue indicatorPulse = new FloatValue("IndicatorPulse", 0.35f, 0.0f, 1.0f,
+            () -> targetIndicator.enabled);
     public final FloatValue indicatorPulseSpeed = new FloatValue("IndicatorPulseSpeed",
-            1.4f, 0.0f, 5.0f);
-    public final FloatValue indicatorYOffset = new FloatValue("IndicatorYOffset", 0.0f, -0.5f, 1.0f);
-    public final FloatValue indicatorHelixHeight = new FloatValue("IndicatorHelixHeight",
-            1.0f, 0.2f, 1.5f,
-            () -> targetIndicator.enabled && indicatorStyle.is("Energy Helix"));
-    public final FloatValue indicatorHelixTurns = new FloatValue("IndicatorHelixTurns",
-            1.8f, 0.5f, 4.0f,
-            () -> targetIndicator.enabled && indicatorStyle.is("Energy Helix"));
-    public final BoolValue indicatorDoubleHelix = new BoolValue("IndicatorDoubleHelix",
-            true, () -> targetIndicator.enabled && indicatorStyle.is("Energy Helix"));
+            1.4f, 0.0f, 5.0f,
+            () -> targetIndicator.enabled
+                    && (orbitCometsLayer.enabled || runeCrownLayer.enabled));
+    public final FloatValue indicatorGlow = new FloatValue("IndicatorGlow", 1.45f, 0.0f, 3.0f,
+            () -> targetIndicator.enabled);
+    public final FloatValue indicatorYOffset = new FloatValue("IndicatorYOffset", 0.0f, -0.5f, 1.0f,
+            () -> targetIndicator.enabled);
 
     /** 按模块原先 addValue(...) 的注册顺序返回，保证 GUI/配置里的值顺序不变。 */
     public ValueParent[] allValues() {
@@ -160,13 +178,13 @@ public final class KillAuraSettings {
                 settleWobble, settleRange,
                 doubleClickChance, doubleClickGap, clickVariance,
                 pauseEvery, pauseLength, adrenalineRange, adrenalineBoost,
-                targetIndicator, indicatorStyle, targetEffects,
-                indicatorTargets, indicatorColorMode,
-                indicatorPrimaryColor, indicatorSecondaryColor, indicatorRainbowSpeed,
+                targetIndicator, theme,
+                themePrimaryColor, themeSecondaryColor, themeAccentColor, themeRainbowSpeed,
+                indicatorLayers,
+                indicatorTargets,
                 indicatorParticleCount, indicatorRadius, indicatorParticleSize,
                 indicatorOpacity, indicatorRotationSpeed, indicatorPulse,
-                indicatorPulseSpeed, indicatorYOffset,
-                indicatorHelixHeight, indicatorHelixTurns, indicatorDoubleHelix
+                indicatorPulseSpeed, indicatorGlow, indicatorYOffset
         };
     }
 }

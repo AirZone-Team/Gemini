@@ -80,9 +80,9 @@ public final class Md3Fonts {
      * upload the pending atlas pages. Repeat calls are cheap — loaded faces
      * and rasterised glyphs are cached.
      *
-     * <p>中文不在此预热：MSDF 生成约 17ms/字形，全量预热会让加载界面卡顿。
-     * 中文文字在首次绘制时惰性栅格化（缺失字形由 vanilla 字体兜底，不会
-     * 出现空白）。</p>
+     * <p>中文不在此预热：body/label/title 三个面的中文集合由
+     * {@code UiShaderWarmup} 的 {@code ui_font_warmup} 重载监听器在加载
+     * 界面统一预热。</p>
      */
     public static void warmup() {
         for (int which = 0; which <= 4; which++) {
@@ -91,10 +91,10 @@ public final class Md3Fonts {
                 continue;
             }
             for (int cp = 0x20; cp <= 0x7E; cp++) {
-                font.getGlyph(cp);
+                font.getGlyphBlocking(cp);
             }
             for (int i = 0; i < EXTRA_WARMUP_GLYPHS.length(); i++) {
-                font.getGlyph(EXTRA_WARMUP_GLYPHS.charAt(i));
+                font.getGlyphBlocking(EXTRA_WARMUP_GLYPHS.charAt(i));
             }
         }
     }

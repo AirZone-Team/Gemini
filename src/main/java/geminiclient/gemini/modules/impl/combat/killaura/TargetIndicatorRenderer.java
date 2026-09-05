@@ -1,330 +1,299 @@
 package geminiclient.gemini.modules.impl.combat.killaura;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import geminiclient.gemini.customRenderer.glsl.modules.JumpCircleRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.KillAuraIndicatorRenderer;
+import geminiclient.gemini.customRenderer.glsl.modules.KillAuraTargetRenderer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 
-import java.awt.Color;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
- * 目标指示粒子生成：把当前/全部目标渲染成 KillAuraIndicatorRenderer 的
- * 紧凑粒子数组（Arcane Array / Energy Helix / Health Ring + 三个环绕效果），
- * 并负责颜色模式（Health / Custom / Rainbow）与亮度波动的数学。
+ * 「Sorcery Array / 魔导咒阵」目标指示器图层生成。
+ *
+ * <p>旧的三套指示器样式与三个附加特效已被整体替换为一个签名特效，由六个
+ * 可开关图层组成：地面法阵与身后咒环（Slang 着色器绘制，经
+ * {@link KillAuraTargetRenderer} 批量提交）、环绕彗星 / 符文王冠 / 星屑
+ * （真 3D 粒子，走 {@link KillAuraIndicatorRenderer} 批量管线），以及攻击
+ * 脉冲与锁定闪光（着色器内驱动）。</p>
+ *
+ * <p>主题色板与 MagicHalo 同源：七主题（Seraphic / Arcane / Cyber / Void /
+ * Inferno / Frost / Prism）使用与 MagicHalo stylePalette 完全相同的色值，
+ * 使目标指示器与头顶光环风格统一；另有 Custom / Rainbow / Health 模式。
+ * 粒子层的 CPU 配色镜像自着色器内的 stylePalette。</p>
  */
 public final class TargetIndicatorRenderer {
+    private static final long ATTACK_PULSE_NANOS = 350_000_000L;
+    private static final long ACQUIRE_FLASH_NANOS = 450_000_000L;
+
+    /** 每主题 {primary, secondary, accent}，镜像 killaura_target.frag.slang 的 stylePalette。 */
+    private static final int[][] STYLE_PALETTES = {
+            {0xFFFFA82E, 0xFFFF47B3, 0xFFFFFAD1}, // 0 Seraphic
+            {0xFF8F45FF, 0xFF1FE0FF, 0xFFFFCC57}, // 1 Arcane
+            {0xFF14EBFF, 0xFFFF1FA3, 0xFFE0FFFF}, // 2 Cyber
+            {0xFF4F14C2, 0xFFF00A4D, 0xFFD1ADFF}, // 3 Void
+            {0xFFFF4704, 0xFFFFB80F, 0xFFFFF59E}, // 4 Inferno
+            {0xFF38B8FF, 0xFF8FF5FF, 0xFFF5FFFF}, // 5 Frost
+            {0xFFFF38AD, 0xFF2ED1FF, 0xFFFFE04D}, // 6 Prism
+    };
+
     private final KillAuraSettings settings;
 
     private long indicatorAnimationStartNanos;
+    private long lastAttackNanos;
+    private final Map<Integer, Long> acquireNanos = new HashMap<>();
 
     public TargetIndicatorRenderer(KillAuraSettings settings) {
         this.settings = settings;
     }
 
-    /** 归零动画时间（禁用时调用；首次渲染会自动初始化）。 */
+    /** 归零动画与命中状态（禁用时调用）。 */
     public void reset() {
         indicatorAnimationStartNanos = 0L;
+        lastAttackNanos = 0L;
+        acquireNanos.clear();
     }
 
-    /** 把 renderTargets 全部打包成粒子数组并交给渲染器绘制。 */
-    public void render(PoseStack poseStack, List<Entity> renderTargets, float partialTick) {
-        int particlesPerTarget = settings.indicatorParticleCount.getValue();
-        int effectsPerTarget = getEnabledTargetEffectCount();
-        if (effectsPerTarget == 0) return;
-        float[] particleData = new float[
-                renderTargets.size() * particlesPerTarget * effectsPerTarget
-                        * KillAuraIndicatorRenderer.PARTICLE_STRIDE];
-        float time = getIndicatorAnimationTime();
+    /** KillAura 命中目标时调用，驱动地面法阵的攻击脉冲。 */
+    public void onAttack() {
+        lastAttackNanos = System.nanoTime();
+    }
+
+    /** 把 renderTargets 全部转成着色器 quad 与粒子并绘制。 */
+    public void render(PoseStack poseStack, List<Entity> renderTargets,
+                       Entity currentTarget, float partialTick) {
+        float time = getAnimationTime();
+        long now = System.nanoTime();
+        ThemeSnapshot theme = resolveTheme();
+        float attackPulse = settings.attackPulseLayer.enabled
+                ? decay01(now - lastAttackNanos, ATTACK_PULSE_NANOS)
+                : 0f;
+
+        List<KillAuraTargetRenderer.TargetQuad> quads = new ArrayList<>();
+        int particleLayers = (settings.orbitCometsLayer.enabled ? 1 : 0)
+                + (settings.runeCrownLayer.enabled ? 1 : 0)
+                + (settings.starMotesLayer.enabled ? 1 : 0);
+        int perLayerBudget = particleLayers > 0
+                ? Math.max(4, settings.indicatorParticleCount.getValue() / particleLayers)
+                : 0;
+        float[] particleData = new float[Math.max(1,
+                renderTargets.size() * perLayerBudget * particleLayers
+                        * KillAuraIndicatorRenderer.PARTICLE_STRIDE)];
         int dataOffset = 0;
+        Set<Integer> trackedIds = new HashSet<>();
 
         for (Entity entity : renderTargets) {
             if (!(entity instanceof LivingEntity living) || !entity.isAlive()) continue;
 
-            Vec3 position = entity.getPosition(partialTick);
+            int entityId = entity.getId();
+            trackedIds.add(entityId);
+            long acquireStart = acquireNanos.computeIfAbsent(entityId, key -> now);
+            float acquire = settings.acquireFlashLayer.enabled
+                    ? decay01(now - acquireStart, ACQUIRE_FLASH_NANOS)
+                    : 0f;
             float health = living.getMaxHealth() <= 0f
                     ? 0f
                     : clamp01(living.getHealth() / living.getMaxHealth());
-            float radius = Math.max(0.05f, entity.getBbWidth() * settings.indicatorRadius.getValue());
-            float particleSize = Math.max(0.008f,
-                    entity.getBbWidth() * settings.indicatorParticleSize.getValue());
+            int seed = entityId * 37 & 0xFF;
+            int tint = entity == currentTarget || currentTarget == null
+                    ? 0xFFFFFFFF
+                    : 0xE6FFFFFF;
+
+            Vec3 position = entity.getPosition(partialTick);
+            float bbWidth = Math.max(0.3f, entity.getBbWidth());
+            float bbHeight = Math.max(0.5f, entity.getBbHeight());
             double baseY = position.y + settings.indicatorYOffset.getValue();
 
-            if (settings.targetIndicator.enabled) {
-                if (settings.indicatorStyle.is("Arcane Array")) {
-                    dataOffset = appendArcaneArray(
-                            particleData, dataOffset, particlesPerTarget,
-                            position.x, baseY, position.z,
-                            radius, particleSize, entity.getBbHeight(), health, time);
-                } else if (settings.indicatorStyle.is("Energy Helix")) {
-                    dataOffset = appendEnergyHelix(
-                            particleData, dataOffset, particlesPerTarget,
-                            position.x, baseY, position.z,
-                            radius, particleSize, entity.getBbHeight(), health, time);
-                } else {
-                    dataOffset = appendHealthRing(
-                            particleData, dataOffset, particlesPerTarget,
-                            position.x, baseY, position.z,
-                            radius, particleSize, health, time);
-                }
+            if (settings.groundSigilLayer.enabled) {
+                double groundY = JumpCircleRenderer.findGroundY(
+                        position.x, position.y, position.z)
+                        + settings.indicatorYOffset.getValue() + 0.02;
+                float sigilHalf = Math.max(0.35f,
+                        bbWidth * settings.indicatorRadius.getValue() * 1.55f);
+                quads.add(new KillAuraTargetRenderer.TargetQuad(
+                        position.x, groundY, position.z, sigilHalf,
+                        KillAuraTargetRenderer.MATERIAL_SIGIL, tint,
+                        health, acquire, seed));
             }
-            if (settings.orbitingOrbsEffect.enabled) {
-                dataOffset = appendOrbitingOrbs(
-                        particleData, dataOffset, particlesPerTarget,
-                        position.x, baseY, position.z,
-                        radius, particleSize, entity.getBbHeight(), health, time);
+            if (settings.auraRingLayer.enabled) {
+                float ringHalf = bbHeight * 0.85f;
+                quads.add(new KillAuraTargetRenderer.TargetQuad(
+                        position.x, baseY + bbHeight * 0.55, position.z, ringHalf,
+                        KillAuraTargetRenderer.MATERIAL_RING, tint,
+                        health, acquire, seed));
             }
-            if (settings.pulseSphereEffect.enabled) {
-                dataOffset = appendPulseSphere(
-                        particleData, dataOffset, particlesPerTarget,
-                        position.x, baseY, position.z,
-                        radius, particleSize, entity.getBbHeight(), health, time);
+
+            float radius = Math.max(0.05f, bbWidth * settings.indicatorRadius.getValue());
+            float particleSize = Math.max(0.008f,
+                    bbWidth * settings.indicatorParticleSize.getValue());
+
+            if (settings.orbitCometsLayer.enabled) {
+                dataOffset = appendOrbitComets(particleData, dataOffset, perLayerBudget,
+                        position, baseY, radius, particleSize, bbHeight,
+                        theme, health, time);
             }
-            if (settings.runeCrownEffect.enabled) {
-                dataOffset = appendRuneCrown(
-                        particleData, dataOffset, particlesPerTarget,
-                        position.x, baseY, position.z,
-                        radius, particleSize, entity.getBbHeight(), health, time);
+            if (settings.runeCrownLayer.enabled) {
+                dataOffset = appendRuneCrown(particleData, dataOffset, perLayerBudget,
+                        position, baseY, radius, particleSize, bbHeight,
+                        theme, health, time);
+            }
+            if (settings.starMotesLayer.enabled) {
+                dataOffset = appendStarMotes(particleData, dataOffset, perLayerBudget,
+                        position, baseY, radius, particleSize, bbHeight,
+                        theme, health, time, entityId);
             }
         }
 
+        acquireNanos.keySet().removeIf(id -> !trackedIds.contains(id));
+
+        if (!quads.isEmpty()) {
+            KillAuraTargetRenderer.draw(poseStack, quads,
+                    new KillAuraTargetRenderer.Uniforms(
+                            time,
+                            theme.styleId(),
+                            theme.colorMode(),
+                            attackPulse,
+                            theme.primary(),
+                            theme.secondary(),
+                            theme.accent(),
+                            settings.indicatorOpacity.getValue(),
+                            theme.rainbowSpeed(),
+                            settings.indicatorGlow.getValue(),
+                            settings.indicatorRotationSpeed.getValue(),
+                            settings.indicatorPulse.getValue(),
+                            0.18f,
+                            0.78f));
+        }
         int particleCount = dataOffset / KillAuraIndicatorRenderer.PARTICLE_STRIDE;
         if (particleCount > 0) {
-            KillAuraIndicatorRenderer.drawIndicators(
-                    poseStack, particleData, particleCount);
+            KillAuraIndicatorRenderer.drawIndicators(poseStack, particleData, particleCount);
         }
     }
 
-    private int getEnabledTargetEffectCount() {
-        int count = settings.targetIndicator.enabled ? 1 : 0;
-        if (settings.orbitingOrbsEffect.enabled) count++;
-        if (settings.pulseSphereEffect.enabled) count++;
-        if (settings.runeCrownEffect.enabled) count++;
-        return count;
-    }
+    // ------------------------------------------------------------------
+    // Particle layers
+    // ------------------------------------------------------------------
 
-    private int appendHealthRing(float[] data, int offset, int count,
-                                 double centerX, double centerY, double centerZ,
-                                 float radius, float particleSize,
-                                 float health, float time) {
+    /**
+     * 两条 ±26° 倾斜的椭圆轨道绕身体中段运行，反向旋转；每颗彗星带两节
+     * 渐隐拖尾，走真 3D 位置以保留视差。
+     */
+    private int appendOrbitComets(float[] data, int offset, int count,
+                                  Vec3 position, double baseY, float radius,
+                                  float particleSize, float entityHeight,
+                                  ThemeSnapshot theme, float health, float time) {
+        int orbitCount = 2;
+        // 每颗彗星占 头部+两节拖尾 三个槽位，严格不超出预算。
+        int cometCount = Math.max(1, count / (orbitCount * 3));
+        int emitted = 0;
         double rotation = time * settings.indicatorRotationSpeed.getValue() * Math.PI * 2.0;
-        for (int i = 0; i < count; i++) {
-            float progress = i / (float) count;
-            double wave = Math.sin(
-                    time * settings.indicatorPulseSpeed.getValue() * Math.PI * 2.0
-                            + progress * Math.PI * 2.0);
-            float pulse = 1f + settings.indicatorPulse.getValue() * (float) wave;
-            double angle = progress * Math.PI * 2.0 - Math.PI / 2.0 + rotation;
-            float animatedRadius = radius
-                    * (1f + settings.indicatorPulse.getValue() * 0.10f * (float) wave);
-            int color = getIndicatorColor(i, count, progress, health, time);
+        double middleY = baseY + entityHeight * 0.52;
 
-            offset = appendParticle(
-                    data, offset,
-                    centerX + Math.cos(angle) * animatedRadius,
-                    centerY,
-                    centerZ + Math.sin(angle) * animatedRadius,
-                    particleSize * Math.max(0.15f, pulse),
-                    color,
-                    KillAuraIndicatorRenderer.MATERIAL_ORB,
-                    (float) -angle);
+        for (int orbit = 0; orbit < orbitCount; orbit++) {
+            double direction = orbit == 0 ? 1.0 : -0.85;
+            double tilt = Math.toRadians(orbit == 0 ? 26.0 : -26.0);
+            double orbitRadius = radius * (orbit == 0 ? 1.05 : 0.88);
+            for (int comet = 0; comet < cometCount && emitted + 3 <= count; comet++) {
+                float progress = (comet + orbit * 0.5f) / cometCount;
+                double angle = progress * Math.PI * 2.0 + rotation * direction
+                        + orbit * Math.PI;
+                double pulseWave = Math.sin(
+                        time * settings.indicatorPulseSpeed.getValue() * Math.PI * 2.0
+                                + progress * Math.PI * 2.0 + orbit);
+                int color = particleColor(theme, progress, health, time);
+
+                for (int trail = 0; trail < 3; trail++, emitted++) {
+                    double trailAngle = angle - trail * 0.26 * direction;
+                    double localX = Math.cos(trailAngle) * orbitRadius;
+                    double localZ = Math.sin(trailAngle) * orbitRadius;
+                    double trailAlpha = trail == 0 ? 1.0 : 1.0 - trail * 0.38;
+                    float size = trail == 0
+                            ? particleSize * (1.45f + settings.indicatorPulse.getValue()
+                                    * 0.5f * (float) pulseWave)
+                            : particleSize * (1.05f - trail * 0.25f);
+
+                    offset = appendParticle(
+                            data, offset,
+                            position.x + localX,
+                            middleY + localZ * Math.sin(tilt),
+                            position.z + localZ * Math.cos(tilt),
+                            Math.max(particleSize * 0.2f, size),
+                            color,
+                            trail == 0
+                                    ? KillAuraIndicatorRenderer.MATERIAL_SPARK
+                                    : KillAuraIndicatorRenderer.MATERIAL_ORB,
+                            (float) (-trailAngle + Math.PI * 0.5),
+                            (float) trailAlpha);
+                }
+            }
         }
         return offset;
     }
 
-    private int appendArcaneArray(float[] data, int offset, int count,
-                                  double centerX, double centerY, double centerZ,
-                                  float radius, float particleSize, float entityHeight,
-                                  float health, float time) {
-        double rotation = time * settings.indicatorRotationSpeed.getValue() * Math.PI * 1.2;
-        double pulse = Math.sin(time * settings.indicatorPulseSpeed.getValue() * Math.PI * 2.0);
+    /** 头顶悬浮的符文光环：缓慢公转 + 上下浮动 + 逐符文脉冲。 */
+    private int appendRuneCrown(float[] data, int offset, int count,
+                                Vec3 position, double baseY, float radius,
+                                float particleSize, float entityHeight,
+                                ThemeSnapshot theme, float health, float time) {
+        int runeCount = Math.max(4, Math.min(10, count));
+        double rotation = time * settings.indicatorRotationSpeed.getValue() * Math.PI * 1.4;
+        double crownY = baseY + entityHeight + radius * 0.24;
 
-        // The ground sigil is the centerpiece of this style.
-        if (count > 0) {
-            offset = appendParticle(
-                    data, offset, centerX, centerY + 0.025, centerZ,
-                    radius * (1.58f + settings.indicatorPulse.getValue() * 0.04f * (float) pulse),
-                    getIndicatorColor(0, count, 0f, health, time),
-                    KillAuraIndicatorRenderer.MATERIAL_SIGIL,
-                    (float) rotation);
-        }
-
-        // A single slow ring of crystals hovering at ankle height. One glyph
-        // type and one hue keep the array composed instead of noisy.
-        int glyphCount = Math.max(1, count - 1);
-        for (int i = 1; i < count; i++) {
-            float progress = (i - 1) / (float) glyphCount;
-            double angle = progress * Math.PI * 2.0 - rotation * 0.6;
+        for (int i = 0; i < runeCount; i++) {
+            float progress = i / (float) runeCount;
+            double angle = progress * Math.PI * 2.0 + rotation;
             double bob = Math.sin(progress * Math.PI * 4.0
                     + time * settings.indicatorPulseSpeed.getValue() * Math.PI * 2.0)
-                    * radius * 0.05;
-            double glyphRadius = radius * 1.02f;
-            float size = particleSize * 1.15f
-                    * (1f + settings.indicatorPulse.getValue() * 0.20f * (float) pulse);
+                    * radius * 0.06;
+            float pulse = 1f + settings.indicatorPulse.getValue() * 0.35f
+                    * (float) Math.sin(time * Math.PI * 2.0 * 1.6 + progress * Math.PI * 2.0);
 
             offset = appendParticle(
                     data, offset,
-                    centerX + Math.cos(angle) * glyphRadius,
-                    centerY + entityHeight * 0.10 + bob,
-                    centerZ + Math.sin(angle) * glyphRadius,
-                    Math.max(particleSize * 0.35f, size),
-                    getIndicatorColor(i, count, progress, health, time),
-                    KillAuraIndicatorRenderer.MATERIAL_DIAMOND,
-                    (float) -angle);
+                    position.x + Math.cos(angle) * radius * 0.82,
+                    crownY + bob,
+                    position.z + Math.sin(angle) * radius * 0.82,
+                    Math.max(particleSize * 0.3f, particleSize * 1.15f * pulse),
+                    particleColor(theme, progress, health, time),
+                    KillAuraIndicatorRenderer.MATERIAL_RUNE,
+                    (float) (-angle + Math.PI * 0.5),
+                    1f);
         }
         return offset;
     }
 
-    private int appendEnergyHelix(float[] data, int offset, int count,
-                                  double centerX, double centerY, double centerZ,
-                                  float radius, float particleSize, float entityHeight,
-                                  float health, float time) {
-        int strands = settings.indicatorDoubleHelix.enabled ? 2 : 1;
-        int pointsPerStrand = (count + strands - 1) / strands;
-        double rotation = time * settings.indicatorRotationSpeed.getValue() * Math.PI * 2.0;
-        float helixHeight = entityHeight * settings.indicatorHelixHeight.getValue();
-
+    /** 星屑：贴着身体的圆柱壳内闪烁上飘的四芒星，点缀色染色。 */
+    private int appendStarMotes(float[] data, int offset, int count,
+                                Vec3 position, double baseY, float radius,
+                                float particleSize, float entityHeight,
+                                ThemeSnapshot theme, float health, float time,
+                                int entityId) {
         for (int i = 0; i < count; i++) {
-            int strand = i % strands;
-            int step = i / strands;
-            float progress = step / (float) Math.max(1, pointsPerStrand - 1);
-            double pulseWave = Math.sin(
-                    time * settings.indicatorPulseSpeed.getValue() * Math.PI * 2.0
-                            + progress * Math.PI * 4.0
-                            + strand * Math.PI);
-            double angle = progress * settings.indicatorHelixTurns.getValue() * Math.PI * 2.0
-                    + strand * Math.PI * 2.0 / strands
-                    + rotation;
-            float animatedRadius = radius
-                    * (1f + settings.indicatorPulse.getValue() * 0.16f * (float) pulseWave);
-            float animatedSize = particleSize
-                    * (1f + settings.indicatorPulse.getValue() * 0.60f * (float) pulseWave);
-            float colorProgress = (progress + strand / (float) strands) % 1f;
-            int color = getIndicatorColor(i, count, colorProgress, health, time);
+            float seed = frac((entityId * 31 + i * 137) * 0.6180339887f);
+            double angle = seed * Math.PI * 2.0
+                    + time * 0.18 * (seed > 0.5 ? 1.0 : -1.0);
+            double moteRadius = radius * (0.55 + 0.45 * frac(seed * 7.31f));
+            float cycle = frac(time * 0.14f + seed);
+            float twinkle = 0.35f + 0.65f * (0.5f + 0.5f
+                    * (float) Math.sin(time * (2.0 + seed * 3.0) + seed * 40.0));
 
             offset = appendParticle(
                     data, offset,
-                    centerX + Math.cos(angle) * animatedRadius,
-                    centerY + progress * helixHeight,
-                    centerZ + Math.sin(angle) * animatedRadius,
-                    Math.max(particleSize * 0.15f, animatedSize),
-                    color,
-                    KillAuraIndicatorRenderer.MATERIAL_ORB,
-                    (float) (-angle + strand * Math.PI * 0.5));
-        }
-        return offset;
-    }
-
-    private int appendOrbitingOrbs(float[] data, int offset, int count,
-                                   double centerX, double centerY, double centerZ,
-                                   float radius, float particleSize, float entityHeight,
-                                   float health, float time) {
-        int orbitCount = 3;
-        double rotation = time * settings.indicatorRotationSpeed.getValue() * Math.PI * 2.0;
-        double middleY = centerY + entityHeight * 0.52;
-
-        for (int i = 0; i < count; i++) {
-            int orbit = i % orbitCount;
-            int step = i / orbitCount;
-            int pointsInOrbit = (count + orbitCount - 1 - orbit) / orbitCount;
-            float progress = step / (float) Math.max(1, pointsInOrbit);
-            double angle = progress * Math.PI * 2.0
-                    + rotation * (orbit == 1 ? -1.15 : 1.0)
-                    + orbit * Math.PI * 2.0 / orbitCount;
-            double tilt = Math.toRadians(28.0 + orbit * 26.0);
-            double orbitRadius = radius * (0.82 + orbit * 0.13);
-            double localX = Math.cos(angle) * orbitRadius;
-            double localZ = Math.sin(angle) * orbitRadius;
-            double rotatedY = localZ * Math.sin(tilt);
-            double rotatedZ = localZ * Math.cos(tilt);
-            double pulseWave = Math.sin(
-                    time * settings.indicatorPulseSpeed.getValue() * Math.PI * 2.0
-                            + progress * Math.PI * 2.0 + orbit);
-            float size = particleSize * (1.0f + settings.indicatorPulse.getValue()
-                    * 0.75f * (float) pulseWave);
-            int color = getIndicatorColor(i, count,
-                    (progress + orbit / (float) orbitCount) % 1f, health, time);
-
-            offset = appendParticle(
-                    data, offset,
-                    centerX + localX,
-                    middleY + rotatedY,
-                    centerZ + rotatedZ,
-                    Math.max(particleSize * 0.22f, size),
-                    color,
-                    KillAuraIndicatorRenderer.MATERIAL_ORB,
-                    (float) (-angle + orbit * Math.PI / 3.0));
-        }
-        return offset;
-    }
-
-    private int appendPulseSphere(float[] data, int offset, int count,
-                                  double centerX, double centerY, double centerZ,
-                                  float radius, float particleSize, float entityHeight,
-                                  float health, float time) {
-        double rotation = time * settings.indicatorRotationSpeed.getValue() * Math.PI * 1.25;
-        double pulseWave = Math.sin(
-                time * settings.indicatorPulseSpeed.getValue() * Math.PI * 2.0);
-        double sphereRadius = radius
-                * (1.02 + settings.indicatorPulse.getValue() * 0.18 * pulseWave);
-        double middleY = centerY + entityHeight * 0.5;
-        double goldenAngle = Math.PI * (3.0 - Math.sqrt(5.0));
-
-        for (int i = 0; i < count; i++) {
-            float progress = (i + 0.5f) / count;
-            double sphereY = 1.0 - progress * 2.0;
-            double horizontalRadius = Math.sqrt(Math.max(0.0, 1.0 - sphereY * sphereY));
-            double angle = i * goldenAngle + rotation;
-            double x = Math.cos(angle) * horizontalRadius;
-            double z = Math.sin(angle) * horizontalRadius;
-            float sizePulse = 1.0f + settings.indicatorPulse.getValue() * 0.55f
-                    * (float) Math.sin(angle + time * Math.PI * 2.0);
-            int color = getIndicatorColor(i, count, progress, health, time);
-
-            offset = appendParticle(
-                    data, offset,
-                    centerX + x * sphereRadius,
-                    middleY + sphereY * entityHeight * 0.58,
-                    centerZ + z * sphereRadius,
-                    Math.max(particleSize * 0.20f, particleSize * sizePulse),
-                    color,
-                    KillAuraIndicatorRenderer.MATERIAL_DIAMOND,
-                    (float) (-angle + rotation * 0.35));
-        }
-        return offset;
-    }
-
-    private int appendRuneCrown(float[] data, int offset, int count,
-                                double centerX, double centerY, double centerZ,
-                                float radius, float particleSize, float entityHeight,
-                                float health, float time) {
-        double rotation = time * settings.indicatorRotationSpeed.getValue() * Math.PI * 1.35;
-        double crownY = centerY + entityHeight + radius * 0.28;
-        int teeth = 6;
-
-        for (int i = 0; i < count; i++) {
-            float progress = i / (float) count;
-            double angle = progress * Math.PI * 2.0 + rotation;
-            double toothWave = Math.pow(Math.abs(Math.sin(angle * teeth * 0.5)), 3.0);
-            double pulseWave = Math.sin(
-                    time * settings.indicatorPulseSpeed.getValue() * Math.PI * 2.0
-                            + progress * Math.PI * 4.0);
-            double crownRadius = radius * (0.66 + toothWave * 0.20);
-            double y = crownY + radius * (0.05 + toothWave * 0.42)
-                    + pulseWave * radius * settings.indicatorPulse.getValue() * 0.05;
-            float size = particleSize * (float) (0.78 + toothWave * 0.75);
-            int color = getIndicatorColor(i, count, progress, health, time);
-
-            offset = appendParticle(
-                    data, offset,
-                    centerX + Math.cos(angle) * crownRadius,
-                    y,
-                    centerZ + Math.sin(angle) * crownRadius,
-                    Math.max(particleSize * 0.20f, size),
-                    color,
-                    KillAuraIndicatorRenderer.MATERIAL_DIAMOND,
-                    (float) (-angle + Math.PI * 0.5));
+                    position.x + Math.cos(angle) * moteRadius,
+                    baseY + entityHeight * 0.05 + cycle * entityHeight * 1.15,
+                    position.z + Math.sin(angle) * moteRadius,
+                    Math.max(particleSize * 0.25f, particleSize * (0.7f + seed * 0.6f)),
+                    theme.accent(),
+                    KillAuraIndicatorRenderer.MATERIAL_STAR,
+                    seed * (float) Math.PI * 2.0f + time * 0.35f,
+                    twinkle * (1.0f - cycle * 0.45f));
         }
         return offset;
     }
@@ -332,7 +301,7 @@ public final class TargetIndicatorRenderer {
     private int appendParticle(float[] data, int offset,
                                double x, double y, double z,
                                float halfSize, int argb,
-                               int material, float rotation) {
+                               int material, float rotation, float layerAlpha) {
         data[offset] = (float) x;
         data[offset + 1] = (float) y;
         data[offset + 2] = (float) z;
@@ -340,57 +309,96 @@ public final class TargetIndicatorRenderer {
         data[offset + 4] = ((argb >> 16) & 0xFF) / 255f;
         data[offset + 5] = ((argb >> 8) & 0xFF) / 255f;
         data[offset + 6] = (argb & 0xFF) / 255f;
-        data[offset + 7] = ((argb >>> 24) & 0xFF) / 255f
+        data[offset + 7] = clamp01(((argb >>> 24) & 0xFF) / 255f * layerAlpha)
                 * settings.indicatorOpacity.getValue();
         data[offset + 8] = material;
         data[offset + 9] = rotation;
         return offset + KillAuraIndicatorRenderer.PARTICLE_STRIDE;
     }
 
-    private int getIndicatorColor(int index, int count, float progress,
-                                  float health, float time) {
-        // One coherent hue per target; only brightness travels across the
-        // particles, so the effect reads as a single flowing ribbon of light
-        // instead of scattered confetti.
+    // ------------------------------------------------------------------
+    // Theming
+    // ------------------------------------------------------------------
+
+    private record ThemeSnapshot(int styleId, int colorMode, int primary,
+                                 int secondary, int accent, float rainbowSpeed) {}
+
+    /**
+     * 解析主题：七主题取内置色板（与 MagicHalo 的 stylePalette 同源同值）；
+     * Custom / Rainbow / Health 就地解析。
+     */
+    private ThemeSnapshot resolveTheme() {
+        // 与 MagicHalo 模块的 Style 列表同序：Seraphic=0 … Prism=6。
+        String[] names = {"Seraphic", "Arcane", "Cyber", "Void", "Inferno", "Frost", "Prism"};
+        for (int i = 0; i < names.length; i++) {
+            if (settings.theme.is(names[i])) {
+                int[] palette = STYLE_PALETTES[i];
+                return new ThemeSnapshot(i, 0, palette[0], palette[1], palette[2], 0.7f);
+            }
+        }
+        if (settings.theme.is("Custom")) {
+            return new ThemeSnapshot(0, 1,
+                    settings.themePrimaryColor.getColor(),
+                    settings.themeSecondaryColor.getColor(),
+                    settings.themeAccentColor.getColor(), 0.7f);
+        }
+        if (settings.theme.is("Rainbow")) {
+            return new ThemeSnapshot(0, 2,
+                    0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
+                    settings.themeRainbowSpeed.getValue());
+        }
+        // Health
+        return new ThemeSnapshot(0, 3, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0.7f);
+    }
+
+    /** 粒子 CPU 配色：Style/Custom 主次色 shimmer，Rainbow 光谱，Health 血量色。 */
+    private int particleColor(ThemeSnapshot theme, float progress,
+                              float health, float time) {
         float wave = 0.5f + 0.5f * (float) Math.cos(
                 progress * Math.PI * 2.0
                         - time * settings.indicatorPulseSpeed.getValue() * Math.PI);
-        float brightness = 0.74f + 0.30f * wave * wave;
+        float brightness = 0.78f + 0.28f * wave * wave;
 
         int base;
-        if (settings.indicatorColorMode.is("Custom")) {
-            // Mostly the primary tone; the secondary only shimmers through at
-            // the crest of the brightness wave.
-            float shimmer = smoothstep(0.80f, 1.0f, wave) * 0.7f;
-            base = lerpColor(
-                    settings.indicatorPrimaryColor.getColor(),
-                    settings.indicatorSecondaryColor.getColor(),
-                    shimmer);
-        } else if (settings.indicatorColorMode.is("Rainbow")) {
-            // The whole indicator drifts slowly through soft hues as one.
-            float hue = (time * settings.indicatorRainbowSpeed.getValue()) % 1f;
-            if (hue < 0f) hue += 1f;
-            base = 0xFF000000 | (Color.HSBtoRGB(hue, 0.55f, 1.0f) & 0xFFFFFF);
-        } else {
+        if (theme.colorMode() == 2) {
+            float phase = progress + time * theme.rainbowSpeed() * 0.16f;
+            base = spectralColor(phase);
+        } else if (theme.colorMode() == 3) {
             base = health >= 0.5f
                     ? lerpColor(0xFFFFD60A, 0xFF34E34F, (health - 0.5f) * 2f)
                     : lerpColor(0xFFFF453A, 0xFFFFD60A, health * 2f);
+        } else {
+            // Style 与 Custom 共用主→次 shimmer。
+            float shimmer = smoothstep(0.80f, 1.0f, wave) * 0.7f;
+            base = lerpColor(theme.primary(), theme.secondary(), shimmer);
         }
         return scaleBrightness(base, brightness);
     }
 
-    private static int scaleBrightness(int argb, float factor) {
-        int r = Math.min(255, Math.round(((argb >> 16) & 0xFF) * factor));
-        int g = Math.min(255, Math.round(((argb >> 8) & 0xFF) * factor));
-        int b = Math.min(255, Math.round((argb & 0xFF) * factor));
-        return (argb & 0xFF000000) | (r << 16) | (g << 8) | b;
+    private static int spectralColor(float phase) {
+        int r = Math.round((0.58f + 0.42f * (float) Math.cos(Math.PI * 2.0 * phase)) * 255f);
+        int g = Math.round((0.58f + 0.42f * (float) Math.cos(Math.PI * 2.0 * (phase + 0.33f))) * 255f);
+        int b = Math.round((0.58f + 0.42f * (float) Math.cos(Math.PI * 2.0 * (phase + 0.67f))) * 255f);
+        return 0xFF000000
+                | (Math.max(0, Math.min(255, r)) << 16)
+                | (Math.max(0, Math.min(255, g)) << 8)
+                | Math.max(0, Math.min(255, b));
     }
 
-    private float getIndicatorAnimationTime() {
+    // ------------------------------------------------------------------
+    // Misc helpers
+    // ------------------------------------------------------------------
+
+    private float getAnimationTime() {
         if (indicatorAnimationStartNanos == 0L) {
             indicatorAnimationStartNanos = System.nanoTime();
         }
         return (System.nanoTime() - indicatorAnimationStartNanos) / 1_000_000_000f;
+    }
+
+    private static float decay01(long elapsedNanos, long durationNanos) {
+        if (elapsedNanos < 0L || elapsedNanos >= durationNanos) return 0f;
+        return 1f - elapsedNanos / (float) durationNanos;
     }
 
     private static float smoothstep(float edge0, float edge1, float value) {
@@ -402,16 +410,25 @@ public final class TargetIndicatorRenderer {
         return Math.max(0f, Math.min(1f, value));
     }
 
+    private static float frac(float value) {
+        return value - (float) Math.floor(value);
+    }
+
+    private static int scaleBrightness(int argb, float factor) {
+        int r = Math.min(255, Math.round(((argb >> 16) & 0xFF) * factor));
+        int g = Math.min(255, Math.round(((argb >> 8) & 0xFF) * factor));
+        int b = Math.min(255, Math.round((argb & 0xFF) * factor));
+        return (argb & 0xFF000000) | (r << 16) | (g << 8) | b;
+    }
+
     private static int lerpColor(int from, int to, float amount) {
         float t = clamp01(amount);
-        int a = Math.round(((from >>> 24) & 0xFF)
-                + (((to >>> 24) & 0xFF) - ((from >>> 24) & 0xFF)) * t);
         int r = Math.round(((from >> 16) & 0xFF)
                 + (((to >> 16) & 0xFF) - ((from >> 16) & 0xFF)) * t);
         int g = Math.round(((from >> 8) & 0xFF)
                 + (((to >> 8) & 0xFF) - ((from >> 8) & 0xFF)) * t);
         int b = Math.round((from & 0xFF)
                 + ((to & 0xFF) - (from & 0xFF)) * t);
-        return (a << 24) | (r << 16) | (g << 8) | b;
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 }

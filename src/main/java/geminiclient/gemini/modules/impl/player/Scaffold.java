@@ -71,7 +71,7 @@ public class Scaffold extends Module {
     private final FloatValue rotationBackSpeed = new FloatValue("RotationBackSpeed", 10f, 0f, 360f,
             () -> mode.is("TellyBridge"));
     private final BoolValue rotationVariation = new BoolValue("RotationVariation", false);
-    private final BoolValue sideCheck = new BoolValue("SideCheck", false);
+    private final BoolValue rayCheck = new BoolValue("RayCheck", false);
     private final BoolValue safeWalk = new BoolValue("SafeWalk", true);
 
     // ---- Optional quality-of-life features (disabled by default) ----
@@ -109,7 +109,7 @@ public class Scaffold extends Module {
         hudX = 6;
         hudY = 248;
         addValue(mode, swapMode, swapBack, swingHand, tellyTick, keepY,
-                rotationSpeed, rotationBackSpeed, rotationVariation, sideCheck, safeWalk,
+                rotationSpeed, rotationBackSpeed, rotationVariation, rayCheck, safeWalk,
                 blockCounter, countScope, lowBlockThreshold, counterShadow,
                 autoDisableEmpty);
     }
@@ -450,7 +450,12 @@ public class Scaffold extends Module {
                 new Rotation(Gemini.rotationManager.getYaw(), Gemini.rotationManager.getPitch()), pos, dir);
     }
 
-    private boolean isFacingBlockWithRotation(Rotation rot, BlockPos pos, Direction dir) {
+    /**
+     * 射线检测：从眼睛沿给定旋转视角发 4.5 格射线，必须命中支撑方块
+     * （硬性条件，防无视线放置）；开启 RayCheck 后还要求命中面是支撑
+     * 方块朝着目标放置位置的那一面，否则不允许放置。
+     */
+    private boolean isFacingBlockWithRotation(Rotation rot, BlockPos supportPos, Direction faceDir) {
         Vec3 eyePos = mc.player.getEyePosition();
         Vec3 lookVec = Vec3.directionFromRotation(rot.getPitch(), rot.getYaw());
         Vec3 endVec = eyePos.add(lookVec.scale(4.5));
@@ -461,9 +466,9 @@ public class Scaffold extends Module {
 
         if (result.getType() == HitResult.Type.MISS) return false;
 
-        if (!result.getBlockPos().equals(pos)) return false;
+        if (!result.getBlockPos().equals(supportPos)) return false;
 
-        return !sideCheck.enabled || result.getDirection() == dir;
+        return !rayCheck.enabled || result.getDirection() == faceDir;
     }
 
     // ========================================================================

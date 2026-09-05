@@ -6,12 +6,9 @@ import geminiclient.gemini.base.FileSystem;
 import geminiclient.gemini.commands.CommandManager;
 import geminiclient.gemini.base.KeyBindHandler;
 import geminiclient.gemini.modules.ModuleManager;
-import geminiclient.gemini.modules.impl.visual.Arraylists;
 import geminiclient.gemini.modules.HudDragManager;
 import geminiclient.gemini.modules.impl.visual.notice.NotificationManager;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.logging.Logger;
 
 public class Gemini {
@@ -38,20 +35,6 @@ public class Gemini {
         fileSystem = new FileSystem(moduleManager);
         hudDragManager = new HudDragManager();
         eventManager.register(hudDragManager);
-
-        // Sync available TTF fonts into Arraylists' Font ListValue before config load
-        // ("MiSans" is the bundled face — always keep it listed and first)
-        List<String> ttfFonts = fileSystem.scanTtfFonts();
-        Arraylists arraylists = moduleManager.getModule(Arraylists.class);
-        if (arraylists != null) {
-            List<String> options = new ArrayList<>();
-            options.add("MiSans");
-            if (!ttfFonts.isEmpty()) {
-                options.add("Default");
-                options.addAll(ttfFonts);
-            }
-            arraylists.ttfFont.setList(options);
-        }
 
         fileSystem.loadConfigName();
         fileSystem.loadConfig();

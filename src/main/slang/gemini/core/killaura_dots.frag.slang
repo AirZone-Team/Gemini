@@ -114,6 +114,16 @@ void main() {
         glow = exp(-abs(radius - 0.78) * 12.0) * 0.24
             + exp(-abs(radius - 0.48) * 9.0) * 0.16;
         whiteHot = center * 0.60 + rings * 0.12;
+    } else if (material == 7) {
+        // Four-point star mote for the Sorcery Array starfield layer.
+        if (radius > 1.0) discard;
+        float star = exp(-abs(p.x) * 16.0) * exp(-abs(p.y) * 3.4)
+                   + exp(-abs(p.y) * 16.0) * exp(-abs(p.x) * 3.4);
+        float nucleus = fillMask(radius - 0.22);
+        float rays = smoothstep(0.30, 0.02, radius) * 1.2;
+        core = max(nucleus, star * 0.78);
+        glow = exp(-radius * 3.2) * 0.34 + star * 0.18;
+        whiteHot = nucleus * 0.45 + rays * 0.35;
     } else {
         // Watcher eye used at the heart of the Arcane Array.
         float lensDistance = abs(p.y) - (0.38 - p.x * p.x * 0.34);

@@ -4,6 +4,7 @@ import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.shaders.ShaderType;
 import geminiclient.gemini.customRenderer.glsl.modules.JumpCircleRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.KillAuraIndicatorRenderer;
+import geminiclient.gemini.customRenderer.glsl.modules.KillAuraTargetRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectPostProcessor;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.MagicHaloRenderer;
@@ -72,6 +73,7 @@ public final class CustomRendererRegistry {
         CustomBlurRenderer.registerPipeline(registry);
         JumpCircleRenderer.registerPipeline(registry);
         KillAuraIndicatorRenderer.registerPipeline(registry);
+        KillAuraTargetRenderer.registerPipeline(registry);
         KillEffectRenderer.registerPipeline(registry);
         KillEffectPostProcessor.registerPipeline(registry);
         MagicHaloRenderer.registerPipeline(registry);

@@ -95,6 +95,10 @@ public class RenderUtils {
     }
 
     public static void drawOutlineBox(AABB box, int c) {
+        drawOutlineBox(box, c, 2.0f);
+    }
+
+    public static void drawOutlineBox(AABB box, int c, float lineWidth) {
         BufferBuilder buffer = GeminiTesselator.getInstance().begin(PrimitiveTopology.LINES, DefaultVertexFormat.POSITION_COLOR_NORMAL_LINE_WIDTH);
 
         Vec3 camPos = mc.getEntityRenderDispatcher().camera.position();
@@ -108,29 +112,29 @@ public class RenderUtils {
         Matrix4f matrix = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState.viewRotationMatrix;
 
         // Bottom face edges
-        line(buffer, matrix, minX, minY, minZ, maxX, minY, minZ, c);
-        line(buffer, matrix, maxX, minY, minZ, maxX, minY, maxZ, c);
-        line(buffer, matrix, maxX, minY, maxZ, minX, minY, maxZ, c);
-        line(buffer, matrix, minX, minY, maxZ, minX, minY, minZ, c);
+        line(buffer, matrix, minX, minY, minZ, maxX, minY, minZ, c, lineWidth);
+        line(buffer, matrix, maxX, minY, minZ, maxX, minY, maxZ, c, lineWidth);
+        line(buffer, matrix, maxX, minY, maxZ, minX, minY, maxZ, c, lineWidth);
+        line(buffer, matrix, minX, minY, maxZ, minX, minY, minZ, c, lineWidth);
 
         // Top face edges
-        line(buffer, matrix, minX, maxY, minZ, maxX, maxY, minZ, c);
-        line(buffer, matrix, maxX, maxY, minZ, maxX, maxY, maxZ, c);
-        line(buffer, matrix, maxX, maxY, maxZ, minX, maxY, maxZ, c);
-        line(buffer, matrix, minX, maxY, maxZ, minX, maxY, minZ, c);
+        line(buffer, matrix, minX, maxY, minZ, maxX, maxY, minZ, c, lineWidth);
+        line(buffer, matrix, maxX, maxY, minZ, maxX, maxY, maxZ, c, lineWidth);
+        line(buffer, matrix, maxX, maxY, maxZ, minX, maxY, maxZ, c, lineWidth);
+        line(buffer, matrix, minX, maxY, maxZ, minX, maxY, minZ, c, lineWidth);
 
         // Vertical edges
-        line(buffer, matrix, minX, minY, minZ, minX, maxY, minZ, c);
-        line(buffer, matrix, maxX, minY, minZ, maxX, maxY, minZ, c);
-        line(buffer, matrix, maxX, minY, maxZ, maxX, maxY, maxZ, c);
-        line(buffer, matrix, minX, minY, maxZ, minX, maxY, maxZ, c);
+        line(buffer, matrix, minX, minY, minZ, minX, maxY, minZ, c, lineWidth);
+        line(buffer, matrix, maxX, minY, minZ, maxX, maxY, minZ, c, lineWidth);
+        line(buffer, matrix, maxX, minY, maxZ, maxX, maxY, maxZ, c, lineWidth);
+        line(buffer, matrix, minX, minY, maxZ, minX, maxY, maxZ, c, lineWidth);
 
         GeminiTesselator.draw(OUTLINE_BOX, buffer.buildOrThrow());
     }
 
-    private static void line(BufferBuilder buffer, Matrix4f matrix, float x1, float y1, float z1, float x2, float y2, float z2, int color) {
-        buffer.addVertex(matrix, x1, y1, z1).setColor(color).setNormal(0, 1, 0).setLineWidth(2.0f);
-        buffer.addVertex(matrix, x2, y2, z2).setColor(color).setNormal(0, 1, 0).setLineWidth(2.0f);
+    private static void line(BufferBuilder buffer, Matrix4f matrix, float x1, float y1, float z1, float x2, float y2, float z2, int color, float lineWidth) {
+        buffer.addVertex(matrix, x1, y1, z1).setColor(color).setNormal(0, 1, 0).setLineWidth(lineWidth);
+        buffer.addVertex(matrix, x2, y2, z2).setColor(color).setNormal(0, 1, 0).setLineWidth(lineWidth);
     }
 
     private static void vertex(BufferBuilder buffer, Matrix4f matrix, float x, float y, float z, int color) {

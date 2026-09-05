@@ -83,6 +83,7 @@ public final class MsdfGenerator {
 
     private MsdfGenerator() {}
 
+
     // ==================================================================
     //  Public API
     // ==================================================================
@@ -107,36 +108,83 @@ public final class MsdfGenerator {
             allEdges.addAll(contour.edges);
         }
 
-        // Flattened polylines for the winding-number sign resolution.
-        // (Same flattening as used by orientContours.)
+        // Flattened polylines for the winding-number sign resolution (the
+        // same flattening orientContours used). Segments are bucketed per row
+        // (CSR) instead of rescanning every segment each row; a segment (a, b)
+        // crosses row y iff min(a.y, b.y) <= y + 0.5 < max(a.y, b.y) — exactly
+        // the rows where the full scan registered a crossing — and buckets
+        // keep the original (contour, segment) encounter order, so the sorted
+        // crossing sequence and the winding numbers are bit-identical.
         List<List<V>> polys = new ArrayList<>(contours.size());
         for (Contour contour : contours) {
             polys.add(flatten(contour));
         }
+        int segmentCount = 0;
+        for (List<V> poly : polys) {
+            segmentCount += poly.size();
+        }
+        double[] segAx = new double[segmentCount];
+        double[] segAy = new double[segmentCount];
+        double[] segBx = new double[segmentCount];
+        double[] segBy = new double[segmentCount];
+        int[] segFirstRow = new int[segmentCount];
+        int[] segLastRow = new int[segmentCount];
+        int[] segRowStart = new int[height + 1];
+        {
+            int s = 0;
+            for (List<V> poly : polys) {
+                int n = poly.size();
+                for (int i = 0; i < n; i++, s++) {
+                    V a = poly.get(i);
+                    V b = poly.get((i + 1) % n);
+                    segAx[s] = a.x;
+                    segAy[s] = a.y;
+                    segBx[s] = b.x;
+                    segBy[s] = b.y;
+                    double lo = Math.min(a.y, b.y);
+                    double hi = Math.max(a.y, b.y);
+                    int rs = Math.max(0, (int) Math.ceil(lo - 0.5));
+                    int re = Math.min(height - 1, (int) Math.ceil(hi - 0.5) - 1);
+                    segFirstRow[s] = rs;
+                    segLastRow[s] = re;
+                    for (int y = rs; y <= re; y++) {
+                        segRowStart[y + 1]++;
+                    }
+                }
+            }
+        }
+        for (int y = 0; y < height; y++) {
+            segRowStart[y + 1] += segRowStart[y];
+        }
+        int[] rowSegs = new int[segRowStart[height]];
+        int[] segCursor = java.util.Arrays.copyOf(segRowStart, height);
+        for (int s = 0; s < segmentCount; s++) {
+            for (int y = segFirstRow[s]; y <= segLastRow[s]; y++) {
+                rowSegs[segCursor[y]++] = s;
+            }
+        }
 
+        float[] crossX = new float[64];
+        int[] crossDir = new int[64];
         float[] field = new float[width * height * 4];
         double[] param = new double[1];
         for (int y = 0; y < height; y++) {
             // Scanline crossings at this pixel row for winding evaluation.
             double py = y + 0.5;
-            float[] crossX = new float[64];
-            int[] crossDir = new int[64];
             int crossCount = 0;
-            for (List<V> poly : polys) {
-                int n = poly.size();
-                for (int i = 0; i < n; i++) {
-                    V a = poly.get(i);
-                    V b = poly.get((i + 1) % n);
-                    if ((a.y <= py) != (b.y <= py)) {
-                        double t = (py - a.y) / (b.y - a.y);
-                        if (crossCount == crossX.length) {
-                            crossX = java.util.Arrays.copyOf(crossX, crossX.length * 2);
-                            crossDir = java.util.Arrays.copyOf(crossDir, crossDir.length * 2);
-                        }
-                        crossX[crossCount] = (float) (a.x + t * (b.x - a.x));
-                        crossDir[crossCount] = b.y > a.y ? 1 : -1;
-                        crossCount++;
+            for (int k = segRowStart[y]; k < segRowStart[y + 1]; k++) {
+                int s = rowSegs[k];
+                double ay = segAy[s];
+                double by = segBy[s];
+                if ((ay <= py) != (by <= py)) {
+                    double t = (py - ay) / (by - ay);
+                    if (crossCount == crossX.length) {
+                        crossX = java.util.Arrays.copyOf(crossX, crossX.length * 2);
+                        crossDir = java.util.Arrays.copyOf(crossDir, crossDir.length * 2);
                     }
+                    crossX[crossCount] = (float) (segAx[s] + t * (segBx[s] - segAx[s]));
+                    crossDir[crossCount] = by > ay ? 1 : -1;
+                    crossCount++;
                 }
             }
             // Insertion sort by x (crossing counts are small)
@@ -165,6 +213,10 @@ public final class MsdfGenerator {
 
                 V p = new V(px, py);
 
+                // NOTE: r/g/b/t are assigned BY REFERENCE on purpose — a
+                // single candidate can win several slots at once, and the
+                // pseudo-distance conversion below then mutates all of them
+                // together. That aliasing is part of the legacy output.
                 SignedDistance r = new SignedDistance();
                 SignedDistance g = new SignedDistance();
                 SignedDistance b = new SignedDistance();
@@ -174,7 +226,12 @@ public final class MsdfGenerator {
 
                 for (Edge edge : allEdges) {
                     // Cheap lower bound via control-polygon AABB: if it already
-                    // exceeds every channel's best distance, skip the exact solve.
+                    // exceeds every channel's best distance, skip the exact
+                    // solve. This is the only culling that is safe here: it can
+                    // never change the winning distance, and the downstream
+                    // error correction is sensitive to the exact field floats
+                    // (any approximate skip — saturation windows, row buckets —
+                    // alters far-field argmins and flips equalization verdicts).
                     double bound = edge.boundDistance(p);
                     boolean maybeR = (edge.color & RED) != 0 && bound <= Math.abs(r.distance);
                     boolean maybeG = (edge.color & GREEN) != 0 && bound <= Math.abs(g.distance);
@@ -364,6 +421,33 @@ public final class MsdfGenerator {
         return 2 * (n > 0 ? 1 : 0) - 1;
     }
 
+    /**
+     * Dot product of two vectors each normalized as {@link V#normalize}
+     * (zero vector maps to (0, 1)) — allocation-free mirror of
+     * {@code a.normalize().dot(b.normalize())} with identical arithmetic.
+     */
+    private static double normalizeDot(double ax, double ay, double bx, double by) {
+        double la = Math.sqrt(ax * ax + ay * ay);
+        double nax, nay;
+        if (la == 0) {
+            nax = 0;
+            nay = 1;
+        } else {
+            nax = ax / la;
+            nay = ay / la;
+        }
+        double lb = Math.sqrt(bx * bx + by * by);
+        double nbx, nby;
+        if (lb == 0) {
+            nbx = 0;
+            nby = 1;
+        } else {
+            nbx = bx / lb;
+            nby = by / lb;
+        }
+        return nax * nbx + nay * nby;
+    }
+
     // ==================================================================
     //  SignedDistance
     // ==================================================================
@@ -394,6 +478,17 @@ public final class MsdfGenerator {
         abstract V direction(double t);
         /** Control endpoint: index 0 = start, 1 = end. */
         abstract V pointAt(int index);
+        /**
+         * Signed distance from {@code origin}; also writes the closest-point
+         * parameter into {@code paramOut[0]}. Returns a fresh instance on
+         * purpose: the field loop aliases one result into several channel
+         * slots (a single edge can win R, B and the true-SDF alpha at once),
+         * and the pseudo-distance conversion then mutates all of them
+         * together — reproducing the legacy behavior byte for byte. The body
+         * is primitive math (no V churn) with expressions in the exact operand
+         * order of the original object-based formulation, so values are
+         * bit-identical.
+         */
         abstract SignedDistance signedDistance(V origin, double[] paramOut);
         abstract Edge reversed();
         /** Sub-segment over [t0, t1] via de Casteljau reparameterization. */
@@ -480,22 +575,34 @@ public final class MsdfGenerator {
 
         @Override void flattenInto(List<V> out, int divisions) { out.add(p0); }
 
+        /**
+         * Primitive mirror of the V-object formulation: every expression is
+         * written in the exact same operand order as the original
+         * {@code aq/ab/eq} vector code, so results are bit-identical.
+         */
         @Override SignedDistance signedDistance(V origin, double[] paramOut) {
-            V aq = origin.sub(p0);
-            V ab = p1.sub(p0);
-            double param = aq.dot(ab) / ab.dot(ab);
+            double aqx = origin.x - p0.x;
+            double aqy = origin.y - p0.y;
+            double abx = p1.x - p0.x;
+            double aby = p1.y - p0.y;
+            double param = (aqx * abx + aqy * aby) / (abx * abx + aby * aby);
             paramOut[0] = param;
-            V eq = (param > 0.5 ? p1 : p0).sub(origin);
-            double endpointDistance = eq.length();
+            V end = param > 0.5 ? p1 : p0;
+            double eqx = end.x - origin.x;
+            double eqy = end.y - origin.y;
+            double endpointDistance = Math.sqrt(eqx * eqx + eqy * eqy);
             if (param > 0 && param < 1) {
-                double orthoDistance = ab.orthonormal().dot(aq);
+                // orthonormal() = (y, -x) / len, dotted with aq
+                double abLen = Math.sqrt(abx * abx + aby * aby);
+                double orthoDistance = (aby / abLen) * aqx + (-abx / abLen) * aqy;
                 if (Math.abs(orthoDistance) < endpointDistance) {
                     return new SignedDistance(orthoDistance, 0);
                 }
             }
+            double cross = aqx * aby - aqy * abx;
             return new SignedDistance(
-                    nonZeroSign(aq.cross(ab)) * endpointDistance,
-                    Math.abs(ab.normalize().dot(eq.normalize())));
+                    nonZeroSign(cross) * endpointDistance,
+                    Math.abs(normalizeDot(abx, aby, eqx, eqy)));
         }
     }
 
@@ -540,34 +647,47 @@ public final class MsdfGenerator {
             }
         }
 
+        /** Primitive mirror of the original V-object formulation (bit-identical). */
         @Override SignedDistance signedDistance(V origin, double[] paramOut) {
-            V qa = p0.sub(origin);
-            V ab = p1.sub(p0);
-            V br = p2.sub(p1).sub(ab);
-            double a = br.dot(br);
-            double b = 3 * ab.dot(br);
-            double c = 2 * ab.dot(ab) + qa.dot(br);
-            double d = qa.dot(ab);
+            double qax = p0.x - origin.x;
+            double qay = p0.y - origin.y;
+            double abx = p1.x - p0.x;
+            double aby = p1.y - p0.y;
+            double brx = (p2.x - p1.x) - abx;
+            double bry = (p2.y - p1.y) - aby;
+            double a = brx * brx + bry * bry;
+            double b = 3 * (abx * brx + aby * bry);
+            double c = 2 * (abx * abx + aby * aby) + (qax * brx + qay * bry);
+            double d = qax * abx + qay * aby;
             double[] t = new double[3];
             int solutions = solveCubic(t, a, b, c, d);
 
             V epDir = direction(0);
-            double minDistance = nonZeroSign(epDir.cross(qa)) * qa.length(); // distance from A
-            double param = -qa.dot(epDir) / epDir.dot(epDir);
+            double minDistance = nonZeroSign(epDir.x * qay - epDir.y * qax)
+                    * Math.sqrt(qax * qax + qay * qay); // distance from A
+            double param = -(qax * epDir.x + qay * epDir.y)
+                    / (epDir.x * epDir.x + epDir.y * epDir.y);
             {
-                double distance = p2.sub(origin).length(); // distance from B
+                double bqx = p2.x - origin.x;
+                double bqy = p2.y - origin.y;
+                double distance = Math.sqrt(bqx * bqx + bqy * bqy); // distance from B
                 if (distance < Math.abs(minDistance)) {
                     epDir = direction(1);
-                    minDistance = nonZeroSign(epDir.cross(p2.sub(origin))) * distance;
-                    param = origin.sub(p1).dot(epDir) / epDir.dot(epDir);
+                    minDistance = nonZeroSign(epDir.x * bqy - epDir.y * bqx) * distance;
+                    param = ((origin.x - p1.x) * epDir.x + (origin.y - p1.y) * epDir.y)
+                            / (epDir.x * epDir.x + epDir.y * epDir.y);
                 }
             }
             for (int i = 0; i < solutions; i++) {
                 if (t[i] > 0 && t[i] < 1) {
-                    V qe = qa.add(ab.scale(2 * t[i])).add(br.scale(t[i] * t[i]));
-                    double distance = qe.length();
+                    double s = t[i] * t[i];
+                    double qex = (qax + abx * (2 * t[i])) + brx * s;
+                    double qey = (qay + aby * (2 * t[i])) + bry * s;
+                    double distance = Math.sqrt(qex * qex + qey * qey);
                     if (distance <= Math.abs(minDistance)) {
-                        minDistance = nonZeroSign(ab.add(br.scale(t[i])).cross(qe)) * distance;
+                        double cx = abx + brx * t[i];
+                        double cy = aby + bry * t[i];
+                        minDistance = nonZeroSign(cx * qey - cy * qex) * distance;
                         param = t[i];
                     }
                 }
@@ -577,11 +697,14 @@ public final class MsdfGenerator {
                 return new SignedDistance(minDistance, 0);
             }
             if (param < 0.5) {
+                V dir0 = direction(0);
                 return new SignedDistance(minDistance,
-                        Math.abs(direction(0).normalize().dot(qa.normalize())));
+                        Math.abs(normalizeDot(dir0.x, dir0.y, qax, qay)));
             } else {
+                V dir1 = direction(1);
                 return new SignedDistance(minDistance,
-                        Math.abs(direction(1).normalize().dot(p2.sub(origin).normalize())));
+                        Math.abs(normalizeDot(dir1.x, dir1.y,
+                                p2.x - origin.x, p2.y - origin.y)));
             }
         }
     }
@@ -645,43 +768,72 @@ public final class MsdfGenerator {
             }
         }
 
+        /**
+         * Primitive mirror of the original V-object Newton search — the
+         * hottest path in the generator (AWT outlines are cubic-heavy), so it
+         * runs without any per-step allocation. Every expression preserves
+         * the original operand order, keeping results bit-identical.
+         */
         @Override SignedDistance signedDistance(V origin, double[] paramOut) {
-            V qa = p0.sub(origin);
-            V ab = p1.sub(p0);
-            V br = p2.sub(p1).sub(ab);
-            V as = p3.sub(p2).sub(p2.sub(p1)).sub(br);
+            double qax = p0.x - origin.x;
+            double qay = p0.y - origin.y;
+            double abx = p1.x - p0.x;
+            double aby = p1.y - p0.y;
+            double brx = (p2.x - p1.x) - abx;
+            double bry = (p2.y - p1.y) - aby;
+            double asx = ((p3.x - p2.x) - (p2.x - p1.x)) - brx;
+            double asy = ((p3.y - p2.y) - (p2.y - p1.y)) - bry;
 
             V epDir = direction(0);
-            double minDistance = nonZeroSign(epDir.cross(qa)) * qa.length(); // distance from A
-            double param = -qa.dot(epDir) / epDir.dot(epDir);
+            double minDistance = nonZeroSign(epDir.x * qay - epDir.y * qax)
+                    * Math.sqrt(qax * qax + qay * qay); // distance from A
+            double param = -(qax * epDir.x + qay * epDir.y)
+                    / (epDir.x * epDir.x + epDir.y * epDir.y);
             {
-                double distance = p3.sub(origin).length(); // distance from B
+                double bqx = p3.x - origin.x;
+                double bqy = p3.y - origin.y;
+                double distance = Math.sqrt(bqx * bqx + bqy * bqy); // distance from B
                 if (distance < Math.abs(minDistance)) {
                     epDir = direction(1);
-                    minDistance = nonZeroSign(epDir.cross(p3.sub(origin))) * distance;
-                    param = epDir.sub(p3.sub(origin)).dot(epDir) / epDir.dot(epDir);
+                    minDistance = nonZeroSign(epDir.x * bqy - epDir.y * bqx) * distance;
+                    param = ((epDir.x - bqx) * epDir.x + (epDir.y - bqy) * epDir.y)
+                            / (epDir.x * epDir.x + epDir.y * epDir.y);
                 }
             }
             // Iterative minimum distance search (Newton refinement from several starts)
             for (int i = 0; i <= CUBIC_SEARCH_STARTS; i++) {
                 double t = (double) i / CUBIC_SEARCH_STARTS;
-                V qe = qa.add(ab.scale(3 * t)).add(br.scale(3 * t * t)).add(as.scale(t * t * t));
-                V d1 = ab.scale(3).add(br.scale(6 * t)).add(as.scale(3 * t * t));
-                V d2 = br.scale(6).add(as.scale(6 * t));
-                double improvedT = t - qe.dot(d1) / (d1.dot(d1) + qe.dot(d2));
+                double s1 = 3 * t;
+                double s2 = 3 * t * t;
+                double s3 = t * t * t;
+                double qex = ((qax + abx * s1) + brx * s2) + asx * s3;
+                double qey = ((qay + aby * s1) + bry * s2) + asy * s3;
+                double d1x = (abx * 3 + brx * (6 * t)) + asx * (3 * t * t);
+                double d1y = (aby * 3 + bry * (6 * t)) + asy * (3 * t * t);
+                double d2x = brx * 6 + asx * (6 * t);
+                double d2y = bry * 6 + asy * (6 * t);
+                double improvedT = t - (qex * d1x + qey * d1y)
+                        / ((d1x * d1x + d1y * d1y) + (qex * d2x + qey * d2y));
                 if (improvedT > 0 && improvedT < 1) {
                     int remainingSteps = CUBIC_SEARCH_STEPS;
                     do {
                         t = improvedT;
-                        qe = qa.add(ab.scale(3 * t)).add(br.scale(3 * t * t)).add(as.scale(t * t * t));
-                        d1 = ab.scale(3).add(br.scale(6 * t)).add(as.scale(3 * t * t));
+                        s1 = 3 * t;
+                        s2 = 3 * t * t;
+                        s3 = t * t * t;
+                        qex = ((qax + abx * s1) + brx * s2) + asx * s3;
+                        qey = ((qay + aby * s1) + bry * s2) + asy * s3;
+                        d1x = (abx * 3 + brx * (6 * t)) + asx * (3 * t * t);
+                        d1y = (aby * 3 + bry * (6 * t)) + asy * (3 * t * t);
                         if (--remainingSteps == 0) break;
-                        d2 = br.scale(6).add(as.scale(6 * t));
-                        improvedT = t - qe.dot(d1) / (d1.dot(d1) + qe.dot(d2));
+                        d2x = brx * 6 + asx * (6 * t);
+                        d2y = bry * 6 + asy * (6 * t);
+                        improvedT = t - (qex * d1x + qey * d1y)
+                                / ((d1x * d1x + d1y * d1y) + (qex * d2x + qey * d2y));
                     } while (improvedT > 0 && improvedT < 1);
-                    double distance = qe.length();
+                    double distance = Math.sqrt(qex * qex + qey * qey);
                     if (distance < Math.abs(minDistance)) {
-                        minDistance = nonZeroSign(d1.cross(qe)) * distance;
+                        minDistance = nonZeroSign(d1x * qey - d1y * qex) * distance;
                         param = t;
                     }
                 }
@@ -691,11 +843,14 @@ public final class MsdfGenerator {
                 return new SignedDistance(minDistance, 0);
             }
             if (param < 0.5) {
+                V dir0 = direction(0);
                 return new SignedDistance(minDistance,
-                        Math.abs(direction(0).normalize().dot(qa.normalize())));
+                        Math.abs(normalizeDot(dir0.x, dir0.y, qax, qay)));
             } else {
+                V dir1 = direction(1);
                 return new SignedDistance(minDistance,
-                        Math.abs(direction(1).normalize().dot(p3.sub(origin).normalize())));
+                        Math.abs(normalizeDot(dir1.x, dir1.y,
+                                p3.x - origin.x, p3.y - origin.y)));
             }
         }
     }
@@ -863,10 +1018,22 @@ public final class MsdfGenerator {
         int n = contours.size();
         List<List<V>> polys = new ArrayList<>(n);
         double[] areas = new double[n];
+        // Per-contour y extent — a contour can only contribute to another
+        // contour's winding depth where their y ranges overlap, so most
+        // pairs skip the O(segments) winding test entirely.
+        double[] yMin = new double[n];
+        double[] yMax = new double[n];
         for (int i = 0; i < n; i++) {
             List<V> poly = flatten(contours.get(i));
             polys.add(poly);
             areas[i] = shoelaceArea(poly);
+            double lo = Double.MAX_VALUE, hi = -Double.MAX_VALUE;
+            for (V v : poly) {
+                if (v.y < lo) lo = v.y;
+                if (v.y > hi) hi = v.y;
+            }
+            yMin[i] = lo;
+            yMax[i] = hi;
         }
         for (int i = 0; i < n; i++) {
             if (Math.abs(areas[i]) < 1e-12) {
@@ -875,7 +1042,10 @@ public final class MsdfGenerator {
             V sample = polys.get(i).get(0);
             int depth = 0;
             for (int j = 0; j < n; j++) {
-                if (j != i && windingNumber(sample, polys.get(j)) != 0) {
+                if (j == i || sample.y < yMin[j] || sample.y >= yMax[j]) {
+                    continue; // no segment of poly j can cross sample.y
+                }
+                if (windingNumber(sample, polys.get(j)) != 0) {
                     depth++;
                 }
             }
@@ -905,19 +1075,23 @@ public final class MsdfGenerator {
         return 0.5 * sum;
     }
 
-    /** Standard winding-number point-in-polygon test. */
+    /** Standard winding-number point-in-polygon test (allocation-free). */
     private static int windingNumber(V p, List<V> poly) {
         int wn = 0;
         int n = poly.size();
+        double px = p.x;
+        double py = p.y;
         for (int i = 0; i < n; i++) {
             V a = poly.get(i);
             V b = poly.get((i + 1) % n);
-            if (a.y <= p.y) {
-                if (b.y > p.y && b.sub(a).cross(p.sub(a)) > 0) {
+            // b.sub(a).cross(p.sub(a)), inlined with identical arithmetic
+            double cross = (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x);
+            if (a.y <= py) {
+                if (b.y > py && cross > 0) {
                     wn++;
                 }
             } else {
-                if (b.y <= p.y && b.sub(a).cross(p.sub(a)) < 0) {
+                if (b.y <= py && cross < 0) {
                     wn--;
                 }
             }

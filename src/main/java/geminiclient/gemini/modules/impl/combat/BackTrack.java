@@ -67,6 +67,8 @@ public class BackTrack extends Module {
     private volatile Vec3 decodeBase;
     /** 最近一次收到被追踪玩家数据包的时间。 */
     private volatile long lastPacketTime;
+    /** 客户端当前可见的旧位置（最近一个已释放回客户端的目标位置数据包）。 */
+    private Vec3 appliedPos;
     /** netty 线程请求重置（目标消失 / 自己被传送）。 */
     private volatile boolean resetRequested;
     /** netty 线程请求重置（自己受到击退）。 */
@@ -156,13 +158,15 @@ public class BackTrack extends Module {
         if (event.isCancelled()) return;
         if (event.getIoEnum() != IOEnum.In) return;
 
-        // 单次读取，保证"拦截判定"与"链推进"使用同一个状态快照，避免误入队
+        // 单次读取，保证"拦截判定"与"取消判定"使用同一个状态快照，避免误入队
         boolean active = this.isBacktrackingActive;
+        if (!active) return;
 
-        if (active && resetOnVelocity.enabled && event.getPacket() instanceof ClientboundSetEntityMotionPacket motion
-                && motion.id() == mc.player.getId()) {
-            this.velocityResetRequested = true;
-            return;
+        if (resetOnVelocity.enabled && event.getPacket() instanceof ClientboundSetEntityMotionPacket motion) {
+            if (motion.id() == mc.player.getId()) {
+                this.velocityResetRequested = true;
+                return;
+            }
         }
 
         int tracked = this.trackedEntityId;
@@ -182,56 +186,26 @@ public class BackTrack extends Module {
         }
 
         Vec3 pos;
-        boolean positionPacket = false;
 
         if (packet instanceof ClientboundMoveEntityPacket move) {
             Entity entity = move.getEntity(mc.level);
             if (entity != null && entity.getId() == tracked) {
-                if (move.hasPosition()) {
-                    pos = decodeMove(move, entity);
-                    positionPacket = true;
-                } else {
-                    pos = null;
-                }
-                if (active) {
-                    queueTargetPacket(event, packet, tracked, pos);
-                }
+                pos = move.hasPosition() ? decodeMove(move, entity) : null;
+                queueTargetPacket(event, packet, tracked, pos, active);
             }
         } else if (packet instanceof ClientboundTeleportEntityPacket tp) {
             if (tp.id() == tracked) {
-                pos = decodeTeleport(tp, mc.level.getEntity(tracked));
-                positionPacket = true;
-                if (active) {
-                    queueTargetPacket(event, packet, tracked, pos);
-                }
-            }
-        } else if (packet instanceof ClientboundEntityPositionSyncPacket sync) {
-            // 服务器在目标跳跃/落地（onGround 翻转）、传送等场景会发送此包：
-            // 它携带绝对位置并重置客户端的相对移动编解码基准。若不拦截，
-            // 目标会当场瞬移到真实位置（残影失效），且模块的链与客户端链从此脱节。
-            if (sync.id() == tracked) {
-                pos = sync.values().position();
-                this.decodeBase = pos;
-                positionPacket = true;
-                if (active) {
-                    queueTargetPacket(event, packet, tracked, pos);
-                }
+                queueTargetPacket(event, packet, tracked, decodeTeleport(tp), active);
             }
         } else if (packet instanceof ClientboundRotateHeadPacket head) {
             Entity entity = head.getEntity(mc.level);
-            if (entity != null && entity.getId() == tracked && active) {
-                queueTargetPacket(event, packet, tracked, null);
+            if (entity != null && entity.getId() == tracked) {
+                queueTargetPacket(event, packet, tracked, null, active);
             }
         } else if (packet instanceof ClientboundSetEntityMotionPacket motion) {
-            if (motion.id() == tracked && active) {
-                queueTargetPacket(event, packet, tracked, null);
+            if (motion.id() == tracked) {
+                queueTargetPacket(event, packet, tracked, null, active);
             }
-        }
-
-        // 位置链对目标的"每个"带位置数据包推进（无论是否处于回溯状态），
-        // 否则链与客户端/服务器的编解码链脱节，恢复回溯后残影判定与渲染全部漂移。
-        if (positionPacket) {
-            this.lastPacketTime = System.currentTimeMillis();
         }
     }
 
@@ -250,8 +224,10 @@ public class BackTrack extends Module {
         boolean fill = espMode.equals("Box");
         boolean outline = espMode.equals("Box") || espMode.equals("Wireframe");
 
-        // 残影 = 目标实体此刻在客户端实际渲染的位置（位置数据包被延迟，实体停留在旧位置）
-        Vec3 backPos = tracked.position();
+        // 残影（客户端当前显示的旧位置）—— 攻击判定命中的位置
+        Vec3 backPos = currentAfterimagePos();
+        if (backPos == null) backPos = tracked.position();
+
         AABB box = buildBox(tracked, backPos);
         if (fill) RenderUtils.drawFilledBox(box, 0x40FFFFFF);
         if (outline) RenderUtils.drawOutlineBox(box, 0xCCFFFFFF);
@@ -308,13 +284,19 @@ public class BackTrack extends Module {
             }
         } catch (Exception ignored) {
         }
+        // 记录客户端此刻可见的位置（渲染线程写入，onPacket 不再访问）
+        if (position != null) {
+            this.appliedPos = position;
+        }
     }
 
-    /** netty 线程：入队并取消该数据包（渲染线程在延迟到期后按原顺序释放回客户端）。 */
-    private void queueTargetPacket(PacketEvent event, Packet<?> packet, int entityId, Vec3 pos) {
+    /** netty 线程：入队，并按调用时的激活快照决定是否取消该数据包。 */
+    private void queueTargetPacket(PacketEvent event, Packet<?> packet, int entityId, Vec3 pos, boolean cancel) {
         this.packetQueue.add(new PacketEntry(packet, entityId, pos));
         this.lastPacketTime = System.currentTimeMillis();
-        event.setCancelled(true);
+        if (cancel) {
+            event.setCancelled(true);
+        }
     }
 
     /** 清空状态并释放积压数据包（onEnabled/onDisabled/目标失效/离开窗口时调用）。 */
@@ -322,6 +304,7 @@ public class BackTrack extends Module {
         this.isBacktrackingActive = false;
         this.trackedEntityId = -1;
         this.decodeBase = null;
+        this.appliedPos = null;
         this.lastPacketTime = 0L;
         this.resetRequested = false;
         this.velocityResetRequested = false;
@@ -353,13 +336,9 @@ public class BackTrack extends Module {
         return Math.round(base * 4096.0) / 4096.0 + delta / 4096.0;
     }
 
-    /** 解码绝对传送包（含相对坐标）。基准与 handleTeleportEntity 的 calculateAbsolute 一致：
-     * 相对值以实体当前客户端位置为参照；有链基准时以链尾（服务器最新位置）为准。 */
-    private Vec3 decodeTeleport(ClientboundTeleportEntityPacket tp, Entity entity) {
+    /** 解码绝对传送包（含相对坐标，与 handleTeleportEntity 的 calculateAbsolute 一致）。 */
+    private Vec3 decodeTeleport(ClientboundTeleportEntityPacket tp) {
         Vec3 base = this.decodeBase;
-        if (base == null && entity != null) {
-            base = entity.position();
-        }
         Vec3 pos;
         if (tp.relatives().isEmpty()) {
             pos = tp.change().position();
@@ -425,6 +404,7 @@ public class BackTrack extends Module {
         flushPackets();
         this.trackedEntityId = player.getId();
         this.decodeBase = null;
+        this.appliedPos = null; // 新目标的残影从下一帧重建
         this.lastPacketTime = System.currentTimeMillis();
         this.isBacktrackingActive = false; // 等待下一次 onUpdate 的距离判定再激活
     }
@@ -437,14 +417,14 @@ public class BackTrack extends Module {
         float rMin = range.getMinValue();
         float rMax = range.getMaxValue();
 
-        // 服务器"真实位置"过远时不值得拦截（延迟释放后敌人仍不在可攻击范围内）
-        Vec3 realPos = this.decodeBase;
-        if (realPos == null) realPos = tracked.position();
-        double realDistance = eye.distanceTo(closestPoint(eye, buildBox(tracked, realPos)));
+        // 真实距离过远时不值得拦截
+        double realDistance = eye.distanceTo(closestPoint(eye, tracked.getBoundingBox()));
         if (realDistance > rMax + 2.0) return false;
 
-        // 残影 = 客户端当下实际渲染的旧位置（攻击判定命中的位置）
-        double backDistance = eye.distanceTo(closestPoint(eye, buildBox(tracked, tracked.position())));
+        // 残影 = 客户端当前可见的旧位置（队列中最旧的带位置数据包，或当前实时位置）
+        Vec3 backPos = currentAfterimagePos();
+        if (backPos == null) backPos = tracked.position();
+        double backDistance = eye.distanceTo(closestPoint(eye, buildBox(tracked, backPos)));
 
         return backDistance >= rMin && backDistance < rMax;
     }
@@ -457,6 +437,17 @@ public class BackTrack extends Module {
         float rMax = range.getMaxValue();
         double dist = eye.distanceTo(closestPoint(eye, player.getBoundingBox()));
         return dist >= rMin && dist < rMax + 2.0;
+    }
+
+    /** 队列中最早的带位置数据包所对应的位置（即客户端当前可见的残影）。 */
+    private Vec3 currentAfterimagePos() {
+        if (this.appliedPos != null) return this.appliedPos;
+        for (PacketEntry entry : this.packetQueue) {
+            if (entry.entityId() == this.trackedEntityId && entry.position() != null) {
+                return entry.position();
+            }
+        }
+        return null;
     }
 
     private static AABB buildBox(Entity entity, Vec3 pos) {
