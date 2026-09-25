@@ -56,7 +56,7 @@ class OsuParserTest {
         assertEquals("audio.mp3", map.audioFileName());
         assertEquals(4, map.keyCount());
         assertEquals(3, map.hitObjects().size());
-        assertTrue(map.isPlayable4K());
+        assertTrue(map.isPlayable());
     }
 
     @Test
@@ -98,11 +98,103 @@ class OsuParserTest {
     }
 
     @Test
-    void rejectsNonFourKeyMaps() {
-        String text = withObjects("64,192,1000,1,0,0:0:0:0:").replace("Keys: 4", "Keys: 7");
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> OsuParser.parse(text, "sevenk.osu"));
-        assertTrue(e.getMessage().contains("7K"));
+    void rejectsOutOfRangeKeyCounts() {
+        IllegalArgumentException e11 = assertThrows(IllegalArgumentException.class,
+                () -> OsuParser.parse(withObjects("64,192,1000,1,0,0:0:0:0:").replace("Keys: 4", "Keys: 11"),
+                        "elevenk.osu"));
+        assertTrue(e11.getMessage().contains("11K"));
+        assertTrue(e11.getMessage().contains("1K-10K"));
+
+        IllegalArgumentException e0 = assertThrows(IllegalArgumentException.class,
+                () -> OsuParser.parse(withObjects("64,192,1000,1,0,0:0:0:0:").replace("Keys: 4", "Keys: 0"),
+                        "zerok.osu"));
+        assertTrue(e0.getMessage().contains("0K"));
+    }
+
+    @Test
+    void acceptsSevenKeyMaps() {
+        BeatmapData map = OsuParser.parse(
+                withObjects("64,192,1000,1,0,0:0:0:0:").replace("Keys: 4", "Keys: 7"), "sevenk.osu");
+        assertEquals(7, map.keyCount());
+        assertTrue(map.isPlayable());
+    }
+
+    /** Legacy maps (pre-[Mania] section) store the key count in CircleSize. */
+    private static final String LEGACY_HEADER = """
+            osu file format v14
+
+            [General]
+            AudioFilename: audio.mp3
+            Mode: 3
+
+            [Metadata]
+            Title:Sendan Life
+            TitleUnicode:Sendan Life
+            Artist:Remo Prototype (CV: Hanamori Yumiri)
+            Version:Insane
+
+            [Difficulty]
+            SliderMultiplier:1.8
+            CircleSize:6
+
+            """;
+
+    private static String withLegacyObjects(String... lines) {
+        StringBuilder sb = new StringBuilder(LEGACY_HEADER).append("\n[HitObjects]\n");
+        for (String line : lines) {
+            sb.append(line).append('\n');
+        }
+        return sb.toString();
+    }
+
+    @Test
+    void readsKeyCountFromLegacyCircleSize() {
+        BeatmapData map = OsuParser.parse(withLegacyObjects(
+                "42,192,1000,1,0,0:0:0:0:",   // col 0
+                "128,192,1000,1,0,0:0:0:0:",  // col 1
+                "213,192,1000,1,0,0:0:0:0:",  // col 2
+                "298,192,1000,1,0,0:0:0:0:",  // col 3
+                "384,192,1000,1,0,0:0:0:0:",  // col 4
+                "469,192,1000,1,0,0:0:0:0:",  // col 5
+                "511,192,2000,1,0,0:0:0:0:"   // clamps to col 5
+        ), "legacy6k.osu");
+        assertEquals(6, map.keyCount());
+        for (int c = 0; c < 6; c++) {
+            assertEquals(c, map.hitObjects().get(c).column());
+        }
+        assertEquals(5, map.hitObjects().get(6).column());
+        assertTrue(map.isPlayable());
+    }
+
+    @Test
+    void acceptsOneAndTenKeyMaps() {
+        BeatmapData one = OsuParser.parse(
+                withObjects("256,192,1000,1,0,0:0:0:0:").replace("Keys: 4", "Keys: 1"), "onek.osu");
+        assertEquals(1, one.keyCount());
+        assertEquals(0, one.hitObjects().get(0).column());
+        assertTrue(one.isPlayable());
+
+        BeatmapData ten = OsuParser.parse(
+                withObjects("511,192,1000,1,0,0:0:0:0:").replace("Keys: 4", "Keys: 10"), "tenk.osu");
+        assertEquals(10, ten.keyCount());
+        assertEquals(9, ten.hitObjects().get(0).column());
+        assertTrue(ten.isPlayable());
+    }
+
+    @Test
+    void specialStyleDoesNotAffectKeyCount() {
+        // Modern format: Keys wins, SpecialStyle is a 0/1 scratch flag.
+        BeatmapData modern = OsuParser.parse(withObjects("42,192,1000,1,0,0:0:0:0:")
+                .replace("Keys: 4", "Keys: 6")
+                .replace("[Mania]\nKeys: 6", "[Mania]\nKeys: 6\nSpecialStyle: 1"), "scratch.osu");
+        assertEquals(6, modern.keyCount());
+
+        // Legacy format: no Keys line, SpecialStyle must not override CircleSize
+        // ([Mania] sits after [Difficulty] in the file order).
+        BeatmapData legacy = OsuParser.parse(withLegacyObjects("42,192,1000,1,0,0:0:0:0:")
+                .replace("CircleSize:6", "CircleSize:6\n[Mania]\nSpecialStyle: 1"),
+                "scratchlegacy.osu");
+        assertEquals(6, legacy.keyCount());
     }
 
     @Test

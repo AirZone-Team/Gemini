@@ -78,6 +78,70 @@ class Osu4kGameStateTest {
         return new Osu4kGameState(OsuParser.parse(HOLD_ONLY_MAP, "h.osu"), 0);
     }
 
+    private static final String SINGLE_TAP_MAP = """
+            osu file format v14
+            [General]
+            AudioFilename: audio.mp3
+            Mode: 3
+            [Metadata]
+            Title: T
+            Version: Test
+            [Mania]
+            Keys: 4
+            [HitObjects]
+            64,192,5000,1,0,0:0:0:0:
+            """;
+
+    private static Osu4kGameState singleTapState() {
+        return new Osu4kGameState(OsuParser.parse(SINGLE_TAP_MAP, "single.osu"), 0);
+    }
+
+    /** 6K map via the legacy CircleSize key count, one tap per lane at 1000ms. */
+    private static final String SIX_KEY_MAP = """
+            osu file format v14
+            [General]
+            AudioFilename: audio.mp3
+            Mode: 3
+            [Metadata]
+            Title: T
+            Version: Six
+            [Difficulty]
+            CircleSize: 6
+            [HitObjects]
+            42,192,1000,1,0,0:0:0:0:
+            128,192,1000,1,0,0:0:0:0:
+            213,192,1000,1,0,0:0:0:0:
+            298,192,1000,1,0,0:0:0:0:
+            384,192,1000,1,0,0:0:0:0:
+            469,192,1000,1,0,0:0:0:0:
+            """;
+
+    private static Osu4kGameState sixKeyState() {
+        return new Osu4kGameState(OsuParser.parse(SIX_KEY_MAP, "six.osu"), 0);
+    }
+
+    @Test
+    void columnCountFollowsTheMap() {
+        Osu4kGameState g = sixKeyState();
+        assertEquals(6, g.columns());
+        // The legacy CircleSize key count drives the per-column buckets.
+        assertEquals(1, g.columnObjects(0).size());
+        assertEquals(1, g.columnObjects(5).size());
+    }
+
+    @Test
+    void sixKeyChordJudgesAllLanes() {
+        // Six lanes hit at the same playhead time: every column judges its own
+        // note, exactly like the 4K chord test but for the wider layout.
+        Osu4kGameState g = sixKeyState();
+        for (int c = 0; c < 6; c++) {
+            assertEquals(Judgment.PERFECT, g.press(c, 1010));
+        }
+        assertEquals(6, g.judgedCount());
+        assertEquals(6, g.combo());
+        assertTrue(g.score() > 0);
+    }
+
     @Test
     void earlyPressOutsideWindowIsIgnored() {
         Osu4kGameState g = state();
@@ -300,10 +364,11 @@ class Osu4kGameStateTest {
         g.update(4990);
         assertEquals(Judgment.PERFECT, g.press(0, 5000));
         assertNotNull(g.activeHold(0));
-        // Single-note map: the note is worth the full 1,000,000.
-        assertEquals(1_000_000, g.score());
+        // Hold score is finalized when its tail is completed.
+        assertEquals(0, g.score());
         g.update(5450);
-        assertNull(g.release(0, 5450)); // in window (tail 5500)
+        assertEquals(Judgment.PERFECT, g.release(0, 5450)); // in window (tail 5500)
+        assertEquals(1_000_000, g.score());
         assertEquals(1, g.combo());
         assertEquals(1, g.judgedCount());
     }
@@ -319,14 +384,46 @@ class Osu4kGameStateTest {
     }
 
     @Test
-    void holdAutoCompletesAfterTail() {
+    void unreleasedHoldMissesAfterTailWindow() {
         Osu4kGameState g = holdState();
         g.update(4990);
         g.press(0, 5000);
         g.update(5700); // tail + 164.5ms window elapsed
         assertNull(g.activeHold(0));
         assertEquals(1, g.judgedCount());
-        assertEquals(1, g.combo());
+        assertEquals(1, g.judgmentCount(Judgment.MISS));
+        assertEquals(0, g.combo());
+        assertEquals(0, g.score());
+    }
+
+    @Test
+    void singleNoteJudgementQualityChangesScore() {
+        Osu4kGameState perfect = singleTapState();
+        assertEquals(Judgment.PERFECT, perfect.press(0, 5000));
+        assertEquals(1_000_000, perfect.score());
+
+        Osu4kGameState great = singleTapState();
+        assertEquals(Judgment.GREAT, great.press(0, 5050));
+        assertEquals(666_666, great.score());
+
+        Osu4kGameState good = singleTapState();
+        assertEquals(Judgment.GOOD, good.press(0, 5150));
+        assertEquals(333_333, good.score());
+    }
+
+    @Test
+    void holdIsSettledExactlyOnce() {
+        Osu4kGameState g = holdState();
+        g.press(0, 5000);
+        assertEquals(0, g.judgedCount());
+        assertEquals(0, g.judgmentCount(Judgment.PERFECT));
+        assertEquals(Judgment.PERFECT, g.release(0, 5500));
+        assertEquals(1, g.judgedCount());
+        assertEquals(1, g.judgmentCount(Judgment.PERFECT));
+        assertEquals(1, g.judgmentCount(Judgment.PERFECT)
+                + g.judgmentCount(Judgment.GREAT)
+                + g.judgmentCount(Judgment.GOOD)
+                + g.judgmentCount(Judgment.MISS));
     }
 
     @Test
@@ -397,8 +494,9 @@ class Osu4kGameStateTest {
         g.update(4990);
         g.press(0, 5000);       // perfect hold head
         g.release(0, 5100);     // 400ms before the 5500 tail -> miss
-        assertEquals(1, g.judgmentCount(Judgment.PERFECT));
+        assertEquals(0, g.judgmentCount(Judgment.PERFECT));
         assertEquals(1, g.judgmentCount(Judgment.MISS));
+        assertEquals(1, g.judgedCount());
     }
 
     @Test
