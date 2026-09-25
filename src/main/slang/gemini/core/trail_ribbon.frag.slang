@@ -6,9 +6,9 @@ out vec4 fragColor;
 
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;
+    mat4 TextureMat;
     vec4 ColorModulator;
     vec3 ModelOffset;
-    mat4 TextureMat;
 };
 
 #define PI 3.14159265359

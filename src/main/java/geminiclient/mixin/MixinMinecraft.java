@@ -22,7 +22,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Minecraft.class)
 public class MixinMinecraft {
-    @Inject(method = "<init>",at = @At("TAIL"))
+    /** 26.3 构造器在 return 前就渲染首帧，TAIL 太晚：那一帧的 mixin 会读到 null 的模块表，故挂在首帧之前。 */
+    @Inject(method = "<init>", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/Minecraft;renderFrame(Z)V", shift = At.Shift.BEFORE))
     private static void faithsRegister(GameConfig gameConfig, CallbackInfo ci) {
         Gemini.init();
     }

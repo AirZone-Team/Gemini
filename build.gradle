@@ -8,7 +8,7 @@ import java.security.MessageDigest
 plugins {
     id 'java-library'
     id 'maven-publish'
-    id 'net.neoforged.gradle.userdev' version '7.1.38'
+    id 'net.neoforged.gradle.userdev' version '7.1.39'
     id 'gemini.slang'
 }
 
@@ -55,7 +55,7 @@ def videoNativeClassifier = providers.gradleProperty('videoNativeClassifier').ge
                 .replace('macos-', 'macosx-')
                 .replace('-aarch64', '-arm64'))
 
-// Mojang ships Java 25 to end users in 26.1.2, so mods should target Java 25.
+// Mojang ships Java 25 to end users in 26.3, so mods should target Java 25.
 java.toolchain.languageVersion = JavaLanguageVersion.of(25)
 
 //minecraft.accessTransformers.file rootProject.file('src/main/resources/META-INF/accesstransformer.cfg')
@@ -183,7 +183,7 @@ tasks.named('test') {
     }
 }
 
-// UserDev 7.1.38 provides `jarJar` as a Jar task and already wires it into
+// UserDev 7.1.39 provides `jarJar` as a Jar task and already wires it into
 // assemble/runtimeElements. Give both artifacts explicit roles so the plain
 // development JAR cannot be mistaken for the installable distribution.
 tasks.named('jar', Jar) {

@@ -2,9 +2,9 @@
 // GLSL-compatible spellings below are provided by Slang's compatibility module.
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;
+    mat4 TextureMat;
     vec4 ColorModulator;
     vec3 ModelOffset;
-    mat4 TextureMat;
 };
 
 in vec4 vertexColor;

@@ -47,7 +47,7 @@ public class Radar extends Module {
     public final ColorValue borderColor     = new ColorValue("Border", 0xFF333333);
     public final ColorValue playerDotColor  = new ColorValue("Player Dot", 0xFF00BBFF);
     public final ColorValue playerRingColor = new ColorValue("Player Ring", 0x99FFFFFF);
-    public final ColorValue gridColor       = new ColorValue("Grid", 0x18FFFFFF);
+    public final ColorValue gridColor       = new ColorValue("Grid Tint", 0x18FFFFFF);
     public final ColorValue playerColor     = new ColorValue("Player", 0xFFFF4444);
     public final ColorValue mobColor        = new ColorValue("Mob", 0xFFFF6622);
     public final ColorValue animalColor     = new ColorValue("Animal", 0xFF43E096);

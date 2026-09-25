@@ -176,7 +176,7 @@ public class BackTrack extends Module {
 
         // 被追踪玩家被移除 / 自己重登录（被传送）→ 请求重置，积压包由渲染线程释放
         if (packet instanceof ClientboundRemoveEntitiesPacket remove) {
-            if (remove.getEntityIds().contains(tracked)) {
+            if (remove.entityIds().contains(tracked)) {
                 this.resetRequested = true;
                 return;
             }
@@ -323,10 +323,23 @@ public class BackTrack extends Module {
     private Vec3 decodeMove(ClientboundMoveEntityPacket move, Entity entity) {
         Vec3 base = this.decodeBase;
         if (base == null) base = entity.position(); // 激活后首个位置包以实体当前位置为基准
-        Vec3 pos = new Vec3(
-                decodeAxis(base.x, move.getXa()),
-                decodeAxis(base.y, move.getYa()),
-                decodeAxis(base.z, move.getZa()));
+        // 26.3 起单个位置包可携带多个时间步的增量，逐步累加才能得到终点位置。
+        Vec3 pos = switch (move.getPositionDelta()) {
+            case VecDelta.Linear(short xa, short ya, short za) -> new Vec3(
+                    decodeAxis(base.x, xa),
+                    decodeAxis(base.y, ya),
+                    decodeAxis(base.z, za));
+            case VecDelta.Stepped(java.util.List<VecDelta.Stepped.DeltaStep> steps) -> {
+                Vec3 cursor = base;
+                for (VecDelta.Stepped.DeltaStep step : steps) {
+                    cursor = new Vec3(
+                            decodeAxis(cursor.x, step.xa()),
+                            decodeAxis(cursor.y, step.ya()),
+                            decodeAxis(cursor.z, step.za()));
+                }
+                yield cursor;
+            }
+        };
         this.decodeBase = pos;
         return pos;
     }

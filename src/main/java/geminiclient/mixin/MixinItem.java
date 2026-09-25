@@ -4,6 +4,7 @@ import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.EventTypes;
 import geminiclient.gemini.event.events.impl.moveFixEvent.UseItemRaytraceEvent;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.ClipContext;
@@ -18,6 +19,6 @@ public class MixinItem {
     private static Vec3 hookUseItemRayTrace(Vec3 original, Level level, Player player, ClipContext.Fluid fluid) {
         UseItemRaytraceEvent event = new UseItemRaytraceEvent(player.getYRot(), player.getXRot());
         Gemini.eventManager.post(EventTypes.USE_ITEM_RAY_TRACE, event);
-        return player.calculateViewVector(event.getPitch(), event.getYaw());
+        return Entity.calculateViewVector(event.getPitch(), event.getYaw());
     }
 }

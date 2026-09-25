@@ -1,23 +1,23 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 import geminiclient.gemini.customRenderer.GeminiRenderTargets;
-import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
-import com.mojang.blaze3d.shaders.UniformType;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.pipeline.UniformType;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.FilterMode;
-import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.renderpearl.api.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import net.minecraft.client.renderer.RenderPipelines;
 
 import java.util.Optional;
@@ -270,12 +270,12 @@ public final class KillEffectPostProcessor {
                 () -> label,
                 toMainFb ? fb.getColorTextureView() : dest,
                 toMainFb ? Optional.empty() : Optional.empty())) {
-            pass.setPipeline(pipe);
+            pass.setPipeline(RenderSystem.getCompiledPipeline(pipe));
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("PostUniforms", uniforms);
-            pass.bindTexture("SceneSampler", sceneSrc,
+            pass.setUniform("SceneSampler", sceneSrc,
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
-            pass.bindTexture("BloomSampler", bloomSrc,
+            pass.setUniform("BloomSampler", bloomSrc,
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
             pass.draw(3, 1, 0, 0);
         }
@@ -302,14 +302,14 @@ public final class KillEffectPostProcessor {
                                           String label) {
         try (RenderPass pass = encoder.createRenderPass(
                 () -> label, dest, Optional.empty())) {
-            pass.setPipeline(pipe);
+            pass.setPipeline(RenderSystem.getCompiledPipeline(pipe));
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("PostUniforms", uniforms);
-            pass.bindTexture("SceneSampler", sceneSrc,
+            pass.setUniform("SceneSampler", sceneSrc,
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
-            pass.bindTexture("BloomSampler", bloomSrc,
+            pass.setUniform("BloomSampler", bloomSrc,
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
-            pass.bindTexture("DepthSampler", depthSrc,
+            pass.setUniform("DepthSampler", depthSrc,
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
             pass.draw(3, 1, 0, 0);
         }

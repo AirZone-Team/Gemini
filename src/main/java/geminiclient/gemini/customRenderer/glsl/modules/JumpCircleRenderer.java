@@ -1,17 +1,17 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
-import com.mojang.blaze3d.GpuFormat;
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.platform.CompareOp;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
 import geminiclient.gemini.customRenderer.GeminiTesselator;
-import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.LayeringTransform;

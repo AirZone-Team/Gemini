@@ -3,7 +3,7 @@
 // Brightness threshold extraction pass.
 // Outputs only pixels whose luminance exceeds the threshold.
 // Below-threshold pixels are set to transparent black.
-// Uses the engine's Globals UBO for screen-size info.
+// The engine binds SamplerInfo with the input/output target sizes.
 
 uniform sampler2D InSampler;
 

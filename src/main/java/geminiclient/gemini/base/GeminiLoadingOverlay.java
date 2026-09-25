@@ -1,6 +1,6 @@
 package geminiclient.gemini.base;
 
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import geminiclient.gemini.customRenderer.glsl.CustomRendererRegistry;
 import geminiclient.gemini.customRenderer.glsl.SdfUIRenderer;
@@ -41,20 +41,14 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
  * （{@link #drawMenuMark}）。</p>
  *
  * <p>渲染约束：星形与环形优先走 {@link SdfUIRenderer#drawLoaderStar} /
- * {@link SdfUIRenderer#drawLoaderRing} 的 fwidth 反走样路径。{@code gemini:shaders/**}
- * 要到 {@code ShaderManager} 自己的重载监听器 apply 之后才进它的源表，那已经是资源重载
- * 收尾阶段；若只等源表，整个加载动画都会退化成有棱角的 CPU 网格。因此 {@link
- * #sdfReady()} 同时接受 {@link CustomRendererRegistry#prepareLoaderSdfPipelines()}
- * 的结果 —— 它用直连 mod 类路径读到的着色器源提前把这两条管线编译出来，让抗锯齿从加载期
- * 就开始。两条途径都没就绪时绝不能提交自定义管线：未就绪的管线不会静默不出图，
- * {@code VulkanRenderPass#setPipeline} 会直接抛 {@code IllegalStateException} 崩帧，
- * 而取不到源缓存下的 {@code INVALID} 中间模块还会让后续 {@code ShaderManager#apply}
- * 的静态管线预加载以 "Failed to load required shader programs" 中断启动。
- * 就绪前的兜底是纯 CPU 几何：三角形扇（填充）与条带（描边、环带）以 POSITION_COLOR
- * 四边形提交——{@link #STAR_PIPELINE} 仅从 {@code GUI_SNIPPET} 派生并关闭背面剔除，
- * 复用原版 {@code core/gui} 着色器（{@code loadCriticalShaders} 已把它连同
- * {@code GUI}/{@code GUI_TEXTURED} 一起编进设备缓存），不引入任何新着色器；
- * 边缘质量由离散段数决定，无抗锯齿。</p>
+ * {@link SdfUIRenderer#drawLoaderRing} 的 fwidth 反走样路径，但 {@code gemini:shaders/**}
+ * 要等初始资源重载把 {@code ShaderManager} 自己的管线缓存装上去才编得出来——那已经是重载收尾
+ * 阶段，所以加载动画全程走 CPU 几何兜底：三角形扇（填充）与条带（描边、环带）以 POSITION_COLOR
+ * 四边形提交——{@link #STAR_PIPELINE} 仅从 {@code GUI_SNIPPET} 派生并关闭背面剔除，复用原版
+ * {@code core/gui} 着色器（{@code loadCriticalShaders} 已把它连同 {@code GUI}/{@code
+ * GUI_TEXTURED} 一起编进读原版包的兜底设备缓存），不引入任何新着色器；边缘质量由离散段数决定，
+ * 无抗锯齿。重载就绪前绝不能提交自定义管线：兜底缓存看不见 mod 着色器源，编译返回 null 后
+ * {@code RenderSystem#getCompiledPipeline} 会直接抛 {@code IllegalStateException} 崩帧。</p>
  *
  * <p>生命周期与原版一致：{@link #tick()} 在重载完成后调用
  * {@code checkExceptions()} 与 onFinish 消费者（失败回滚 / 成功流转主菜单），
@@ -311,22 +305,14 @@ public class GeminiLoadingOverlay extends Overlay {
     }
 
     /**
-     * 进度条能否走 SDF，取决于 {@code ShaderManager} 是否已把 {@code gemini} 的着色器
-     * 源发布到设备懒编译可读的源表（判据见 {@link CustomRendererRegistry#areShadersReady()}，
-     * 只查源表、不碰设备缓存）。就绪前必须走 CPU 网格：此时提交自定义管线会让设备用取不到
-     * 源的默认 ShaderSource 编译，invalid 结果会留在设备缓存里直到下一次 clearPipelineCache，
-     * 期间整条管线不出图。直连 {@code precompilePipeline} 探测同样危险，故已移除。
-     */
-    /**
-     * 进度条能否走 SDF：{@code ShaderManager} 已发布源表就算就绪；还没发布时，只要
-     * {@link CustomRendererRegistry#prepareLoaderSdfPipelines()} 用直连类路径的着色器源
-     * 把星形/环形两条管线提前编译成功，也可以就绪 —— 这样 fwidth 反走样从加载期就开始
-     * 生效，而不是等整个资源重载结束。两者都没成功就必须走 CPU 网格：未就绪的自定义管线
-     * 一旦提交，{@code VulkanRenderPass#setPipeline} 会直接抛异常崩帧。
+     * 进度条能否走 SDF：判据见 {@link CustomRendererRegistry#areShadersReady()}——初始资源
+     * 重载 apply 之前设备只有读原版包的兜底管线缓存，编译不出 {@code gemini:} 管线，提交即
+     * 崩帧。所以整个加载动画走 CPU 网格兜底（三角形扇填充 + 条带描边/环带，
+     * {@link #STAR_PIPELINE} 复用原版 {@code core/gui} 着色器），无抗锯齿；重载结束后才轮到
+     * {@link SdfUIRenderer#drawLoaderStar} / {@link SdfUIRenderer#drawLoaderRing} 的 fwidth 路径。
      */
     private static boolean sdfReady() {
-        if (!CustomRendererRegistry.areShadersReady()
-                && !CustomRendererRegistry.prepareLoaderSdfPipelines()) {
+        if (!CustomRendererRegistry.areShadersReady()) {
             return false;
         }
         if (!sdfLogged) {

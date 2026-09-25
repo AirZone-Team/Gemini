@@ -2,10 +2,10 @@ package geminiclient.gemini.customRenderer.glsl;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
@@ -68,8 +68,8 @@ public class CustomAcrylicRenderer {
             .withVertexShader(geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier("core/glow_gui"))
             .withFragmentShader(geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier("core/acrylic_blur"))
             .withBindGroupLayout(GeminiRenderPipelines.samplers("Sampler0", "Sampler1"))
-            .withColorTargetState(new com.mojang.blaze3d.pipeline.ColorTargetState(
-                    com.mojang.blaze3d.pipeline.BlendFunction.TRANSLUCENT))
+            .withColorTargetState(new com.mojang.renderpearl.api.pipeline.ColorTargetState(
+                    com.mojang.renderpearl.api.pipeline.BlendFunction.TRANSLUCENT))
             .withVertexBinding(0, com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_TEX_COLOR)
             .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .build();

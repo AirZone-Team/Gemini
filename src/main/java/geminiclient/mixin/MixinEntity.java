@@ -7,6 +7,7 @@ import geminiclient.gemini.event.events.impl.EntityRemoveEvent;
 import geminiclient.gemini.event.events.impl.moveFixEvent.RayTraceEvent;
 import geminiclient.gemini.event.events.impl.StrafeEvent;
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -29,7 +30,15 @@ public abstract class MixinEntity {
     public abstract float getViewYRot(float a);
 
     @Shadow
-    public abstract Vec3 calculateViewVector(float xRot, float yRot);
+    public static Vec3 calculateViewVector(float xRot, float yRot) {
+        float realXRot = xRot * (float) (Math.PI / 180.0);
+        float realYRot = -yRot * (float) (Math.PI / 180.0);
+        float yCos = Mth.cos(realYRot);
+        float ySin = Mth.sin(realYRot);
+        float xCos = Mth.cos(realXRot);
+        float xSin = Mth.sin(realXRot);
+        return new Vec3(ySin * xCos, -xSin, yCos * xCos);
+    }
     @ModifyArg(method = "moveRelative",at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getInputVector(Lnet/minecraft/world/phys/Vec3;FF)Lnet/minecraft/world/phys/Vec3;",ordinal = 0),index = 2)
     public float strafe(float motionScaler) {
         StrafeEvent strafeEvent = new StrafeEvent(motionScaler);

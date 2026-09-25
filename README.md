@@ -11,8 +11,8 @@ Gemini 是一个基于 **NeoForge** 的 Minecraft 客户端研究项目，重点
 | --- | --- |
 | Mod ID | `gemini` |
 | 当前版本 | `1.0-SNAPSHOT` |
-| Minecraft | `26.2` |
-| Mod Loader | NeoForge `26.2.0.59` |
+| Minecraft | `26.3` |
+| Mod Loader | NeoForge `26.3.0.10-beta` |
 | Java | 25 |
 | 主要作者 | XeContrast / AirZone-Team |
 | 许可证 | 见 [LICENSE](LICENSE) |
@@ -33,8 +33,8 @@ Gemini 是一个基于 **NeoForge** 的 Minecraft 客户端研究项目，重点
 
 - Java 25
 - Gradle Wrapper，仓库已包含 `gradlew` / `gradlew.bat`
-- Minecraft `26.2`
-- NeoForge `26.2.0.59`
+- Minecraft `26.3`
+- NeoForge `26.3.0.10-beta`
 
 ## 构建
 

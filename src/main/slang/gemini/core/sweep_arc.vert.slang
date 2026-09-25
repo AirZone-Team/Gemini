@@ -21,9 +21,9 @@ out vec4 vColor;
 
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;
+    mat4 TextureMat;
     vec4 ColorModulator;
     vec3 ModelOffset;
-    mat4 TextureMat;
 };
 
 layout(std140) uniform Projection {

@@ -1,29 +1,29 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
-import com.mojang.blaze3d.IndexType;
+import com.mojang.renderpearl.api.pipeline.IndexType;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.BlendFactor;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
+import com.mojang.renderpearl.api.pipeline.BlendFactor;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
 import geminiclient.gemini.customRenderer.GeminiTesselator;
-import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 import geminiclient.gemini.modules.impl.visual.trail.TrailPoint;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -239,18 +239,14 @@ public final class TrailRenderer {
                     material);
 
             RenderTarget target = mc.gameRenderer.mainRenderTarget();
-            GpuTextureView colorTexture = RenderSystem.outputColorTextureOverride != null
-                    ? RenderSystem.outputColorTextureOverride : target.getColorTextureView();
-            GpuTextureView depthTexture = target.useDepth
-                    ? (RenderSystem.outputDepthTextureOverride != null
-                    ? RenderSystem.outputDepthTextureOverride : target.getDepthTextureView())
-                    : null;
+            GpuTextureView colorTexture = target.getColorTextureView();
+            GpuTextureView depthTexture = target.hasDepth() ? target.getDepthTextureView() : null;
 
             var encoder = RenderSystem.getDevice().createCommandEncoder();
             try (RenderPass pass = encoder.createRenderPass(
                     () -> "TrailRibbon", colorTexture, Optional.empty(),
                     depthTexture, OptionalDouble.empty())) {
-                pass.setPipeline(pipeline);
+                pass.setPipeline(RenderSystem.getCompiledPipeline(pipeline));
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("DynamicTransforms", dynamicTransforms);
                 pass.setVertexBuffer(0, vertices.slice());

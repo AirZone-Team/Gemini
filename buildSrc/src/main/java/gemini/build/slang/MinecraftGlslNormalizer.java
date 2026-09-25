@@ -13,7 +13,16 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class MinecraftGlslNormalizer {
-    static final String VERSION = "2";
+    /** Bumped when the emitted GLSL contract changes; keys the shader compile cache. */
+    static final String VERSION = "3";
+
+    /**
+     * 26.3 compiles every pipeline source through shaderc with a Vulkan 1.2 target env, so
+     * cross-stage interfaces must keep their explicit {@code layout(location)} — and output
+     * locations need this extension enabled at GLSL 330, exactly like vanilla's own shaders.
+     */
+    static final String PREAMBLE = "#version 330 core\n"
+            + "#extension GL_ARB_separate_shader_objects : require\n";
 
     enum ShaderStage {
         VERTEX,
@@ -46,15 +55,16 @@ final class MinecraftGlslNormalizer {
     private static final Pattern LEVEL_ASSIGNMENT = Pattern.compile(
             ",\\s*\\(\\(numberOfLevels_\\d+\\)\\s*=\\s*textureQueryLevels\\([^\\n]+\\)\\);");
     private static final Pattern FORBIDDEN = Pattern.compile(
-            "layout\\(location|layout\\(set\\s*=|block_SLANG_ParameterGroup_|gl_BaseVertex|gl_BaseInstance|numberOfLevels_\\d+");
+            "layout\\(set\\s*=|block_SLANG_ParameterGroup_|gl_BaseVertex|gl_BaseInstance|numberOfLevels_\\d+");
 
     private MinecraftGlslNormalizer() {
     }
 
     static String normalize(String source, ShaderStage stage) {
         String text = source.replace("\r\n", "\n").replace('\r', '\n');
-        text = VERSION_LINE.matcher(text).replaceFirst("#version 330 core");
-        if (!text.startsWith("#version 330 core")) {
+        text = VERSION_LINE.matcher(text).replaceFirst(
+                Matcher.quoteReplacement(PREAMBLE.stripTrailing()));
+        if (!text.startsWith(PREAMBLE.stripTrailing())) {
             throw new GradleException("Generated GLSL does not declare a version");
         }
         text = DRAW_PARAMETERS_EXTENSION.matcher(text).replaceAll("");
@@ -64,8 +74,8 @@ final class MinecraftGlslNormalizer {
         text = PARAMETER_BLOCK.matcher(text).replaceAll("$1");
         text = normalizeUniformBlocks(text);
         text = normalizeInterfaces(text, stage);
-        text = VERTEX_INDEX.matcher(text).replaceAll("uint(gl_VertexID)");
-        text = INSTANCE_INDEX.matcher(text).replaceAll("uint(gl_InstanceID)");
+        text = VERTEX_INDEX.matcher(text).replaceAll("uint(gl_VertexIndex)");
+        text = INSTANCE_INDEX.matcher(text).replaceAll("uint(gl_InstanceIndex)");
         text = LEVEL_DECLARATION.matcher(text).replaceAll("");
         text = LEVEL_ASSIGNMENT.matcher(text).replaceAll(";");
         Matcher forbidden = FORBIDDEN.matcher(text);
@@ -132,7 +142,7 @@ final class MinecraftGlslNormalizer {
             } else if (stage == ShaderStage.FRAGMENT && direction.equals("out")) {
                 fragmentOutputs++;
                 if (fragmentOutputs > 1 || location != 0) {
-                    throw new GradleException("GLSL 330 supports one unbound fragment output at location 0");
+                    throw new GradleException("Only one fragment output at location 0 is emitted");
                 }
                 newName = oldName;
             } else {
@@ -147,7 +157,8 @@ final class MinecraftGlslNormalizer {
                 throw new GradleException("Shader interface " + oldName + " maps to multiple names");
             }
             matcher.appendReplacement(output, Matcher.quoteReplacement(
-                    interpolation + direction + " " + type + " " + newName + ";"));
+                    "layout(location = " + location + ") "
+                            + interpolation + direction + " " + type + " " + newName + ";"));
         }
         matcher.appendTail(output);
         String text = output.toString();

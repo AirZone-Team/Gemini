@@ -1,23 +1,22 @@
 package geminiclient.gemini.customRenderer.glsl;
 
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 import geminiclient.gemini.customRenderer.GeminiRenderTargets;
-import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
-import com.mojang.blaze3d.shaders.ShaderSource;
-import com.mojang.blaze3d.shaders.UniformType;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.pipeline.UniformType;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.FilterMode;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 
@@ -114,10 +113,10 @@ public final class CustomBlurRenderer {
      * render doesn't pay the compile/link cost. Repeat calls are cheap: the GL
      * pipeline cache deduplicates them.
      */
-    public static void precompile(ShaderSource shaderSource) {
+    public static void precompile() {
         ensureProgram();
-        RenderSystem.getDevice().precompilePipeline(pipeline, shaderSource);
-        RenderSystem.getDevice().precompilePipeline(copyPipeline, shaderSource);
+        RenderSystem.getCompiledPipelineNullable(pipeline);
+        RenderSystem.getCompiledPipelineNullable(copyPipeline);
     }
 
     // ========================
@@ -229,10 +228,10 @@ public final class CustomBlurRenderer {
                 input.getColorTextureView(),
                 Optional.empty()
         )) {
-            copyPass.setPipeline(copyPipeline);
+            copyPass.setPipeline(RenderSystem.getCompiledPipeline(copyPipeline));
             copyPass.enableScissor(copyX, copyY, copyWidth, copyHeight);
             RenderSystem.bindDefaultUniforms(copyPass);
-            copyPass.bindTexture(
+            copyPass.setUniform(
                     "InputSampler",
                     fb.getColorTextureView(),
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST)
@@ -260,11 +259,11 @@ public final class CustomBlurRenderer {
                 fb.getColorTextureView(),
                 Optional.empty()
         )) {
-            renderPass.setPipeline(pipeline);
+            renderPass.setPipeline(RenderSystem.getCompiledPipeline(pipeline));
             renderPass.enableScissor(scissorX, scissorY, scissorWidth, scissorHeight);
             RenderSystem.bindDefaultUniforms(renderPass);
             renderPass.setUniform("BlurUniforms", uniforms);
-            renderPass.bindTexture(
+            renderPass.setUniform(
                     "InputSampler",
                     input.getColorTextureView(),
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR)

@@ -337,6 +337,7 @@ public final class I18n {
         pair("Ghost Color", "幻影颜色", "Ghost Color");
         pair("Glow", "发光", "Glow");
         pair("Grid", "网格", "Grid");
+        pair("Grid Tint", "网格颜色", "Grid Tint");
         pair("Guide Animation", "引导动画", "Guide Animation");
         pair("Guide End", "引导末端", "Guide End");
         pair("Guide Glow", "引导发光", "Guide Glow");

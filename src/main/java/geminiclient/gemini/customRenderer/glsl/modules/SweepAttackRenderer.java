@@ -1,36 +1,36 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
-import com.mojang.blaze3d.IndexType;
+import com.mojang.renderpearl.api.pipeline.IndexType;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 import geminiclient.gemini.customRenderer.GeminiRenderTargets;
 
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
-import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.BlendFactor;
-import com.mojang.blaze3d.shaders.UniformType;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
+import com.mojang.renderpearl.api.pipeline.BlendFactor;
+import com.mojang.renderpearl.api.pipeline.UniformType;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.FilterMode;
-import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.renderpearl.api.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
 import geminiclient.gemini.customRenderer.GeminiTesselator;
-import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
 import org.joml.Matrix4f;
@@ -660,17 +660,13 @@ public final class SweepAttackRenderer {
                     new Matrix4f(), new Vector4f(1f, 1f, 1f, 1f),
                     new Vector3f(time, 0f, 0f), new Matrix4f());
             RenderTarget target = mc.gameRenderer.mainRenderTarget();
-            GpuTextureView colorTexture = RenderSystem.outputColorTextureOverride != null
-                    ? RenderSystem.outputColorTextureOverride : target.getColorTextureView();
-            GpuTextureView depthTexture = target.useDepth
-                    ? (RenderSystem.outputDepthTextureOverride != null
-                        ? RenderSystem.outputDepthTextureOverride : target.getDepthTextureView())
-                    : null;
+            GpuTextureView colorTexture = target.getColorTextureView();
+            GpuTextureView depthTexture = target.hasDepth() ? target.getDepthTextureView() : null;
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             try (RenderPass pass = encoder.createRenderPass(
                     () -> "Sweeping Attack VFX", colorTexture, Optional.empty(),
                     depthTexture, OptionalDouble.empty())) {
-                pass.setPipeline(pipeline);
+                pass.setPipeline(RenderSystem.getCompiledPipeline(pipeline));
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("DynamicTransforms", transforms);
                 pass.setUniform("SweepUniforms", uniforms);
@@ -707,10 +703,10 @@ public final class SweepAttackRenderer {
         try (RenderPass pass = encoder.createRenderPass(
                 () -> "Sweep Attack Post FX",
                 target.getColorTextureView(), Optional.empty())) {
-            pass.setPipeline(SWEEP_POST_PIPE);
+            pass.setPipeline(RenderSystem.getCompiledPipeline(SWEEP_POST_PIPE));
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("SweepPostUniforms", postUniforms);
-            pass.bindTexture("SceneSampler", sceneCopy.getColorTextureView(),
+            pass.setUniform("SceneSampler", sceneCopy.getColorTextureView(),
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
             pass.draw(3, 1, 0, 0);
         }

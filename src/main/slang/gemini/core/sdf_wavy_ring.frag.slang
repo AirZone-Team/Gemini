@@ -41,9 +41,9 @@
 
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;
+    mat4 TextureMat;
     vec4 ColorModulator;
     vec3 ModelOffset;
-    mat4 TextureMat;
 };
 
 in vec4 vertexColor;   // 垂直渐变：上 = 弧起始浅紫，下 = 深紫

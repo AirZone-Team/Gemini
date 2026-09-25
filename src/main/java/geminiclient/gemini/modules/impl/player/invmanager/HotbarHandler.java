@@ -84,7 +84,7 @@ public class HotbarHandler implements MinecraftInstance {
         ItemStack best = InvUtils.getBestShovel();
         ItemStack current = mc.player.getInventory().getItem(slot);
         if (best != null && (InvUtils.getToolScore(best) > InvUtils.getToolScore(current)
-                || !(current.getItem() instanceof ShovelItem))) {
+                || !(current.is(ItemTags.SHOVELS)))) {
             return actions.swapItem(slot, best);
         }
         return false;

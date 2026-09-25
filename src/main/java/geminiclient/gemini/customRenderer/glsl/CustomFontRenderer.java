@@ -2,11 +2,11 @@ package geminiclient.gemini.customRenderer.glsl;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import geminiclient.gemini.customRenderer.glsl.slug.SlugGeometry;

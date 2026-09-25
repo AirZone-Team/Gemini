@@ -48,6 +48,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.IdentityHashMap;
 import java.util.Map;
+import net.minecraft.world.item.component.SwingAnimation;
 
 public class Scaffold extends Module {
 
@@ -354,7 +355,7 @@ public class Scaffold extends Module {
             if (result.consumesAction()) {
                 recordPlacementYawChange();
                 if (swingHand.enabled) {
-                    mc.player.swing(hand);
+                    mc.player.swing(hand, SwingAnimation.DEFAULT, false);
                 }
             }
         } finally {
@@ -754,7 +755,7 @@ public class Scaffold extends Module {
         long window = mc.getWindow().handle();
         boolean physicallyDown = key.getType() == InputConstants.Type.MOUSE
                 ? GLFW.glfwGetMouseButton(window, key.getValue()) == GLFW.GLFW_PRESS
-                : InputConstants.isKeyDown(mc.getWindow(), key.getValue());
+                : InputConstants.isKeyDown(key.getValue());
         mc.options.keyShift.setDown(physicallyDown);
         safeWalkPressed = false;
     }

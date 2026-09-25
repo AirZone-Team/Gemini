@@ -1,18 +1,18 @@
 package geminiclient.gemini.customRenderer.glsl;
 
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
-import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.shaders.UniformType;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.pipeline.UniformType;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
@@ -119,7 +119,7 @@ public final class InfiniteGridRenderer {
                 fb.getColorTextureView(),
                 Optional.empty()
         )) {
-            renderPass.setPipeline(pipeline);
+            renderPass.setPipeline(RenderSystem.getCompiledPipeline(pipeline));
             RenderSystem.bindDefaultUniforms(renderPass);
             renderPass.setUniform("GridUniforms", uniforms);
             renderPass.draw(3, 1, 0, 0);

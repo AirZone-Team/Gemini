@@ -1,10 +1,6 @@
 package geminiclient.gemini.customRenderer.glsl;
 
-import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.shaders.ShaderSource;
-import com.mojang.blaze3d.shaders.ShaderType;
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import geminiclient.gemini.customRenderer.glsl.modules.BlackHolePetRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.JumpCircleRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.KillAuraIndicatorRenderer;
@@ -29,17 +25,8 @@ import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.GlowRenderer;
 import geminiclient.gemini.customRenderer.glsl.InfiniteGridRenderer;
 import net.minecraft.client.Minecraft;
-import net.minecraft.resources.Identifier;
 import net.neoforged.neoforge.client.event.RegisterRenderPipelinesEvent;
-import org.apache.commons.io.IOUtils;
-import org.jspecify.annotations.Nullable;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -57,119 +44,29 @@ public final class CustomRendererRegistry {
 
     private CustomRendererRegistry() {}
 
-    /** 加载画面 SDF 管线是否已由 {@link #prepareLoaderSdfPipelines()} 提前编译成功。 */
-    private static volatile boolean loaderSdfReady;
+    /** 自定义管线是否已可安全提交；初始重载 apply 过一次就单调为真。 */
+    private static volatile boolean pipelinesResolvable;
 
     /**
-     * Whether the initial resource reload has published Gemini's generated
-     * shader sources. Persisted HUD modules can begin rendering before that
-     * reload completes; submitting a custom pipeline in that window throws
-     * {@code IllegalStateException: Pipeline is not valid} out of
-     * {@code VulkanRenderPass#setPipeline}, and the {@code INVALID} intermediary
-     * module cached under that shader key then makes the later
-     * {@code ShaderManager#apply} preload fail with "Failed to load required
-     * shader programs". Use {@link #prepareLoaderSdfPipelines()} instead of
-     * submitting a pipeline that may not have sources yet.
+     * 能否提交 {@code gemini:} 自定义管线。
+     *
+     * <p>初始重载 apply 之前，设备只用 {@code GameRenderer#preloadUiShader} 装的兜底管线缓存，
+     * 而它读的是 {@code Minecraft#vanillaPackResources}（原版包），看不见 {@code assets/gemini/
+     * shaders/**}；此时提交自定义管线不会静默不出图，而是编译返回 null 后由
+     * {@code RenderSystem#getCompiledPipeline} 抛 {@code IllegalStateException} 崩掉这一帧。
+     * 所以判据是「首轮重载已完成」（该标记在 {@code ShaderManager#apply} 之后才置真），
+     * 不是「着色器源读得到」——类路径/模组 jar 从第一帧就读得到，等于没有判断。</p>
      */
     public static boolean areShadersReady() {
-        Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft == null) {
-            return false;
-        }
-
-        RenderPipeline sentinel = CustomFontRenderer.FONT_PIPELINE;
-        return minecraft.getShaderManager().getShader(
-                        sentinel.getVertexShader(), ShaderType.VERTEX) != null
-                && minecraft.getShaderManager().getShader(
-                        sentinel.getFragmentShader(), ShaderType.FRAGMENT) != null;
-    }
-
-    /**
-     * Compile the loading screen's star and ring SDF pipelines ahead of
-     * {@code ShaderManager}, from shader sources read straight off the mod
-     * classpath, so the {@code fwidth} anti-aliasing is live during the initial
-     * reload instead of only after it finishes. Safe to call every frame: once it
-     * succeeds it short-circuits, and {@code ShaderManager#apply} later clears the
-     * device caches and recompiles both pipelines from its own source table.
-     *
-     * <p><b>All</b> sources for <b>both</b> pipelines are resolved before a single
-     * compile is attempted. That ordering is load-bearing: a pipeline whose source
-     * cannot be found compiles to {@code INVALID}, {@code VulkanRenderPass} then
-     * throws on the first frame that draws it, and the {@code INVALID} intermediary
-     * module stays cached under {@code (id, type, defines)} until
-     * {@code ShaderManager#apply} — which preloads these very pipelines through the
-     * same cache and would abort startup. So a frame where anything is missing gives
-     * up entirely and retries next frame.</p>
-     *
-     * @return whether both pipelines are compiled and valid, hence safe to submit
-     */
-    public static boolean prepareLoaderSdfPipelines() {
-        if (loaderSdfReady) {
+        if (pipelinesResolvable) {
             return true;
         }
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft == null) {
+        if (minecraft == null || !minecraft.isGameLoadFinished()) {
             return false;
         }
-
-        RenderPipeline[] pipelines = {
-                SdfUIRenderer.SDF_STAR_PIPELINE, SdfUIRenderer.SDF_LOADER_RING_PIPELINE};
-        Map<ShaderKey, String> sources = new HashMap<>();
-        for (RenderPipeline pipeline : pipelines) {
-            if (!collectSource(sources, minecraft, pipeline.getVertexShader(), ShaderType.VERTEX)
-                    || !collectSource(sources, minecraft, pipeline.getFragmentShader(), ShaderType.FRAGMENT)) {
-                return false;
-            }
-        }
-
-        ShaderSource shaderSource = (id, type) -> sources.get(new ShaderKey(id, type));
-        try {
-            for (RenderPipeline pipeline : pipelines) {
-                CompiledRenderPipeline compiled = RenderSystem.getDevice().precompilePipeline(pipeline, shaderSource);
-                if (compiled == null || !compiled.isValid()) {
-                    return false;
-                }
-            }
-        } catch (Throwable t) {
-            return false;
-        }
-        loaderSdfReady = true;
+        pipelinesResolvable = true;
         return true;
-    }
-
-    private static boolean collectSource(Map<ShaderKey, String> sources, Minecraft minecraft,
-                                         Identifier id, ShaderType type) {
-        ShaderKey key = new ShaderKey(id, type);
-        if (sources.containsKey(key)) {
-            return true;
-        }
-        String source = readShaderSource(minecraft, id, type);
-        if (source == null) {
-            return false;
-        }
-        sources.put(key, source);
-        return true;
-    }
-
-    /** Mod classpath first (available from the very first frame), resource pack as fallback. */
-    private static @Nullable String readShaderSource(Minecraft minecraft, Identifier id, ShaderType type) {
-        Identifier file = type.idConverter().idToFile(id);
-        String classpathPath = "assets/" + file.getNamespace() + "/" + file.getPath();
-        try (InputStream in = CustomRendererRegistry.class.getClassLoader().getResourceAsStream(classpathPath)) {
-            if (in != null) {
-                return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            }
-        } catch (IOException ignored) {
-        }
-
-        try (Reader reader = minecraft.getResourceManager().getResourceOrThrow(file).openAsReader()) {
-            return IOUtils.toString(reader);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private record ShaderKey(Identifier id, ShaderType type) {
     }
 
     /**

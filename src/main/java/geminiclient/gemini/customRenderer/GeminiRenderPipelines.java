@@ -1,8 +1,8 @@
 package geminiclient.gemini.customRenderer;
 
-import com.mojang.blaze3d.pipeline.BindGroupLayout;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.shaders.UniformType;
+import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.UniformType;
 import net.minecraft.client.renderer.BindGroupLayouts;
 import net.minecraft.client.renderer.RenderPipelines;
 
@@ -10,14 +10,20 @@ import net.minecraft.client.renderer.RenderPipelines;
  * Shared pipeline layouts for Gemini's backend-neutral custom rendering.
  *
  * <p>Minecraft 26.2 replaced the individual uniform/sampler declarations on
- * {@link RenderPipeline.Builder} with explicit bind-group layouts. Keeping the
- * layouts here makes every custom pipeline use the same contract on OpenGL and
- * Vulkan.</p>
+ * {@link RenderPipeline.Builder} with explicit bind-group layouts, and 26.3
+ * folded samplers into the same {@code withUniform} entry point as
+ * {@link UniformType#COMBINED_IMAGE_SAMPLER}. Keeping the layouts here makes
+ * every custom pipeline use the same contract on OpenGL and Vulkan.</p>
  */
 public final class GeminiRenderPipelines {
+    /**
+     * 26.3 dropped the combined {@code MATRICES_PROJECTION} layout; the model-view
+     * and projection matrices now live in two separate uniform buffers.
+     */
     public static final RenderPipeline.Snippet MATRICES_PROJECTION_SNIPPET =
             RenderPipeline.builder(RenderPipelines.GLOBALS_SNIPPET)
-                    .withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+                    .withBindGroupLayout(BindGroupLayouts.PROJECTION)
+                    .withBindGroupLayout(BindGroupLayouts.DYNAMIC_TRANSFORMS)
                     .buildSnippet();
 
     private GeminiRenderPipelines() {
@@ -38,7 +44,7 @@ public final class GeminiRenderPipelines {
     public static BindGroupLayout samplers(String... names) {
         BindGroupLayout.Builder builder = BindGroupLayout.builder();
         for (String name : names) {
-            builder.withSampler(name);
+            builder.withUniform(name, UniformType.COMBINED_IMAGE_SAMPLER);
         }
         return builder.build();
     }
@@ -47,7 +53,7 @@ public final class GeminiRenderPipelines {
         BindGroupLayout.Builder builder = BindGroupLayout.builder()
                 .withUniform(uniform, UniformType.UNIFORM_BUFFER);
         for (String sampler : samplers) {
-            builder.withSampler(sampler);
+            builder.withUniform(sampler, UniformType.COMBINED_IMAGE_SAMPLER);
         }
         return builder.build();
     }

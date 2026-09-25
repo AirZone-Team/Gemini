@@ -1,9 +1,9 @@
 package geminiclient.gemini.base;
 
-import com.mojang.blaze3d.GpuFormat;
-import com.mojang.blaze3d.systems.GpuDevice;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.device.GpuDevice;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.renderpearl.api.textures.GpuTexture;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 
 import java.util.function.Supplier;

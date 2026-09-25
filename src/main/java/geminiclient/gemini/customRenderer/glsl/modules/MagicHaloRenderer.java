@@ -1,33 +1,33 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
-import com.mojang.blaze3d.IndexType;
+import com.mojang.renderpearl.api.pipeline.IndexType;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.BlendFactor;
-import com.mojang.blaze3d.shaders.UniformType;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
+import com.mojang.renderpearl.api.pipeline.BlendFactor;
+import com.mojang.renderpearl.api.pipeline.UniformType;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
 import geminiclient.gemini.customRenderer.GeminiTesselator;
-import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 import com.mojang.math.Axis;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -150,7 +150,7 @@ public final class MagicHaloRenderer {
         poseStack.pushPose();
         poseStack.translate(x - cx, y - cy, z - cz);
         if (Math.abs(settings.tiltDegrees()) > 0.001f) {
-            poseStack.mulPose(Axis.XP.rotationDegrees(settings.tiltDegrees()));
+            poseStack.mulPose(new Matrix4f().rotation(Axis.XP.rotationDegrees(settings.tiltDegrees())));
         }
         Matrix4f poseMatrix = poseStack.last().pose();
 
@@ -187,14 +187,8 @@ public final class MagicHaloRenderer {
                             new Matrix4f());
 
             RenderTarget mainTarget = mc.gameRenderer.mainRenderTarget();
-            GpuTextureView colorTexture = RenderSystem.outputColorTextureOverride != null
-                    ? RenderSystem.outputColorTextureOverride
-                    : mainTarget.getColorTextureView();
-            GpuTextureView depthTexture = mainTarget.useDepth
-                    ? (RenderSystem.outputDepthTextureOverride != null
-                        ? RenderSystem.outputDepthTextureOverride
-                        : mainTarget.getDepthTextureView())
-                    : null;
+            GpuTextureView colorTexture = mainTarget.getColorTextureView();
+            GpuTextureView depthTexture = mainTarget.hasDepth() ? mainTarget.getDepthTextureView() : null;
 
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             for (int pass = 0; pass < passCount; pass++) {
@@ -210,7 +204,7 @@ public final class MagicHaloRenderer {
                         depthTexture,
                         OptionalDouble.empty())) {
 
-                    renderPass.setPipeline(HALO_PIPE);
+                    renderPass.setPipeline(RenderSystem.getCompiledPipeline(HALO_PIPE));
                     RenderSystem.bindDefaultUniforms(renderPass);
                     renderPass.setUniform("DynamicTransforms", dynamicTransforms);
                     renderPass.setUniform("HaloUniforms", haloUniforms[pass]);

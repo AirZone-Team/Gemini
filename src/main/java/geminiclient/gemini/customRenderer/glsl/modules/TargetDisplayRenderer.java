@@ -2,14 +2,14 @@ package geminiclient.gemini.customRenderer.glsl.modules;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -77,10 +77,10 @@ public final class TargetDisplayRenderer {
             .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
             .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withColorTargetState(new ColorTargetState(new BlendFunction(
-                    com.mojang.blaze3d.platform.BlendFactor.SRC_ALPHA,
-                    com.mojang.blaze3d.platform.BlendFactor.ONE_MINUS_SRC_ALPHA,
-                    com.mojang.blaze3d.platform.BlendFactor.ONE,
-                    com.mojang.blaze3d.platform.BlendFactor.ZERO)))
+                    com.mojang.renderpearl.api.pipeline.BlendFactor.SRC_ALPHA,
+                    com.mojang.renderpearl.api.pipeline.BlendFactor.ONE_MINUS_SRC_ALPHA,
+                    com.mojang.renderpearl.api.pipeline.BlendFactor.ONE,
+                    com.mojang.renderpearl.api.pipeline.BlendFactor.ZERO)))
             .withCull(false)
             .build();
 

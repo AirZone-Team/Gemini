@@ -30,7 +30,7 @@ public class MixinClientPacketListener {
             target = "Lnet/minecraft/network/protocol/PacketUtils;ensureRunningOnSameThread(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketListener;Lnet/minecraft/network/PacketProcessor;)V",
             shift = At.Shift.AFTER), cancellable = true)
     private void onSweepParticle(ClientboundLevelParticlesPacket packet, CallbackInfo ci) {
-        if (packet.getParticle().getType() != ParticleTypes.SWEEP_ATTACK) {
+        if (packet.particle().getType() != ParticleTypes.SWEEP_ATTACK) {
             return;
         }
         SweepingAttackVFX module = Gemini.moduleManager.getModule(SweepingAttackVFX.class);
@@ -38,8 +38,8 @@ public class MixinClientPacketListener {
             return;
         }
         module.spawnSweepEffectFromParticle(
-                packet.getX(), packet.getY(), packet.getZ(),
-                packet.getXDist(), packet.getZDist());
+                packet.x(), packet.y(), packet.z(),
+                packet.xDist(), packet.zDist());
         ci.cancel();
     }
 }

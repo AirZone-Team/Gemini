@@ -21,6 +21,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
+import net.minecraft.world.item.component.SwingAnimation;
 
 /**
  * KillAura 入口：只负责事件编排（目标 → 瞄准点 → 旋转 → 点击 → 指示器），
@@ -101,7 +102,7 @@ public class KillAura extends Module {
                 // [修复] 使用固定的 nextAttackDelay 进行比较，而不是一直生成新随机数
                 if (targetManager.isClickDue()) {
                     mc.gameMode.attack(mc.player, targetManager.current());
-                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    mc.player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
                     targetManager.onAttack(mc.player.distanceTo(targetManager.current()));
                     indicators.onAttack();
                 }
@@ -109,7 +110,7 @@ public class KillAura extends Module {
                 // 原版冷却模式
                 if (mc.player.getAttackStrengthScale(0.5f) >= 1.0f) {
                     mc.gameMode.attack(mc.player, targetManager.current());
-                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    mc.player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
                     indicators.onAttack();
                 }
             }

@@ -1,8 +1,6 @@
 package geminiclient.gemini.customRenderer.glsl;
 
-import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.shaders.ShaderSource;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.systems.RenderSystem;
 import geminiclient.gemini.base.BackgroundSelectorScreen;
 import geminiclient.gemini.base.I18n;
@@ -82,7 +80,7 @@ public final class UiShaderWarmup {
 
             @Override
             protected void apply(Object preparations, ResourceManager manager, ProfilerFiller profiler) {
-                warmupPipelines(manager);
+                warmupPipelines();
                 warmupBlurPostChain();
                 CustomFontRenderer.flushPendingGlyphs();
             }
@@ -124,32 +122,22 @@ public final class UiShaderWarmup {
      * Compile every custom pipeline the client UI binds. Render-thread only
      * (device calls); safe to call repeatedly, caches make repeats cheap.
      */
-    public static void warmupPipelines(ResourceManager resourceManager) {
+    public static void warmupPipelines() {
         long start = System.nanoTime();
-        ShaderSource shaderSource = (id, type) -> {
-            Identifier location = type.idConverter().idToFile(id);
-            try (Reader reader = resourceManager.getResourceOrThrow(location).openAsReader()) {
-                return IOUtils.toString(reader);
-            } catch (IOException exception) {
-                LOGGER.error("[UiWarmup] Couldn't load {} shader source {}", type, location, exception);
-                return null;
-            }
-        };
-
         // ── Custom render pipelines (SLUG font + glow shadows + SDF rounded UI) ──
-        precompile("font", CustomFontRenderer.FONT_PIPELINE, shaderSource);
-        precompile("glow_rect", GlowRenderer.GLOW_PIPELINE, shaderSource);
-        precompile("sdf_rounded_rect", SdfUIRenderer.SDF_RECT_PIPELINE, shaderSource);
-        precompile("sdf_rounded_shadow", SdfUIRenderer.SDF_SHADOW_PIPELINE, shaderSource);
-        precompile("sdf_wavy_ring", SdfUIRenderer.SDF_WAVY_RING_PIPELINE, shaderSource);
-        precompile("sdf_md3_icon", SdfUIRenderer.SDF_ICON_PIPELINE, shaderSource);
-        precompile("sdf_loader_star", SdfUIRenderer.SDF_STAR_PIPELINE, shaderSource);
-        precompile("sdf_loader_ring", SdfUIRenderer.SDF_LOADER_RING_PIPELINE, shaderSource);
-        precompile("sdf_triangle", SdfUIRenderer.SDF_TRIANGLE_PIPELINE, shaderSource);
+        precompile("font", CustomFontRenderer.FONT_PIPELINE);
+        precompile("glow_rect", GlowRenderer.GLOW_PIPELINE);
+        precompile("sdf_rounded_rect", SdfUIRenderer.SDF_RECT_PIPELINE);
+        precompile("sdf_rounded_shadow", SdfUIRenderer.SDF_SHADOW_PIPELINE);
+        precompile("sdf_wavy_ring", SdfUIRenderer.SDF_WAVY_RING_PIPELINE);
+        precompile("sdf_md3_icon", SdfUIRenderer.SDF_ICON_PIPELINE);
+        precompile("sdf_loader_star", SdfUIRenderer.SDF_STAR_PIPELINE);
+        precompile("sdf_loader_ring", SdfUIRenderer.SDF_LOADER_RING_PIPELINE);
+        precompile("sdf_triangle", SdfUIRenderer.SDF_TRIANGLE_PIPELINE);
 
         // ── Custom region blur pipeline ──
         try {
-            CustomBlurRenderer.precompile(shaderSource);
+            CustomBlurRenderer.precompile();
         } catch (Throwable t) {
             LOGGER.warn("[UiWarmup] Region-blur pipeline warmup failed; will compile lazily", t);
         }
@@ -228,11 +216,10 @@ public final class UiShaderWarmup {
         }
     }
 
-    private static void precompile(String name, RenderPipeline pipeline, ShaderSource shaderSource) {
+    private static void precompile(String name, RenderPipeline pipeline) {
         try {
-            CompiledRenderPipeline compiled = RenderSystem.getDevice().precompilePipeline(pipeline, shaderSource);
-            if (!compiled.isValid()) {
-                LOGGER.warn("[UiWarmup] Pipeline {} compiled invalid", name);
+            if (RenderSystem.getCompiledPipelineNullable(pipeline) == null) {
+                LOGGER.warn("[UiWarmup] Pipeline {} did not compile; will retry lazily", name);
             }
         } catch (Throwable t) {
             LOGGER.warn("[UiWarmup] Pipeline {} warmup failed; will compile lazily", name, t);

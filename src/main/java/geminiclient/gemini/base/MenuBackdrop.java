@@ -1,8 +1,8 @@
 package geminiclient.gemini.base;
 
-import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.systems.CommandEncoder;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderSystem;
 import geminiclient.gemini.Gemini;
 import net.minecraft.client.gui.GuiGraphicsExtractor;

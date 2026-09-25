@@ -27,9 +27,11 @@ class MinecraftGlslNormalizerTest {
         String normalized = MinecraftGlslNormalizer.normalize(
                 input, MinecraftGlslNormalizer.ShaderStage.VERTEX);
 
-        assertEquals("#version 330 core\nuniform GeminiParams { vec4 color; };\n"
-                + "uint vertex = uint(gl_VertexID);\n"
-                + "uint instance = uint(gl_InstanceID);\nvalue;\n", normalized);
+        assertEquals("#version 330 core\n"
+                + "#extension GL_ARB_separate_shader_objects : require\n"
+                + "uniform GeminiParams { vec4 color; };\n"
+                + "uint vertex = uint(gl_VertexIndex);\n"
+                + "uint instance = uint(gl_InstanceIndex);\nvalue;\n", normalized);
         assertFalse(normalized.contains("\r"));
     }
 
@@ -86,12 +88,11 @@ class MinecraftGlslNormalizerTest {
         String normalized = MinecraftGlslNormalizer.normalize(
                 input, MinecraftGlslNormalizer.ShaderStage.VERTEX);
 
-        assertFalse(normalized.contains("layout(location"));
-        assertEquals(true, normalized.contains("in vec3 Position;"));
-        assertEquals(true, normalized.contains("in vec4 Color;"));
-        assertEquals(true, normalized.contains("in vec2 UV0;"));
-        assertEquals(true, normalized.contains("out vec4 gemini_varying_0;"));
-        assertEquals(true, normalized.contains("out vec2 gemini_varying_1;"));
+        assertEquals(true, normalized.contains("layout(location = 0) in vec3 Position;"));
+        assertEquals(true, normalized.contains("layout(location = 2) in vec4 Color;"));
+        assertEquals(true, normalized.contains("layout(location = 1) in vec2 UV0;"));
+        assertEquals(true, normalized.contains("layout(location = 0) out vec4 gemini_varying_0;"));
+        assertEquals(true, normalized.contains("layout(location = 1) out vec2 gemini_varying_1;"));
         assertEquals(true, normalized.contains("gemini_varying_0 = Color;"));
     }
 
@@ -113,10 +114,10 @@ class MinecraftGlslNormalizerTest {
         String normalized = MinecraftGlslNormalizer.normalize(
                 input, MinecraftGlslNormalizer.ShaderStage.FRAGMENT);
 
-        assertFalse(normalized.contains("layout(location"));
-        assertEquals(true, normalized.contains("in vec4 gemini_varying_0;"));
-        assertEquals(true, normalized.contains("in vec2 gemini_varying_1;"));
-        assertEquals(true, normalized.contains("out vec4 entryPointParam_main_fragColor_0;"));
+        assertEquals(true, normalized.contains("layout(location = 0) in vec4 gemini_varying_0;"));
+        assertEquals(true, normalized.contains("layout(location = 1) in vec2 gemini_varying_1;"));
+        assertEquals(true, normalized.contains(
+                "layout(location = 0) out vec4 entryPointParam_main_fragColor_0;"));
         assertEquals(true, normalized.contains(
                 "entryPointParam_main_fragColor_0 = gemini_varying_0 * gemini_varying_1.x;"));
     }

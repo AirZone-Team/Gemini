@@ -24,13 +24,11 @@ import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 import net.minecraft.tags.ItemTags;
-import net.minecraft.world.item.AxeItem;
 import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.FishingRodItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.ShovelItem;
 import net.minecraft.world.item.equipment.Equippable;
 
 import java.util.HashSet;
@@ -131,9 +129,9 @@ public class InvManager extends Module {
         }
         if (stack.is(ItemTags.SWORDS)) return InvUtils.getBestSword() == stack;
         if (stack.is(ItemTags.PICKAXES)) return InvUtils.getBestPickaxe() == stack;
-        if (stack.getItem() instanceof AxeItem && !InvUtils.isSharpnessAxe(stack))
+        if (stack.is(ItemTags.AXES) && !InvUtils.isSharpnessAxe(stack))
             return InvUtils.getBestAxe() == stack;
-        if (stack.getItem() instanceof ShovelItem) return InvUtils.getBestShovel() == stack;
+        if (stack.is(ItemTags.SHOVELS)) return InvUtils.getBestShovel() == stack;
         if (stack.getItem() instanceof CrossbowItem) return InvUtils.getBestCrossbow() == stack;
         if (stack.getItem() instanceof BowItem && InvUtils.isPunchBow(stack))
             return InvUtils.getBestPunchBow() == stack;

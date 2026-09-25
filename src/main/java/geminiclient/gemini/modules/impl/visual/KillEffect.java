@@ -1,6 +1,6 @@
 package geminiclient.gemini.modules.impl.visual;
 
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import geminiclient.gemini.customRenderer.glsl.modules.HellHandEffectInstance;
 import geminiclient.gemini.customRenderer.glsl.modules.HellHandRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.KillEffectInstance;

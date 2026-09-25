@@ -96,7 +96,7 @@ public class GhostAfterImage extends Module {
                     p.getX(), p.getY(), p.getZ(),
                     p.getYRot(), p.getXRot(),
                     p.yBodyRot, p.yHeadRot,
-                    p.attackAnim,
+                    p.getSwingAnimation(1.0F),
                     ghostLife.getValue());
 
             ghosts.add(0, frame);

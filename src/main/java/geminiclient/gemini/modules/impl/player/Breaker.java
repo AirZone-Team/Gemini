@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import net.minecraft.world.item.component.SwingAnimation;
 
 /**
  * Breaker（隔墙破坏）— 在限定范围内破坏勾选的指定方块。
@@ -276,7 +277,7 @@ public class Breaker extends Module {
         } else {
             mc.gameMode.continueDestroyBlock(target, dir); // 裂纹动画
         }
-        mc.player.swing(InteractionHand.MAIN_HAND);
+        mc.player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
 
         renderBoxes.clear();
         renderBoxes.add(target);
@@ -336,7 +337,7 @@ public class Breaker extends Module {
         }
 
         if (!multiTargets.isEmpty()) {
-            mc.player.swing(InteractionHand.MAIN_HAND);
+            mc.player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
         }
 
         renderBoxes.clear();

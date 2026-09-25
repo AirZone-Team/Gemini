@@ -168,7 +168,7 @@ public class MainMenuScreen extends Screen {
                 () -> this.minecraft.gui.setScreen(new JoinMultiplayerScreen(this))));
         menuItems.add(new Item(I18n.tr("Settings"),
                 Md3RenderUtils.menuIcon("settings"), false,
-                () -> this.minecraft.gui.setScreen(new OptionsScreen(this, this.minecraft.options, false))));
+                () -> this.minecraft.gui.setScreen(new OptionsScreen(this, this.minecraft.options))));
         menuItems.add(new Item(I18n.tr("Alt Manager"),
                 Md3RenderUtils.clickGuiIcon("accessible_forward"), false,
                 () -> this.minecraft.gui.setScreen(new AltManagerScreen(this))));

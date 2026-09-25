@@ -1,8 +1,8 @@
 package geminiclient.gemini.base;
 
 import com.mojang.authlib.minecraft.UserApiService;
-import com.mojang.authlib.yggdrasil.FriendsService;
-import com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService;
+import com.mojang.authlib.services.FriendsService;
+import com.mojang.authlib.services.MinecraftServicesDiscoveryService;
 import geminiclient.mixin.access.AccessMinecraft;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.User;
@@ -34,7 +34,9 @@ public class AltHelper {
             User user = new User(accountName, uuid, token, Optional.empty(), Optional.empty());
 
             // 4. 初始化验证服务与各种关联系统
-            YggdrasilAuthenticationService service = online ? new YggdrasilAuthenticationService(minecraft.getProxy()) : YggdrasilAuthenticationService.createOffline(minecraft.getProxy());
+            // authlib 10 replaced YggdrasilAuthenticationService; the boolean is the
+            // same online flag Minecraft itself passes at Minecraft#<init>.
+            MinecraftServicesDiscoveryService service = MinecraftServicesDiscoveryService.create(minecraft.getProxy(), online);
             Services services = Services.create(service, minecraft.gameDirectory);
 
             // 获取用户 API 服务及属性

@@ -13,6 +13,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.block.Blocks;
+import org.joml.Matrix4f;
 
 public class ItemPhysical extends Module {
 
@@ -44,8 +45,8 @@ public class ItemPhysical extends Module {
         int j = getModelCount(state.count);
         boolean gui3d = ((ItemEntityRenderStateExtender) state).isBlock();
 
-        pose.mulPose(Axis.XP.rotation((float) Math.PI / 2));
-        pose.mulPose(Axis.ZP.rotation(((ItemEntityRenderStateExtender) state).getYRot()));
+        pose.mulPose(new Matrix4f().rotation(Axis.XP.rotation((float) Math.PI / 2)));
+        pose.mulPose(new Matrix4f().rotation(Axis.ZP.rotation(((ItemEntityRenderStateExtender) state).getYRot())));
 
         if (state.ageInTicks != 0) {
             if (gui3d)
@@ -58,7 +59,7 @@ public class ItemPhysical extends Module {
             double height = 0.2;
             if (gui3d)
                 pose.translate(0, height, 0);
-            pose.mulPose(Axis.YP.rotation(((ItemEntityRenderStateExtender) state).getXRot()));
+            pose.mulPose(new Matrix4f().rotation(Axis.YP.rotation(((ItemEntityRenderStateExtender) state).getXRot())));
             if (gui3d)
                 pose.translate(0, -height, 0);
         }

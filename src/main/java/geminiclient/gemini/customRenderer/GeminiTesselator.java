@@ -1,22 +1,28 @@
 package geminiclient.gemini.customRenderer;
 
-import com.mojang.blaze3d.IndexType;
-import com.mojang.blaze3d.PrimitiveTopology;
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.GpuDevice;
+import com.mojang.renderpearl.api.pipeline.IndexType;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
+import com.mojang.renderpearl.api.device.GpuDevice;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
-import com.mojang.blaze3d.vertex.VertexFormat;
-import net.minecraft.client.renderer.rendertype.PreparedRenderType;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.StagedVertexBuffer;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.ByteBuffer;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.function.Supplier;
 
 /**
@@ -24,8 +30,8 @@ import java.util.function.Supplier;
  *
  * <p>The old {@code Tesselator}/{@code RenderType.draw} path cached one upload
  * buffer per vertex format. This bridge preserves that behavior while using
- * the backend-neutral 26.2 GPU API, so the same call sites work on both the
- * OpenGL and Vulkan devices.</p>
+ * the backend-neutral 26.3 RenderPearl GPU API, so the same call sites work on
+ * both the OpenGL and Vulkan devices.</p>
  */
 public final class GeminiTesselator {
     private static final int MAX_BYTES = 786_432;
@@ -74,21 +80,34 @@ public final class GeminiTesselator {
             VertexFormat format = state.format();
             GpuBuffer vertices = uploadVertexBuffer(format, mesh.vertexBuffer());
 
-            GpuBuffer indices;
+            GpuBuffer indices = null;
             IndexType indexType;
             ByteBuffer indexData = mesh.indexBuffer();
             if (indexData == null) {
                 RenderSystem.AutoStorageIndexBuffer sequential =
                         RenderSystem.getSequentialBuffer(state.primitiveTopology());
-                indices = sequential.getBuffer(state.indexCount());
+                // getBuffer(int) both records the request and grows the shared buffer, so
+                // the null custom index in ExecuteInfo resolves to it later.
+                sequential.getBuffer(state.indexCount());
                 indexType = sequential.type();
             } else {
                 indices = uploadIndexBuffer(format, indexData);
                 indexType = state.indexType();
             }
 
-            PreparedRenderType prepared = renderType.prepare();
-            prepared.drawFromBuffer(vertices, indices, indexType, 0, 0, state.indexCount());
+            StagedVertexBuffer.ExecuteInfo info = new StagedVertexBuffer.ExecuteInfo(
+                    vertices, indices, indexType, 0, 0, state.indexCount(), state.primitiveTopology());
+
+            // 26.3 removed the ambient render pass the old draw path relied on, so the
+            // bridge opens its own against the main target and preserves its contents.
+            RenderTarget target = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+            GpuTextureView color = target.getColorTextureView();
+            GpuTextureView depth = target.hasDepth() ? target.getDepthTextureView() : null;
+            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+            try (RenderPass pass = encoder.createRenderPass(
+                    () -> "Gemini immediate", color, Optional.empty(), depth, OptionalDouble.empty())) {
+                renderType.prepare().drawFromBuffer(info, pass);
+            }
         }
     }
 

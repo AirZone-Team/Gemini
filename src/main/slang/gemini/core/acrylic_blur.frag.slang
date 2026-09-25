@@ -15,9 +15,9 @@ uniform sampler2D Sampler1;       // tileable noise texture
 
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;
+    mat4 TextureMat;
     vec4 ColorModulator;
     vec3 ModelOffset;
-    mat4 TextureMat;
 };
 
 in vec4 vertexColor;

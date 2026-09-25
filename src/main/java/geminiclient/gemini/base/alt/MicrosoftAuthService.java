@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.mojang.blaze3d.Blaze3D;
 
 /**
  * Microsoft OAuth 认证服务（Java 移植版）。
@@ -594,7 +595,7 @@ public final class MicrosoftAuthService {
 
     private static void openBrowser(String url) throws AuthException {
         try {
-            Util.getPlatform().openUri(url);
+            Blaze3D.openUri(URI.create(url));
         } catch (Exception e) {
             throw new AuthException("无法打开浏览器：" + e.getMessage()
                     + "\n请手动打开以下链接：\n" + url, e);

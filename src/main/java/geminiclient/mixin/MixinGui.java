@@ -20,9 +20,9 @@ public class MixinGui {
      */
     @WrapWithCondition(method = "extractRenderState", at = @At(value = "INVOKE",
             target = "Lnet/neoforged/neoforge/client/ClientHooks;extractScreen(Lnet/minecraft/client/gui/screens/Screen;Ljava/util/Stack;Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIF)V"))
-    private boolean deferClickGuiExtraction(Screen screen, Stack<Screen> screenLayers,
-                                             GuiGraphicsExtractor graphics, int mouseX,
-                                             int mouseY, float deltaTicks) {
+    private boolean deferClickGuiExtraction(Screen screen, Stack<Screen> backgroundLayers,
+                                            GuiGraphicsExtractor guiGraphics, int mouseX,
+                                            int mouseY, float partialTick) {
         return !(screen instanceof AbstractClickGuiScreen || screen instanceof Osu4kScreen);
     }
 }

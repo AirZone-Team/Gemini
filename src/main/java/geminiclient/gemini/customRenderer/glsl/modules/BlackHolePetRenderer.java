@@ -1,23 +1,23 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
-import com.mojang.blaze3d.IndexType;
-import com.mojang.blaze3d.PrimitiveTopology;
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.pipeline.IndexType;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
-import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.FilterMode;
-import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.renderpearl.api.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
@@ -27,7 +27,7 @@ import geminiclient.gemini.customRenderer.GeminiRenderTargets;
 import geminiclient.gemini.customRenderer.GeminiTesselator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.DynamicUniforms;
+import net.minecraft.client.renderer.DynamicGpuData;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
@@ -326,17 +326,13 @@ public final class BlackHolePetRenderer {
                     view, new Vector4f(1f, 1f, 1f, 1f), new Vector3f(), new Matrix4f());
 
             RenderTarget target = mc.gameRenderer.mainRenderTarget();
-            GpuTextureView color = RenderSystem.outputColorTextureOverride != null
-                    ? RenderSystem.outputColorTextureOverride : target.getColorTextureView();
-            GpuTextureView depth = target.useDepth
-                    ? (RenderSystem.outputDepthTextureOverride != null
-                        ? RenderSystem.outputDepthTextureOverride : target.getDepthTextureView())
-                    : null;
+            GpuTextureView color = target.getColorTextureView();
+            GpuTextureView depth = target.hasDepth() ? target.getDepthTextureView() : null;
 
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             try (RenderPass pass = encoder.createRenderPass(
                     () -> label, color, Optional.empty(), depth, OptionalDouble.empty())) {
-                pass.setPipeline(pipe);
+                pass.setPipeline(RenderSystem.getCompiledPipeline(pipe));
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("DynamicTransforms", transforms);
                 pass.setUniform("BHUniforms", uniforms);
@@ -452,10 +448,10 @@ public final class BlackHolePetRenderer {
                 0, 0, 0, 0, 0, width, height);
         try (RenderPass pass = encoder.createRenderPass(
                 () -> "BlackHole lensing", target.getColorTextureView(), Optional.empty())) {
-            pass.setPipeline(LENS_PIPE);
+            pass.setPipeline(RenderSystem.getCompiledPipeline(LENS_PIPE));
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("BHPostUniforms", postUniforms);
-            pass.bindTexture("SceneSampler", sceneCopy.getColorTextureView(),
+            pass.setUniform("SceneSampler", sceneCopy.getColorTextureView(),
                     RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
             pass.draw(3, 1, 0, 0);
         }

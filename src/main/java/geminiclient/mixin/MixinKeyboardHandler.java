@@ -28,6 +28,6 @@ public class MixinKeyboardHandler {
             return;
         }
         Gemini.eventManager.post(EventTypes.KEY_INPUT,
-                new KeyInputEvent(p_446050_.key(), p_446050_.scancode(), p_446050_.modifiers(), p_90895_));
+                new KeyInputEvent(p_446050_.key(), p_446050_.keycode(), p_446050_.modifiers(), p_90895_));
     }
 }

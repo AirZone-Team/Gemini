@@ -16,7 +16,6 @@ import geminiclient.gemini.modules.impl.visual.SweepingAttackVFX;
 import geminiclient.gemini.modules.impl.visual.FullLight;
 import geminiclient.gemini.modules.impl.visual.clickgui.AbstractClickGuiScreen;
 import geminiclient.gemini.modules.impl.visual.osu4k.screen.Osu4kScreen;
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.GameRenderer;
@@ -26,6 +25,7 @@ import net.minecraft.world.entity.LivingEntity;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -43,9 +43,9 @@ public class MixinGameRenderer {
      * game tick rate — the frame-rate counterpart of UpdateEvent (per tick).
      */
     @Inject(method = "render", at = @At("HEAD"))
-    public void postFrameEvent(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
+    public void postFrameEvent(CallbackInfo ci) {
         Gemini.eventManager.post(EventTypes.FRAME,
-                new FrameEvent(deltaTracker.getGameTimeDeltaTicks(), deltaTracker.getRealtimeDeltaTicks()));
+                new FrameEvent(Minecraft.getInstance().getDeltaTracker().getGameTimeDeltaPartialTick(false), Minecraft.getInstance().getDeltaTracker().getGameTimeDeltaPartialTick(false)));
     }
 
     /**
@@ -54,7 +54,7 @@ public class MixinGameRenderer {
      * normal game option automatically.
      */
     @Inject(method = "render", at = @At("HEAD"))
-    public void applyClickGuiBlurRadius(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
+    public void applyClickGuiBlurRadius(CallbackInfo ci) {
         if (this.minecraft.gui.screen() instanceof AbstractClickGuiScreen screen) {
             ClickGui clickGui = Gemini.moduleManager.getModule(ClickGui.class);
             int strength = clickGui != null ? clickGui.getBlurStrength() : 0;
@@ -67,7 +67,7 @@ public class MixinGameRenderer {
     }
 
     @Inject(method = "render",at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;render()V"))
-    public void inject2D(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
+    public void inject2D(CallbackInfo ci) {
         if (!CustomRendererRegistry.areShadersReady()) {
             return;
         }
@@ -103,10 +103,10 @@ public class MixinGameRenderer {
                     new GuiGraphicsExtractor(this.minecraft, guiState, i, j);
             if (this.minecraft.gui.screen() instanceof AbstractClickGuiScreen clickScreen) {
                 clickScreen.extractRenderStateWithTooltipAndSubtitles(
-                        screenGraphics, i, j, deltaTracker.getGameTimeDeltaTicks());
+                        screenGraphics, i, j, Minecraft.getInstance().getDeltaTracker().getGameTimeDeltaPartialTick(false));
             } else if (this.minecraft.gui.screen() instanceof Osu4kScreen osuScreen) {
                 osuScreen.extractRenderStateWithTooltipAndSubtitles(
-                        screenGraphics, i, j, deltaTracker.getGameTimeDeltaTicks());
+                        screenGraphics, i, j, Minecraft.getInstance().getDeltaTracker().getGameTimeDeltaPartialTick(false));
             }
             CustomFontRenderer.flushPendingGlyphs();
         }
@@ -120,7 +120,7 @@ public class MixinGameRenderer {
      */
     @Inject(method = "render", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/gui/render/GuiRenderer;render()V"))
-    public void injectPostProcess(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo ci) {
+    public void injectPostProcess(CallbackInfo ci) {
         KillEffect killEffect = Gemini.moduleManager.getModule(KillEffect.class);
         if (killEffect != null && killEffect.enabled && killEffect.hasActiveEffects()) {
         long nowMs = System.currentTimeMillis();
@@ -223,7 +223,7 @@ public class MixinGameRenderer {
             // share the same strengths, so ramping them would dip.
             float entry = 1f;
             if (stage == KillEffectInstance.STAGE_BLACK_HOLE) {
-                entry = smoothstep01(progress / 0.15f);
+                entry = gemini$smoothstep01(progress / 0.15f);
             }
             distort  = 0.85f * entry;
             godRay   = 0.45f * entry;
@@ -251,7 +251,7 @@ public class MixinGameRenderer {
             // radius of 36 over a screen already carrying the detonation is not
             // a brighter blast, it is a white frame: the flash has to read as an
             // event, and you cannot see an event through fog.
-            float entry = smoothstep01(progress / 0.10f);
+            float entry = gemini$smoothstep01(progress / 0.10f);
             bloom    = Math.max(bloom, 1.7f * entry);
             chromatic = 0.55f * entry;
             godRay   = 0.85f * entry;
@@ -271,7 +271,7 @@ public class MixinGameRenderer {
             // ── Hypernova explosion (enhanced) ────────────────────
             // Blend from the flash into a sustained, more violent detonation.
             // interpolates instead of snapping down and back up.
-            float entry = smoothstep01(progress / 0.05f);
+            float entry = gemini$smoothstep01(progress / 0.05f);
             float pulse = 0.90f + 0.10f
                     * Math.abs((float)Math.sin(progress * Math.PI * 7.0f));
             bloom    = Math.max(bloom, (1.7f + (1.5f - 1.7f) * entry) * pulse);
@@ -315,7 +315,6 @@ public class MixinGameRenderer {
             chromatic = 0f;
             radius    = 0f;
 
-            bhStage     = 0;
             bhProgress  = 0f;
             bhIntensity = 0f;
         }
@@ -345,7 +344,7 @@ public class MixinGameRenderer {
                 // smoothstep entry ramp on stage 3 so the lighting pass
                 // doesn't snap on at the tower→BH boundary.
                 float entry = (stage == KillEffectInstance.STAGE_BLACK_HOLE)
-                        ? smoothstep01(progress / 0.15f) : 1f;
+                        ? gemini$smoothstep01(progress / 0.15f) : 1f;
                 li  = 0.75f * entry;
                 lr  = 24f;
                 lcR = 1f; lcG = 0.55f; lcB = 0.15f;
@@ -353,7 +352,7 @@ public class MixinGameRenderer {
                 // Energy builds as the hole collapses, then dies with it —
                 // fade the light out over the last 30% so the transition
                 // into the silent VOID stage has no light pop.
-                float dieOut = 1f - smoothstep01((progress - 0.7f) / 0.3f);
+                float dieOut = 1f - gemini$smoothstep01((progress - 0.7f) / 0.3f);
                 li  = (0.75f + progress * 1.05f) * dieOut;
                 lr  = 24f + progress * 10f;
                 lcR = 1f; lcG = 0.60f; lcB = 0.20f;
@@ -364,7 +363,7 @@ public class MixinGameRenderer {
                 lcR = 1f; lcG = 0.97f; lcB = 0.90f;
             } else if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
                 // Blinding at detonation, slow ease-out decay
-                float entry = smoothstep01(progress / 0.05f);
+                float entry = gemini$smoothstep01(progress / 0.05f);
                 float stellarPulse = 0.90f + 0.10f
                         * Math.abs((float)Math.sin(progress * Math.PI * 7.0f));
                 li  = 2.3f * (1f - progress * 0.35f) * entry * stellarPulse;
@@ -414,7 +413,7 @@ public class MixinGameRenderer {
                 // hypernova stage so it doesn't cut at the afterglow boundary.
                 ssrIntensity = stage == KillEffectInstance.STAGE_FLASH ? 0.9f
                         : stage == KillEffectInstance.STAGE_HYPERNOVA
-                        ? 0.9f * (1f - smoothstep01((progress - 0.35f) / 0.50f))
+                        ? 0.9f * (1f - gemini$smoothstep01((progress - 0.35f) / 0.50f))
                         : 0f;
                 if (stage == KillEffectInstance.STAGE_HYPERNOVA) {
                     volumetricSteps = 24;
@@ -466,7 +465,8 @@ public class MixinGameRenderer {
      * smoothstep(0,1,x) — zero-slope ease at both ends. Used for stage-entry
      * ramps so post-processing passes never pop in at full strength.
      */
-    private static float smoothstep01(float x) {
+    @Unique
+    private static float gemini$smoothstep01(float x) {
         float t = Math.clamp(x, 0f, 1f);
         return t * t * (3f - 2f * t);
     }

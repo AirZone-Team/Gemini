@@ -2,29 +2,29 @@ package geminiclient.gemini.customRenderer.glsl.modules;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 
-import com.mojang.blaze3d.GpuFormat;
-import com.mojang.blaze3d.IndexType;
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.pipeline.IndexType;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.BlendFactor;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
+import com.mojang.renderpearl.api.pipeline.BlendFactor;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 import geminiclient.gemini.customRenderer.GeminiTesselator;
 import net.minecraft.client.Camera;
 import org.joml.Matrix4f;
@@ -104,7 +104,7 @@ public final class KillAuraTargetRenderer {
     /**
      * One indicator quad on one target.
      *
-     * @param argb         primary tint; MC 26.2 {@code setColor} takes ARGB
+     * @param argb         primary tint; MC 26.3 {@code setColor} takes ARGB
      * @param health       0..1, drives the aura ring health arc and Health theme
      * @param acquireFlash 0..1 burst when the target was newly locked
      * @param seed         0..255 per-target variety (rotation offsets)
@@ -194,14 +194,8 @@ public final class KillAuraTargetRenderer {
                                 new Matrix4f());
 
                 RenderTarget mainTarget = mc.gameRenderer.mainRenderTarget();
-                GpuTextureView colorTexture = RenderSystem.outputColorTextureOverride != null
-                        ? RenderSystem.outputColorTextureOverride
-                        : mainTarget.getColorTextureView();
-                GpuTextureView depthTexture = mainTarget.useDepth
-                        ? (RenderSystem.outputDepthTextureOverride != null
-                            ? RenderSystem.outputDepthTextureOverride
-                            : mainTarget.getDepthTextureView())
-                        : null;
+                GpuTextureView colorTexture = mainTarget.getColorTextureView();
+                GpuTextureView depthTexture = mainTarget.hasDepth() ? mainTarget.getDepthTextureView() : null;
 
                 CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
                 writeUniforms(encoder, uniforms);
@@ -213,7 +207,7 @@ public final class KillAuraTargetRenderer {
                         depthTexture,
                         OptionalDouble.empty())) {
 
-                    pass.setPipeline(TARGET_PIPELINE);
+                    pass.setPipeline(RenderSystem.getCompiledPipeline(TARGET_PIPELINE));
                     RenderSystem.bindDefaultUniforms(pass);
                     pass.setUniform("DynamicTransforms", dynamicTransforms);
                     pass.setUniform("TargetUniforms", targetUniforms);

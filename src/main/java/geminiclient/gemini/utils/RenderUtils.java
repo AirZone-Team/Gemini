@@ -1,14 +1,16 @@
 package geminiclient.gemini.utils;
 
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.platform.CompareOp;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import geminiclient.gemini.customRenderer.GeminiTesselator;
-import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.LayeringTransform;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
@@ -34,6 +36,7 @@ public class RenderUtils {
 
     private static final RenderPipeline OUTLINE_BOX_PIPELINE = RenderPipeline.builder(RenderPipelines.LINES_SNIPPET)
             .withLocation(ResourceLocationUtils.getIdentifier("pipeline/outline_box"))
+            .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
             .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
             .withCull(false)
             .build();

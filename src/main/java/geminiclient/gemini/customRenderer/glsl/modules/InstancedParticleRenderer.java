@@ -1,22 +1,22 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
-import com.mojang.blaze3d.GpuFormat;
-import com.mojang.blaze3d.IndexType;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.pipeline.IndexType;
 
 import geminiclient.gemini.customRenderer.GeminiTesselator;
 
 import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.BlendFactor;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
+import com.mojang.renderpearl.api.pipeline.BlendFactor;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
 import net.minecraft.client.Camera;
@@ -30,6 +30,7 @@ import java.util.function.Consumer;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 
 /**
  * GPU renderer for the instanced particle sigils.
@@ -217,14 +218,8 @@ public final class InstancedParticleRenderer {
                             new Matrix4f());
 
             var mainTarget = mc.gameRenderer.mainRenderTarget();
-            var colorTexture = RenderSystem.outputColorTextureOverride != null
-                    ? RenderSystem.outputColorTextureOverride
-                    : mainTarget.getColorTextureView();
-            var depthTexture = mainTarget.useDepth
-                    ? (RenderSystem.outputDepthTextureOverride != null
-                        ? RenderSystem.outputDepthTextureOverride
-                        : mainTarget.getDepthTextureView())
-                    : null;
+            var colorTexture = mainTarget.getColorTextureView();
+            var depthTexture = mainTarget.hasDepth() ? mainTarget.getDepthTextureView() : null;
 
             var encoder = RenderSystem.getDevice().createCommandEncoder();
             try (RenderPass pass = encoder.createRenderPass(
@@ -234,7 +229,7 @@ public final class InstancedParticleRenderer {
                     depthTexture,
                     OptionalDouble.empty())) {
 
-                pass.setPipeline(INSTANCED_PARTICLE_PIPE);
+                pass.setPipeline(RenderSystem.getCompiledPipeline(INSTANCED_PARTICLE_PIPE));
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("DynamicTransforms", dynamicTransforms);
 
