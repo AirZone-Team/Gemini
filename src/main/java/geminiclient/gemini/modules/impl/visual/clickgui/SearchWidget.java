@@ -3,6 +3,8 @@ package geminiclient.gemini.modules.impl.visual.clickgui;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.utils.animation.SpringAnimation;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 
@@ -73,15 +75,14 @@ public class SearchWidget {
         return model.isFocused();
     }
 
-    /**
-     * Handle a key press. Converts GLFW key codes + modifiers to text.
-     *
-     * @param key GLFW key code
-     * @param modifiers GLFW modifier bitmask (from KeyEvent.modifiers())
-     * @return true if consumed
-     */
-    public boolean keyPressed(int key, int modifiers) {
-        return model.keyPressed(key, modifiers);
+    /** Editing keys (backspace) while the bar is focused. */
+    public boolean keyPressed(KeyEvent event) {
+        return model.keyPressed(event);
+    }
+
+    /** Typed text while the bar is focused. */
+    public boolean charTyped(CharacterEvent event) {
+        return model.charTyped(event);
     }
 
     public boolean isHovered(double mouseX, double mouseY) {

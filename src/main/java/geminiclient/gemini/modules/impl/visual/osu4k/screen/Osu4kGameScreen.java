@@ -15,11 +15,12 @@ import geminiclient.gemini.customRenderer.cpu.CustomRectRenderer;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.customRenderer.glsl.CustomFontRenderer;
 import geminiclient.gemini.customRenderer.glsl.modules.Osu4kNoteRenderer;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
-import org.lwjgl.glfw.GLFW;
+import org.jetbrains.annotations.NotNull;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -398,14 +399,10 @@ public final class Osu4kGameScreen extends Osu4kScreen {
         hitEffects.removeIf(e -> e.done(now));
 
         // Progress dragging uses the vertical rail: bottom is 0%, top is 100%.
+        // The release ends it — see mouseReleased; 26.3 dropped GLFW from the
+        // input chain, so there is no button state to poll here.
         if (draggingProgress) {
-            long h = this.minecraft.getWindow().handle();
-            boolean leftDown = GLFW.glfwGetMouseButton(h, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
-            if (!leftDown) {
-                draggingProgress = false;
-            } else {
-                seekFromProgressY(this.mouseY);
-            }
+            seekFromProgressY(this.mouseY);
         }
 
         fillBackground(gui);
@@ -884,7 +881,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
     }
 
     /**
-     * Polls the raw keyboard state once per frame. GLFW events are queued
+     * Polls the raw keyboard state once per frame. Key events are queued
      * through {@code Minecraft.execute}, so two presses landing close together
      * can be delayed or dropped when a frame renders slowly; polling guarantees
      * every currently-held lane key is recognized at the playhead of this
@@ -892,10 +889,9 @@ public final class Osu4kGameScreen extends Osu4kScreen {
      * this only fires for presses / releases the event path never saw.
      */
     private void pollLaneInput(long playMs) {
-        long h = this.minecraft.getWindow().handle();
         int[] keys = Osu4k.keysFor(columns());
         for (int c = 0; c < columns(); c++) {
-            boolean down = GLFW.glfwGetKey(h, keys[c]) == GLFW.GLFW_PRESS;
+            boolean down = InputConstants.isKeyDown(keys[c]);
             if (down && !laneDown[c]) {
                 laneDown[c] = true;
                 handleLanePress(c, playMs);
@@ -904,6 +900,15 @@ public final class Osu4kGameScreen extends Osu4kScreen {
                 handleLaneRelease(c, playMs);
             }
         }
+    }
+
+    @Override
+    public boolean mouseReleased(@NotNull MouseButtonEvent mouse) {
+        if (draggingProgress && mouse.button() == InputConstants.MOUSE_BUTTON_LEFT) {
+            draggingProgress = false;
+            return true;
+        }
+        return super.mouseReleased(mouse);
     }
 
     @Override
@@ -928,15 +933,15 @@ public final class Osu4kGameScreen extends Osu4kScreen {
             }
             return true;
         }
-        if (key == GLFW.GLFW_KEY_SPACE) {
+        if (key == InputConstants.KEY_SPACE) {
             togglePause();
             return true;
         }
-        if (key == GLFW.GLFW_KEY_LEFT) {
+        if (event.isLeft()) {
             seekTo(Math.max(0, audio.positionMs() - 5000));
             return true;
         }
-        if (key == GLFW.GLFW_KEY_RIGHT) {
+        if (event.isRight()) {
             seekTo(audio.positionMs() + 5000);
             return true;
         }
@@ -961,7 +966,7 @@ public final class Osu4kGameScreen extends Osu4kScreen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent mouse, boolean idk) {
-        if (mouse.button() != 0) {
+        if (mouse.button() != InputConstants.MOUSE_BUTTON_LEFT) {
             return super.mouseClicked(mouse, idk);
         }
         double mx = mouse.x();

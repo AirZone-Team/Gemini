@@ -1,8 +1,8 @@
 package geminiclient.gemini.modules.impl.visual.osu4k.game;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.lwjgl.glfw.GLFW;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -20,12 +20,13 @@ class Osu4kKeyConfigTest {
     @TempDir
     Path tempDir;
 
-    private static final int D = GLFW.GLFW_KEY_D;
-    private static final int F = GLFW.GLFW_KEY_F;
-    private static final int J = GLFW.GLFW_KEY_J;
-    private static final int K = GLFW.GLFW_KEY_K;
-    private static final int S = GLFW.GLFW_KEY_S;
-    private static final int L = GLFW.GLFW_KEY_L;
+    // 键码域 = InputConstants（Minecraft 26.3 起为 SDL scancode），见 KeyUtils 的说明。
+    private static final int D = InputConstants.KEY_D;
+    private static final int F = InputConstants.KEY_F;
+    private static final int J = InputConstants.KEY_J;
+    private static final int K = InputConstants.KEY_K;
+    private static final int S = InputConstants.KEY_S;
+    private static final int L = InputConstants.KEY_L;
 
     @Test
     void missingFileLoadsEmptySets() {
@@ -41,7 +42,7 @@ class Osu4kKeyConfigTest {
         // No lane default is the pause key (space).
         for (int c = 1; c <= 10; c++) {
             for (int key : Osu4kKeyConfig.defaultKeys(c)) {
-                assertTrue(key != GLFW.GLFW_KEY_SPACE, "lane default must not be space");
+                assertTrue(key != InputConstants.KEY_SPACE, "lane default must not be space");
             }
         }
     }
@@ -55,6 +56,34 @@ class Osu4kKeyConfigTest {
         Map<Integer, int[]> sets = Osu4kKeyConfig.loadKeySets(tempDir);
         assertEquals(1, sets.size());
         assertArrayEquals(new int[]{D, F, J, K}, sets.get(4));
+    }
+
+    /** 没有 keyDomain 标记的文件写于 GLFW 时代，读入时翻译一次并重写标记。 */
+    @Test
+    void unmarkedFileMigratesGlfwCodesOnce() throws Exception {
+        Files.createDirectories(Osu4kKeyConfig.configFile(tempDir).getParent());
+        Path file = Osu4kKeyConfig.configFile(tempDir);
+        // GLFW 的 D/F/J/K = 68/70/74/75
+        Files.writeString(file, "{\"keySets\": {\"4\": [68, 70, 74, 75]}}", StandardCharsets.UTF_8);
+
+        assertArrayEquals(new int[]{D, F, J, K}, Osu4kKeyConfig.loadKeySets(tempDir).get(4));
+
+        String saved = Files.readString(file, StandardCharsets.UTF_8);
+        assertTrue(saved.contains("keyDomain") && saved.contains("sdl"),
+                "migration must mark the domain: " + saved);
+        // 再读一次必须稳定（否则说明发生了二次迁移）
+        assertArrayEquals(new int[]{D, F, J, K}, Osu4kKeyConfig.loadKeySets(tempDir).get(4));
+    }
+
+    /** 已标记为 sdl 的文件里，数值一律原样保留，即使它恰好等于某个 GLFW 键码。 */
+    @Test
+    void markedFileIsNeverRemigrated() throws Exception {
+        Files.createDirectories(Osu4kKeyConfig.configFile(tempDir).getParent());
+        Files.writeString(Osu4kKeyConfig.configFile(tempDir),
+                "{\"keyDomain\": \"sdl\", \"keySets\": {\"4\": [68, 70, 74, 75]}}",
+                StandardCharsets.UTF_8);
+
+        assertArrayEquals(new int[]{68, 70, 74, 75}, Osu4kKeyConfig.loadKeySets(tempDir).get(4));
     }
 
     @Test
@@ -75,12 +104,12 @@ class Osu4kKeyConfigTest {
     void partialArrayKeepsDefaultsForUnknownEntries() throws Exception {
         Files.createDirectories(Osu4kKeyConfig.configFile(tempDir).getParent());
         Files.writeString(Osu4kKeyConfig.configFile(tempDir),
-                "{\"keySets\": {\"4\": [0, 71, 0, 0]}}", StandardCharsets.UTF_8);
+                "{\"keyDomain\": \"sdl\", \"keySets\": {\"4\": [0, 71, 0, 0]}}", StandardCharsets.UTF_8);
 
         Map<Integer, int[]> sets = Osu4kKeyConfig.loadKeySets(tempDir);
         int[] keys = sets.get(4);
         assertEquals(D, keys[0]);           // 0 keeps the default
-        assertEquals(GLFW.GLFW_KEY_G, keys[1]); // custom G binding
+        assertEquals(71, keys[1]);          // a stored binding wins over the default
         assertEquals(J, keys[2]);
         assertEquals(K, keys[3]);
     }

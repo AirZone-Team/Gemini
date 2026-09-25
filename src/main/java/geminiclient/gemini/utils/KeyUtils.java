@@ -1,24 +1,51 @@
 package geminiclient.gemini.utils;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 /**
- * 模块按键绑定工具：键码 ↔ 可读名称的完整映射。
+ * 模块按键绑定工具：键名 ↔ 键码的完整映射。
  *
- * <p>键码域为 GLFW 键码（与 {@code KeyEvent.key()} 一致），左右 Shift/Ctrl/Alt
- * 本就是不同键码，可分别绑定。鼠标按键用负码编码：{@code -(button + 1)}，
- * 即 MOUSE1(左键)=-1、MOUSE2(右键)=-2、…、MOUSE8=-8。</p>
+ * <p><b>键码域</b>：{@code InputConstants.KEY_*}。Minecraft 26.3 把窗口/输入后端
+ * 从 GLFW 换成了 SDL，因此这套值是 SDL scancode（物理位置码），并且就是
+ * {@code KeyEvent.key()} 与 {@code InputConstants.isKeyDown(int)} 使用的域。
+ * 26.2 及以前它是 GLFW keysym，两者数值完全不同（例如 D：GLFW 68 → SDL 7）。</p>
+ *
+ * <p>鼠标按键用负码编码：{@code -(button + 1)}，按钮序号沿用
+ * {@link #toModButton(int)} 的键号域，即 MOUSE1(左键)=-1、MOUSE2(右键)=-2、
+ * MOUSE3(中键)=-3、…、MOUSE8=-8。该域在 26.3 前后保持不变，因此已存档的鼠标
+ * 绑定无需迁移；键盘绑定需要，见 {@link #migrateLegacyGlfwKey(int)}。</p>
  */
 public final class KeyUtils {
 
     /** 无法解析的键名返回该值（区别于 0 = 未绑定 / NONE）。 */
     public static final int UNDEFINED = Integer.MIN_VALUE;
 
-    /** 鼠标按钮 0..7 → 负码 -(button + 1)（MOUSE1..MOUSE8）。 */
+    /** 鼠标按钮（{@link #toModButton(int)} 键号，0 基）→ 负码 -(button + 1)。 */
     public static int mouseButtonToCode(int button) {
         return -(button + 1);
+    }
+
+    /**
+     * 把 MC 上报的鼠标键号换算成本模块内部键号：0=左、1=右、2=中、3..7=侧键。
+     *
+     * <p>26.3 起 {@code InputConstants.MOUSE_BUTTON_LEFT/MIDDLE/RIGHT} 是 1/2/3
+     * （左中右顺序），而本模块（组件树的 {@code mouseClicked(x, y, button)} 约定、
+     * 以及已存档的鼠标键码）沿用旧 GLFW 序 0=左、1=右、2=中。所有拿到
+     * {@code MouseButtonEvent.button()} / {@code MouseButtonInfo.button()} 的入口
+     * 都应先过一次本函数，内部代码继续按 0/1/2 判断。</p>
+     */
+    public static int toModButton(int mcButton) {
+        return switch (mcButton) {
+            case InputConstants.MOUSE_BUTTON_LEFT -> 0;
+            case InputConstants.MOUSE_BUTTON_RIGHT -> 1;
+            case InputConstants.MOUSE_BUTTON_MIDDLE -> 2;
+            default -> Math.max(0, mcButton - 1);   // MOUSE_BUTTON_4..8 → 3..7
+        };
     }
 
     /** 是否为鼠标键码（负码）。 */
@@ -26,56 +53,183 @@ public final class KeyUtils {
         return code < 0;
     }
 
+    // 键名 → 键码（InputConstants / SDL scancode 域）
+    private static final Map<String, Integer> NAME_TO_KEY = new HashMap<>();
+    // 反查表，供 getKeyName 使用
+    private static final Map<Integer, String> KEY_TO_NAME = new HashMap<>();
+
+    static {
+        // 字母：SDL 的 A..Z 连续
+        for (int i = 0; i < 26; i++) {
+            bind(String.valueOf((char) ('A' + i)), InputConstants.KEY_A + i);
+        }
+        // 数字主键盘：1..9 连续，0 排在 9 之后
+        for (int i = 1; i <= 9; i++) {
+            bind(String.valueOf(i), InputConstants.KEY_1 + (i - 1));
+        }
+        bind("0", InputConstants.KEY_0);
+
+        // 功能键分两段：F1-F12 与 F13-F24
+        for (int i = 1; i <= 12; i++) {
+            bind("F" + i, InputConstants.KEY_F1 + (i - 1));
+        }
+        for (int i = 13; i <= 24; i++) {
+            bind("F" + i, InputConstants.KEY_F13 + (i - 13));
+        }
+
+        bind("LSHIFT", InputConstants.KEY_LSHIFT);
+        bind("RSHIFT", InputConstants.KEY_RSHIFT);
+        bind("SHIFT", InputConstants.KEY_LSHIFT);
+        bind("LCTRL", InputConstants.KEY_LCONTROL);
+        bind("RCTRL", InputConstants.KEY_RCONTROL);
+        bind("CTRL", InputConstants.KEY_LCONTROL);
+        bind("CONTROL", InputConstants.KEY_LCONTROL);
+        bind("LALT", InputConstants.KEY_LALT);
+        bind("RALT", InputConstants.KEY_RALT);
+        bind("ALT", InputConstants.KEY_LALT);
+        bind("LSUPER", InputConstants.KEY_LGUI);
+        bind("RSUPER", InputConstants.KEY_RGUI);
+        bind("TAB", InputConstants.KEY_TAB);
+        bind("CAPS", InputConstants.KEY_CAPSLOCK);
+        bind("CAPSLOCK", InputConstants.KEY_CAPSLOCK);
+        bind("ENTER", InputConstants.KEY_RETURN);
+        bind("RETURN", InputConstants.KEY_RETURN);
+        bind("KP_ENTER", InputConstants.KEY_NUMPADENTER);
+        bind("SPACE", InputConstants.KEY_SPACE);
+        bind("ESC", InputConstants.KEY_ESCAPE);
+        bind("ESCAPE", InputConstants.KEY_ESCAPE);
+        bind("BACKSPACE", InputConstants.KEY_BACKSPACE);
+        bind("DELETE", InputConstants.KEY_DELETE);
+        bind("DEL", InputConstants.KEY_DELETE);
+        bind("INSERT", InputConstants.KEY_INSERT);
+        bind("INS", InputConstants.KEY_INSERT);
+        bind("HOME", InputConstants.KEY_HOME);
+        bind("END", InputConstants.KEY_END);
+        bind("PGUP", InputConstants.KEY_PAGEUP);
+        bind("PAGEUP", InputConstants.KEY_PAGEUP);
+        bind("PGDN", InputConstants.KEY_PAGEDOWN);
+        bind("PAGEDOWN", InputConstants.KEY_PAGEDOWN);
+        bind("UP", InputConstants.KEY_UP);
+        bind("DOWN", InputConstants.KEY_DOWN);
+        bind("LEFT", InputConstants.KEY_LEFT);
+        bind("RIGHT", InputConstants.KEY_RIGHT);
+        bind("MINUS", InputConstants.KEY_MINUS);
+        bind("EQUALS", InputConstants.KEY_EQUALS);
+        bind("LBRACKET", InputConstants.KEY_LBRACKET);
+        bind("RBRACKET", InputConstants.KEY_RBRACKET);
+        bind("BACKSLASH", InputConstants.KEY_BACKSLASH);
+        bind("SEMICOLON", InputConstants.KEY_SEMICOLON);
+        bind("APOSTROPHE", InputConstants.KEY_APOSTROPHE);
+        bind("COMMA", InputConstants.KEY_COMMA);
+        bind("PERIOD", InputConstants.KEY_PERIOD);
+        bind("SLASH", InputConstants.KEY_SLASH);
+        bind("GRAVE", InputConstants.KEY_GRAVE);
+        bind("NUMLOCK", InputConstants.KEY_NUMLOCK);
+        bind("PRINTSCREEN", InputConstants.KEY_PRINTSCREEN);
+        bind("SCROLLLOCK", InputConstants.KEY_SCROLLLOCK);
+        bind("PAUSE", InputConstants.KEY_PAUSE);
+    }
+
+    private static void bind(String name, int code) {
+        String key = name.toUpperCase(Locale.ROOT);
+        NAME_TO_KEY.put(key, code);
+        KEY_TO_NAME.putIfAbsent(code, key);
+    }
+
     /**
-     * 将键码转换为可读名称。鼠标键显示 MOUSE1..MOUSE8，修饰键带左右区分
-     * （LSHIFT/RSHIFT/LCTRL/RCTRL/LALT/RALT），其余特殊键有固定名称，
-     * 可打印字符回退到 {@code glfwGetKeyName}，未知键显示 K{code}。
+     * 26.2 及以前存档里的 GLFW 键码 → 本模块现在使用的 SDL 键码。
+     *
+     * <p>一次性迁移用：无法识别的值原样返回（负数鼠标码本就不该进来，调用方需先
+     * 过滤）。因为新旧两域在 32..127 上重叠，迁移必须由配置里的域标记把关，
+     * 重复套用会损坏键位。</p>
+     */
+    public static int migrateLegacyGlfwKey(int glfwCode) {
+        Integer sdl = GLFW_TO_SDL.get(glfwCode);
+        return sdl == null ? glfwCode : sdl;
+    }
+
+    /** GLFW keysym → InputConstants(26.3/SDL) 的对照表，覆盖本模块能命名的全部键。 */
+    private static final Map<Integer, Integer> GLFW_TO_SDL = new HashMap<>();
+
+    private static void legacy(int glfwCode, String name) {
+        Integer sdl = NAME_TO_KEY.get(name);
+        if (sdl != null) {
+            GLFW_TO_SDL.putIfAbsent(glfwCode, sdl);
+        }
+    }
+
+    static {
+        // GLFW 的 A..Z / 0..9 就是 ASCII 码
+        for (int i = 0; i < 26; i++) {
+            legacy(GLFW.GLFW_KEY_A + i, String.valueOf((char) ('A' + i)));
+        }
+        for (int i = 0; i <= 9; i++) {
+            legacy(GLFW.GLFW_KEY_0 + i, String.valueOf(i));
+        }
+        // GLFW F1=290 起连续 24 个；SDL 的 F13-F24 另起一段
+        for (int i = 1; i <= 12; i++) {
+            legacy(GLFW.GLFW_KEY_F1 + (i - 1), "F" + i);
+        }
+        for (int i = 13; i <= 24; i++) {
+            legacy(GLFW.GLFW_KEY_F1 + (i - 1), "F" + i);
+        }
+        legacy(GLFW.GLFW_KEY_LEFT_SHIFT, "LSHIFT");
+        legacy(GLFW.GLFW_KEY_RIGHT_SHIFT, "RSHIFT");
+        legacy(GLFW.GLFW_KEY_LEFT_CONTROL, "LCTRL");
+        legacy(GLFW.GLFW_KEY_RIGHT_CONTROL, "RCTRL");
+        legacy(GLFW.GLFW_KEY_LEFT_ALT, "LALT");
+        legacy(GLFW.GLFW_KEY_RIGHT_ALT, "RALT");
+        legacy(GLFW.GLFW_KEY_LEFT_SUPER, "LSUPER");
+        legacy(GLFW.GLFW_KEY_RIGHT_SUPER, "RSUPER");
+        legacy(GLFW.GLFW_KEY_TAB, "TAB");
+        legacy(GLFW.GLFW_KEY_CAPS_LOCK, "CAPS");
+        legacy(GLFW.GLFW_KEY_ENTER, "ENTER");
+        legacy(GLFW.GLFW_KEY_KP_ENTER, "KP_ENTER");
+        legacy(GLFW.GLFW_KEY_SPACE, "SPACE");
+        legacy(GLFW.GLFW_KEY_ESCAPE, "ESC");
+        legacy(GLFW.GLFW_KEY_BACKSPACE, "BACKSPACE");
+        legacy(GLFW.GLFW_KEY_DELETE, "DELETE");
+        legacy(GLFW.GLFW_KEY_INSERT, "INSERT");
+        legacy(GLFW.GLFW_KEY_HOME, "HOME");
+        legacy(GLFW.GLFW_KEY_END, "END");
+        legacy(GLFW.GLFW_KEY_PAGE_UP, "PGUP");
+        legacy(GLFW.GLFW_KEY_PAGE_DOWN, "PGDN");
+        legacy(GLFW.GLFW_KEY_UP, "UP");
+        legacy(GLFW.GLFW_KEY_DOWN, "DOWN");
+        legacy(GLFW.GLFW_KEY_LEFT, "LEFT");
+        legacy(GLFW.GLFW_KEY_RIGHT, "RIGHT");
+        legacy(GLFW.GLFW_KEY_MINUS, "MINUS");
+        legacy(GLFW.GLFW_KEY_EQUAL, "EQUALS");
+        legacy(GLFW.GLFW_KEY_LEFT_BRACKET, "LBRACKET");
+        legacy(GLFW.GLFW_KEY_RIGHT_BRACKET, "RBRACKET");
+        legacy(GLFW.GLFW_KEY_BACKSLASH, "BACKSLASH");
+        legacy(GLFW.GLFW_KEY_SEMICOLON, "SEMICOLON");
+        legacy(GLFW.GLFW_KEY_APOSTROPHE, "APOSTROPHE");
+        legacy(GLFW.GLFW_KEY_COMMA, "COMMA");
+        legacy(GLFW.GLFW_KEY_PERIOD, "PERIOD");
+        legacy(GLFW.GLFW_KEY_SLASH, "SLASH");
+        legacy(GLFW.GLFW_KEY_GRAVE_ACCENT, "GRAVE");
+        legacy(GLFW.GLFW_KEY_NUM_LOCK, "NUMLOCK");
+        legacy(GLFW.GLFW_KEY_PRINT_SCREEN, "PRINTSCREEN");
+        legacy(GLFW.GLFW_KEY_SCROLL_LOCK, "SCROLLLOCK");
+        legacy(GLFW.GLFW_KEY_PAUSE, "PAUSE");
+    }
+
+    /**
+     * 将键码转换为可读名称。鼠标键显示 MOUSE1..MOUSE8，其余按 {@link #KEY_TO_NAME}
+     * 反查（带左右区分的修饰键存的是首选名），查不到则显示 K{code}。
      */
     public static String getKeyName(int key) {
         if (key == 0) return "None";
         if (isMouseCode(key)) return "MOUSE" + (-key);
-
-        // 修饰键与特殊键优先于 glfwGetKeyName，保证左右区分与稳定命名
-        switch (key) {
-            case GLFW.GLFW_KEY_LEFT_SHIFT:   return "LSHIFT";
-            case GLFW.GLFW_KEY_RIGHT_SHIFT:  return "RSHIFT";
-            case GLFW.GLFW_KEY_LEFT_CONTROL: return "LCTRL";
-            case GLFW.GLFW_KEY_RIGHT_CONTROL:return "RCTRL";
-            case GLFW.GLFW_KEY_LEFT_ALT:     return "LALT";
-            case GLFW.GLFW_KEY_RIGHT_ALT:    return "RALT";
-            case GLFW.GLFW_KEY_TAB:          return "TAB";
-            case GLFW.GLFW_KEY_CAPS_LOCK:    return "CAPS";
-            case GLFW.GLFW_KEY_ENTER:        return "ENTER";
-            case GLFW.GLFW_KEY_KP_ENTER:     return "KP_ENTER";
-            case GLFW.GLFW_KEY_SPACE:        return "SPACE";
-            case GLFW.GLFW_KEY_ESCAPE:       return "ESC";
-            case GLFW.GLFW_KEY_BACKSPACE:    return "BACKSPACE";
-            case GLFW.GLFW_KEY_DELETE:       return "DELETE";
-            case GLFW.GLFW_KEY_INSERT:       return "INSERT";
-            case GLFW.GLFW_KEY_HOME:         return "HOME";
-            case GLFW.GLFW_KEY_END:          return "END";
-            case GLFW.GLFW_KEY_PAGE_UP:      return "PGUP";
-            case GLFW.GLFW_KEY_PAGE_DOWN:    return "PGDN";
-            case GLFW.GLFW_KEY_UP:           return "UP";
-            case GLFW.GLFW_KEY_DOWN:         return "DOWN";
-            case GLFW.GLFW_KEY_LEFT:         return "LEFT";
-            case GLFW.GLFW_KEY_RIGHT:        return "RIGHT";
-            default: break;
-        }
-
-        if (key >= GLFW.GLFW_KEY_F1 && key <= GLFW.GLFW_KEY_F24) {
-            return "F" + (key - GLFW.GLFW_KEY_F1 + 1);
-        }
-
-        String name = GLFW.glfwGetKeyName(key, 0);
-        if (name != null) return name.toUpperCase();
-        return "K" + key;
+        String name = KEY_TO_NAME.get(key);
+        return name != null ? name : "K" + key;
     }
 
     /**
-     * 将键名解析为键码。支持 NONE（清除绑定）、LSHIFT/RSHIFT 等左右修饰键、
-     * 方向键、F1-F24、MOUSE1-MOUSE8 及单个字符（A-Z/0-9/空格）。
-     * 无法解析时返回 {@link #UNDEFINED}。
+     * 将键名解析为键码（SDL/InputConstants 域）。支持 NONE（清除绑定，"0" 同义）、
+     * LSHIFT/RSHIFT 等左右修饰键、方向键、F1-F24、字母与 1-9 数字键名；
+     * MOUSE1-MOUSE8 解析为负码。无法解析时返回 {@link #UNDEFINED}。
      */
     public static int getKeyCode(String name) {
         if (name == null) return UNDEFINED;
@@ -92,56 +246,8 @@ public final class KeyUtils {
             }
         }
 
-        switch (s) {
-            case "LSHIFT":  return GLFW.GLFW_KEY_LEFT_SHIFT;
-            case "RSHIFT":  return GLFW.GLFW_KEY_RIGHT_SHIFT;
-            case "SHIFT":   return GLFW.GLFW_KEY_LEFT_SHIFT;
-            case "LCTRL":
-            case "LCONTROL":return GLFW.GLFW_KEY_LEFT_CONTROL;
-            case "RCTRL":
-            case "RCONTROL":return GLFW.GLFW_KEY_RIGHT_CONTROL;
-            case "CTRL":
-            case "CONTROL": return GLFW.GLFW_KEY_LEFT_CONTROL;
-            case "LALT":    return GLFW.GLFW_KEY_LEFT_ALT;
-            case "RALT":    return GLFW.GLFW_KEY_RIGHT_ALT;
-            case "ALT":     return GLFW.GLFW_KEY_LEFT_ALT;
-            case "TAB":     return GLFW.GLFW_KEY_TAB;
-            case "CAPS":
-            case "CAPSLOCK":return GLFW.GLFW_KEY_CAPS_LOCK;
-            case "ENTER":
-            case "RETURN":  return GLFW.GLFW_KEY_ENTER;
-            case "SPACE":   return GLFW.GLFW_KEY_SPACE;
-            case "ESC":
-            case "ESCAPE":  return GLFW.GLFW_KEY_ESCAPE;
-            case "BACKSPACE":return GLFW.GLFW_KEY_BACKSPACE;
-            case "DELETE":
-            case "DEL":     return GLFW.GLFW_KEY_DELETE;
-            case "INSERT":
-            case "INS":     return GLFW.GLFW_KEY_INSERT;
-            case "HOME":    return GLFW.GLFW_KEY_HOME;
-            case "END":     return GLFW.GLFW_KEY_END;
-            case "PGUP":
-            case "PAGEUP":  return GLFW.GLFW_KEY_PAGE_UP;
-            case "PGDN":
-            case "PAGEDOWN":return GLFW.GLFW_KEY_PAGE_DOWN;
-            case "UP":      return GLFW.GLFW_KEY_UP;
-            case "DOWN":    return GLFW.GLFW_KEY_DOWN;
-            case "LEFT":    return GLFW.GLFW_KEY_LEFT;
-            case "RIGHT":   return GLFW.GLFW_KEY_RIGHT;
-            default: break;
-        }
-
-        if (s.matches("F([1-9]|1[0-9]|2[0-4])")) {
-            int n = Integer.parseInt(s.substring(1));
-            return GLFW.GLFW_KEY_F1 + n - 1;
-        }
-
-        if (s.length() == 1) {
-            char c = s.charAt(0);
-            if (c >= 'A' && c <= 'Z') return c;
-            if (c >= '0' && c <= '9') return c;
-            if (c == ' ') return GLFW.GLFW_KEY_SPACE;
-        }
+        Integer mapped = NAME_TO_KEY.get(s);
+        if (mapped != null) return mapped;
 
         return UNDEFINED;
     }

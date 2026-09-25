@@ -5,6 +5,7 @@ import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.ShutdownEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleManager;
+import geminiclient.gemini.utils.KeyUtils;
 import geminiclient.gemini.values.ValueParent;
 import geminiclient.gemini.values.impl.*;
 import net.minecraft.client.Minecraft;
@@ -45,6 +46,9 @@ public final class FileSystem {
             ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".webm");
 
     private static final String JSON_MODULES = "modules";
+    /** 键码域标记：缺省表示配置写于 Minecraft 26.3 的 GLFW→SDL 切换之前。 */
+    private static final String JSON_KEY_DOMAIN = "keyDomain";
+    private static final String KEY_DOMAIN_SDL = "sdl";
     private static final String JSON_VALUES = "values";
     private static final String JSON_NAME = "name";
     private static final String JSON_TYPE = "type";
@@ -644,7 +648,9 @@ public final class FileSystem {
         for (Module module : moduleManager.getModules()) {
             modules.put(buildModuleJson(module));
         }
-        return new JSONObject().put(JSON_MODULES, modules);
+        return new JSONObject()
+                .put(JSON_MODULES, modules)
+                .put(JSON_KEY_DOMAIN, KEY_DOMAIN_SDL);
     }
 
     private JSONObject buildModuleJson(Module module) {
@@ -746,11 +752,14 @@ public final class FileSystem {
         }
 
         rebuildModuleIndex();
-        int loadedCount = (int) IntStream.range(0, modules.length()).mapToObj(modules::optJSONObject).filter(moduleJson -> moduleJson != null && applyModuleConfig(moduleJson)).count();
+        // 没有域标记 = 配置写于 GLFW 时代，键位要先换算到当前的 SDL 键码域。
+        // 只在这次载入的内存里生效；写回时带上标记，因此不会重复迁移。
+        boolean migrateKeys = !KEY_DOMAIN_SDL.equals(root.optString(JSON_KEY_DOMAIN, ""));
+        int loadedCount = (int) IntStream.range(0, modules.length()).mapToObj(modules::optJSONObject).filter(moduleJson -> moduleJson != null && applyModuleConfig(moduleJson, migrateKeys)).count();
         LOGGER.info(() -> "Applied configuration to " + loadedCount + " modules");
     }
 
-    private boolean applyModuleConfig(JSONObject json) {
+    private boolean applyModuleConfig(JSONObject json, boolean migrateKeys) {
         String moduleName = json.optString(JSON_NAME, "").trim();
         if (moduleName.isEmpty()) {
             LOGGER.warning("Skipping module without a name");
@@ -766,7 +775,10 @@ public final class FileSystem {
         if (json.has("enabled")) {
             module.setEnabled(json.optBoolean("enabled", module.enabled));
         }
-        module.key = json.optInt("key", module.key);
+        int storedKey = json.optInt("key", module.key);
+        module.key = migrateKeys && storedKey > 0
+                ? KeyUtils.migrateLegacyGlfwKey(storedKey)
+                : storedKey;
         module.favorite = json.optBoolean("favorite", module.favorite);
         module.hudX = json.optInt("hudX", module.hudX);
         module.hudY = json.optInt("hudY", module.hudY);

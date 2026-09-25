@@ -5,6 +5,7 @@ import geminiclient.gemini.modules.impl.visual.Osu4k;
 import geminiclient.gemini.modules.impl.visual.osu4k.model.BeatmapData;
 import geminiclient.gemini.modules.impl.visual.osu4k.model.OszArchive;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
@@ -287,7 +288,7 @@ public final class Osu4kSelectScreen extends Osu4kScreen {
 
     @Override
     public boolean mouseClicked(net.minecraft.client.input.MouseButtonEvent mouse, boolean idk) {
-        if (mouse.button() != 0) {
+        if (mouse.button() != InputConstants.MOUSE_BUTTON_LEFT) {
             return super.mouseClicked(mouse, idk);
         }
         int py = panelY + Math.round((1f - easeOutCubic(clamp01((System.currentTimeMillis() - openAtMs) / 400f))) * 14f);

@@ -4,6 +4,7 @@ import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.modules.impl.visual.Osu4k;
 import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kKeyConfig;
 import geminiclient.gemini.modules.impl.visual.clickgui.ModuleComponent;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
@@ -194,7 +195,7 @@ public final class Osu4kKeybindScreen extends Osu4kScreen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent mouse, boolean idk) {
-        if (mouse.button() != 0) {
+        if (mouse.button() != InputConstants.MOUSE_BUTTON_LEFT) {
             return super.mouseClicked(mouse, idk);
         }
         int py = panelY + Math.round((1f - easeOutCubic(clamp01((System.currentTimeMillis() - openAtMs) / 380f))) * 12f);

@@ -1,15 +1,19 @@
 package geminiclient.gemini.modules.impl.visual.clickgui;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.modules.Module;
-import org.lwjgl.glfw.GLFW;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
 
 import java.util.Locale;
 
 /**
  * Render-free search/filter state shared by the classic {@link SearchWidget}
- * and the MD3 search bar. Handles text input (GLFW key codes + modifiers),
- * cursor blink timing, and module name matching.
+ * and the MD3 search bar. Handles editing keys, typed text, cursor blink
+ * timing, and module name matching. Text arrives through
+ * {@link #charTyped(CharacterEvent)} so that keyboard layout, shift and IME are
+ * resolved by Minecraft itself instead of a hand-rolled key table.
  */
 public class SearchFilterModel {
 
@@ -38,75 +42,38 @@ public class SearchFilterModel {
     }
 
     /**
-     * Handle a key press. Converts GLFW key codes + modifiers to text.
+     * Editing keys only — backspace. Text comes through {@link #charTyped}.
      *
-     * @param key GLFW key code
-     * @param modifiers GLFW modifier bitmask (from KeyEvent.modifiers())
      * @return true if consumed
      */
-    public boolean keyPressed(int key, int modifiers) {
+    public boolean keyPressed(KeyEvent event) {
         if (!focused) return false;
 
-        if (key == GLFW.GLFW_KEY_BACKSPACE) {
+        if (event.key() == InputConstants.KEY_BACKSPACE) {
             if (!filterText.isEmpty()) {
-                filterText = filterText.substring(0, filterText.length() - 1);
+                filterText = filterText
+                        .substring(0, filterText.offsetByCodePoints(filterText.length(), -1));
                 cursorTick = 0;
             }
             return true;
         }
-
-        if (key == GLFW.GLFW_KEY_ESCAPE) {
-            filterText = "";
-            focused = false;
-            cursorTick = 0;
-            return true;
-        }
-
-        if (key == GLFW.GLFW_KEY_SPACE) {
-            append(' ');
-            return true;
-        }
-
-        // Convert GLFW key code to character
-        if (key >= GLFW.GLFW_KEY_A && key <= GLFW.GLFW_KEY_Z) {
-            boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
-            char c = (char) (key - GLFW.GLFW_KEY_A + (shift ? 'A' : 'a'));
-            append(c);
-            return true;
-        }
-
-        if (key >= GLFW.GLFW_KEY_0 && key <= GLFW.GLFW_KEY_9) {
-            // Map key number row to actual characters (with shift for symbols)
-            boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
-            String numberRowShift = ")!@#$%^&*(";
-            char c = shift ? numberRowShift.charAt(key - GLFW.GLFW_KEY_0)
-                           : (char) ('0' + (key - GLFW.GLFW_KEY_0));
-            append(c);
-            return true;
-        }
-
-        // Common printable keys
-        if (key == GLFW.GLFW_KEY_MINUS)        append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '_' : '-');
-        else if (key == GLFW.GLFW_KEY_EQUAL)   append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '+' : '=');
-        else if (key == GLFW.GLFW_KEY_LEFT_BRACKET)  append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '{' : '[');
-        else if (key == GLFW.GLFW_KEY_RIGHT_BRACKET) append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '}' : ']');
-        else if (key == GLFW.GLFW_KEY_BACKSLASH)     append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '|' : '\\');
-        else if (key == GLFW.GLFW_KEY_SEMICOLON)     append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? ':' : ';');
-        else if (key == GLFW.GLFW_KEY_APOSTROPHE)    append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '"' : '\'');
-        else if (key == GLFW.GLFW_KEY_COMMA)         append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '<' : ',');
-        else if (key == GLFW.GLFW_KEY_PERIOD)        append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '>' : '.');
-        else if (key == GLFW.GLFW_KEY_SLASH)         append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '?' : '/');
-        else if (key == GLFW.GLFW_KEY_GRAVE_ACCENT)  append((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? '~' : '`');
-        else {
-            return false;
-        }
-        return true;
+        return false;
     }
 
-    private void append(char c) {
-        if (filterText.length() >= 32) return;
-        filterText += c;
+    /**
+     * Append one character that Minecraft has already resolved for the active
+     * keyboard layout and shift state.
+     *
+     * @return true if consumed
+     */
+    public boolean charTyped(CharacterEvent event) {
+        int cp = event.codepoint();
+        if (!focused || cp < 32 || cp == 127 || filterText.length() >= 32) {
+            return false;
+        }
+        filterText += new String(Character.toChars(cp));
         cursorTick = 0;
+        return true;
     }
 
     public String getFilterText() {

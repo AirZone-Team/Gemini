@@ -4,6 +4,7 @@ import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.modules.impl.visual.Osu4k;
 import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kLibrary;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
@@ -279,7 +280,7 @@ public final class Osu4kLibraryScreen extends Osu4kScreen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent mouse, boolean idk) {
-        if (mouse.button() != 0) {
+        if (mouse.button() != InputConstants.MOUSE_BUTTON_LEFT) {
             return super.mouseClicked(mouse, idk);
         }
         double mx = mouse.x();

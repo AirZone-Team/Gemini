@@ -8,6 +8,7 @@ import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kGameState;
 import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kGameState.Judgment;
 import geminiclient.gemini.modules.impl.visual.osu4k.game.Osu4kRating;
 import geminiclient.gemini.modules.impl.visual.osu4k.model.BeatmapData;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
@@ -219,7 +220,7 @@ public final class Osu4kResultsScreen extends Osu4kScreen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent mouse, boolean idk) {
-        if (mouse.button() != 0) {
+        if (mouse.button() != InputConstants.MOUSE_BUTTON_LEFT) {
             return super.mouseClicked(mouse, idk);
         }
         double mx = mouse.x();

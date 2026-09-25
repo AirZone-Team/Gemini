@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.modules.ModuleEnum;
@@ -35,7 +36,8 @@ public class ClickGui extends Module {
 
     public ClickGui() {
         super("ClickGui", ModuleEnum.Visual);
-        this.key = 79;
+        // 键码域见 KeyUtils：26.3 起是 SDL scancode，写字面量会在换版本时悄悄改键
+        this.key = InputConstants.KEY_O;
         addValue(mode);
         addValue(blurStrength);
         addValue(md3Scale);

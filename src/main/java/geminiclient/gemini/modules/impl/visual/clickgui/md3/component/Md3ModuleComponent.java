@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3.component;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
@@ -12,7 +13,6 @@ import geminiclient.gemini.modules.impl.visual.clickgui.md3.Md3Theme;
 import geminiclient.gemini.utils.KeyUtils;
 import geminiclient.gemini.values.ValueParent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -254,20 +254,20 @@ public class Md3ModuleComponent {
     }
 
     /** 转发按键给绑定中的模块行；已消费返回 true。 */
-    public static boolean dispatchKeyPress(int glfwKey) {
-        return activeBinding != null && activeBinding.keyPressed(glfwKey);
+    public static boolean dispatchKeyPress(int key) {
+        return activeBinding != null && activeBinding.keyPressed(key);
     }
 
-    /** 绑定模式下的按键捕获：Esc 取消，其余键立即绑定。 */
-    private boolean keyPressed(int glfwKey) {
+    /** 绑定模式下的按键捕获：Esc 取消，其余键立即绑定（键码域见 {@link KeyUtils}）。 */
+    private boolean keyPressed(int key) {
         if (activeBinding != this) {
             return false;
         }
-        if (glfwKey == GLFW.GLFW_KEY_ESCAPE) {
+        if (key == InputConstants.KEY_ESCAPE) {
             activeBinding = null;
             return true;
         }
-        module.key = glfwKey;
+        module.key = key;
         activeBinding = null;
         Gemini.fileSystem.saveConfig();
         return true;

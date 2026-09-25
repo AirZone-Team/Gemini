@@ -1,12 +1,12 @@
 package geminiclient.gemini.base;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.event.events.impl.KeyInputEvent;
 import geminiclient.gemini.event.events.impl.MouseButtonInputEvent;
 import geminiclient.gemini.modules.Module;
 import geminiclient.gemini.utils.KeyUtils;
-import org.lwjgl.glfw.GLFW;
 
 import static geminiclient.gemini.base.MinecraftInstance.mc;
 
@@ -22,7 +22,7 @@ public class KeyBindHandler {
     public void keyEvent(KeyInputEvent event) {
         // 只在按下瞬间触发，忽略重复(REPEAT)与松开(RELEASE)，
         // 避免按住 Shift 等键时每 180ms 反复切换模块
-        if (event.action() != GLFW.GLFW_PRESS) {
+        if (event.action() != InputConstants.PRESS) {
             return;
         }
         checkBind(event.key());
@@ -31,10 +31,10 @@ public class KeyBindHandler {
     @SuppressWarnings("unused")
     @EventTarget
     public void mouseEvent(MouseButtonInputEvent event) {
-        if (event.action() != GLFW.GLFW_PRESS) {
+        if (event.action() != InputConstants.PRESS) {
             return;
         }
-        checkBind(KeyUtils.mouseButtonToCode(event.button()));
+        checkBind(KeyUtils.mouseButtonToCode(KeyUtils.toModButton(event.button())));
     }
 
     /** 匹配并切换所有绑定了该键码（键盘码或鼠标负码）的模块。 */

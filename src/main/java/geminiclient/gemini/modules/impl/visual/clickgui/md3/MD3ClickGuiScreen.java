@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.visual.clickgui.md3;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.Gemini;
 import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
@@ -10,12 +11,13 @@ import geminiclient.gemini.modules.impl.visual.clickgui.AbstractClickGuiScreen;
 import geminiclient.gemini.modules.impl.visual.clickgui.SearchFilterModel;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.component.Md3ModuleComponent;
 import geminiclient.gemini.modules.impl.visual.clickgui.md3.component.Md3Overlay;
+import geminiclient.gemini.utils.KeyUtils;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.NotNull;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -374,7 +376,7 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
     public boolean mouseClicked(@NotNull MouseButtonEvent mouse, boolean idk) {
         double mouseX = logicalX(mouse.x());
         double mouseY = logicalY(mouse.y());
-        int button = mouse.button();
+        int button = KeyUtils.toModButton(mouse.button());
 
         // A fresh left press proves every previous press has ended, even when
         // its release event was lost (button let go outside the window after
@@ -437,7 +439,7 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
     public boolean mouseReleased(@NotNull MouseButtonEvent mouse) {
         double mouseX = logicalX(mouse.x());
         double mouseY = logicalY(mouse.y());
-        int button = mouse.button();
+        int button = KeyUtils.toModButton(mouse.button());
 
         if (dragging && button == 0) {
             dragging = false;
@@ -478,7 +480,7 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
 
     @Override
     public boolean mouseDragged(@NotNull MouseButtonEvent mouse, double dx, double dy) {
-        if (dragging && mouse.button() == 0) {
+        if (dragging && KeyUtils.toModButton(mouse.button()) == 0) {
             winX = (int) (logicalX(mouse.x()) - dragOffsetX);
             winY = (int) (logicalY(mouse.y()) - dragOffsetY);
             return true;
@@ -504,17 +506,14 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
 
     @Override
     public boolean keyPressed(KeyEvent keyCode) {
-        int glfwKey = keyCode.input();
-        int modifiers = keyCode.modifiers();
-
         // 绑定模式优先：正在等待按键的模块行先消费（Esc 由其取消绑定）
         if (Md3ModuleComponent.hasActiveBinding()) {
-            if (Md3ModuleComponent.dispatchKeyPress(glfwKey)) {
+            if (Md3ModuleComponent.dispatchKeyPress(keyCode.input())) {
                 return true;
             }
         }
 
-        if (glfwKey == GLFW.GLFW_KEY_ESCAPE) {
+        if (keyCode.isEscape()) {
             if (openOverlay != null) {
                 openOverlay = null;
                 return true;
@@ -528,28 +527,32 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
             return true;
         }
 
-        boolean control = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
-        if (control && (glfwKey == GLFW.GLFW_KEY_K || glfwKey == GLFW.GLFW_KEY_F)) {
+        if (keyCode.hasControlDown()
+                && (keyCode.input() == InputConstants.KEY_K || keyCode.input() == InputConstants.KEY_F)) {
             openOverlay = null;
             searchBar.focus();
             return true;
         }
 
-        if (System.currentTimeMillis() < ignoreKeyCharsUntil) {
-            boolean isCharKey = (glfwKey >= GLFW.GLFW_KEY_A && glfwKey <= GLFW.GLFW_KEY_Z)
-                    || (glfwKey >= GLFW.GLFW_KEY_0 && glfwKey <= GLFW.GLFW_KEY_9)
-                    || glfwKey == GLFW.GLFW_KEY_SPACE;
-            if (isCharKey) {
-                return true;
-            }
-        }
-
-        if (searchBar.keyPressed(glfwKey, modifiers)) {
+        if (searchBar.keyPressed(keyCode)) {
             resetScroll();
             return true;
         }
 
         return super.keyPressed(keyCode);
+    }
+
+    @Override
+    public boolean charTyped(CharacterEvent event) {
+        // 用键盘快捷键打开 GUI 的那一下，字符不该落进搜索框
+        if (System.currentTimeMillis() < ignoreKeyCharsUntil) {
+            return true;
+        }
+        if (searchBar.charTyped(event)) {
+            resetScroll();
+            return true;
+        }
+        return super.charTyped(event);
     }
 
     private void resetScroll() {

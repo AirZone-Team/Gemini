@@ -1,5 +1,6 @@
 package geminiclient.gemini.modules.impl.movement;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.UpdateEvent;
 import geminiclient.gemini.modules.Module;
@@ -7,7 +8,6 @@ import geminiclient.gemini.modules.ModuleEnum;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.screens.inventory.ContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
-import org.lwjgl.glfw.GLFW;
 
 public class InvMove extends Module {
     public InvMove() {
@@ -45,7 +45,8 @@ public class InvMove extends Module {
 
         for(KeyMapping key : keys) {
             // 检查按键是否被按下
-            boolean isPressed = GLFW.glfwGetKey(mc.getWindow().handle(), key.getDefaultKey().getValue()) == GLFW.GLFW_PRESS;
+            // 26.3 起键码就是 SDL scancode，直接查 MC 的键盘状态（GLFW 已退出输入链路）
+            boolean isPressed = InputConstants.isKeyDown(key.getDefaultKey().getValue());
 
             // 模拟按键状态
             key.setDown(isPressed);

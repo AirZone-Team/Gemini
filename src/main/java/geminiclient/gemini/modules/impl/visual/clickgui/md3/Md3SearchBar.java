@@ -4,6 +4,8 @@ import geminiclient.gemini.base.I18n;
 import geminiclient.gemini.customRenderer.cpu.CustomRoundedRectRenderer;
 import geminiclient.gemini.modules.impl.visual.clickgui.SearchFilterModel;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
 
 /**
  * MD3 search bar with a leading icon, plain-language placeholder, focus state
@@ -113,8 +115,14 @@ public class Md3SearchBar {
         return model.isFocused();
     }
 
-    public boolean keyPressed(int key, int modifiers) {
-        return model.keyPressed(key, modifiers);
+    /** Editing keys (backspace) while the bar is focused. */
+    public boolean keyPressed(KeyEvent event) {
+        return model.keyPressed(event);
+    }
+
+    /** Typed text while the bar is focused. */
+    public boolean charTyped(CharacterEvent event) {
+        return model.charTyped(event);
     }
 
     public boolean isHovered(double mouseX, double mouseY) {

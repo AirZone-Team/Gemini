@@ -5,7 +5,6 @@ import geminiclient.gemini.base.MinecraftInstance;
 import geminiclient.gemini.event.annotations.EventTarget;
 import geminiclient.gemini.event.events.impl.Render2DEvent;
 import net.minecraft.client.gui.screens.ChatScreen;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -73,8 +72,8 @@ public class HudDragManager implements MinecraftInstance {
             draggedModule = null;
         }
 
-        long window = mc.getWindow().handle();
-        boolean mouseDown = GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+        // 26.3 的输入走 SDL，GLFW 轮询恒为未按下；用 MouseHandler 的左键状态
+        boolean mouseDown = mc.mouseHandler.isLeftPressed();
         int mouseX = (int) mc.mouseHandler.getScaledXPos(mc.getWindow());
         int mouseY = (int) mc.mouseHandler.getScaledYPos(mc.getWindow());
         int screenW = mc.getWindow().getGuiScaledWidth();

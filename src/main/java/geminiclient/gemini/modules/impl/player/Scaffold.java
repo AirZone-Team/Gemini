@@ -44,7 +44,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.ClipContext;
-import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL11;
 
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -752,12 +752,24 @@ public class Scaffold extends Module {
         if (!safeWalkPressed) return;
 
         InputConstants.Key key = mc.options.keyShift.getKey();
-        long window = mc.getWindow().handle();
         boolean physicallyDown = key.getType() == InputConstants.Type.MOUSE
-                ? GLFW.glfwGetMouseButton(window, key.getValue()) == GLFW.GLFW_PRESS
+                ? isMouseButtonHeld(key.getValue())
                 : InputConstants.isKeyDown(key.getValue());
         mc.options.keyShift.setDown(physicallyDown);
         safeWalkPressed = false;
+    }
+
+    /**
+     * 26.3 的鼠标键号是 1 基（左=1、中=2、右=3），而 {@code MouseHandler} 只跟踪
+     * 这三个键；侧键没有可轮询的状态，按未按下处理（本方法只用于放行）。
+     */
+    private boolean isMouseButtonHeld(int mcButton) {
+        return switch (mcButton) {
+            case InputConstants.MOUSE_BUTTON_LEFT -> mc.mouseHandler.isLeftPressed();
+            case InputConstants.MOUSE_BUTTON_MIDDLE -> mc.mouseHandler.isMiddlePressed();
+            case InputConstants.MOUSE_BUTTON_RIGHT -> mc.mouseHandler.isRightPressed();
+            default -> false;
+        };
     }
 
     // ========================================================================

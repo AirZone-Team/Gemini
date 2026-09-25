@@ -1,13 +1,14 @@
 package geminiclient.gemini.modules.impl.visual.clickgui;
 
 import geminiclient.gemini.modules.ModuleEnum;
+import geminiclient.gemini.utils.KeyUtils;
 import geminiclient.gemini.utils.animation.SpringAnimation;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.NotNull;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -81,13 +82,15 @@ public class ClickGuiScreen extends AbstractClickGuiScreen {
 
     @Override
     public boolean mouseClicked(@NotNull MouseButtonEvent mouse, boolean idk) {
+        int button = KeyUtils.toModButton(mouse.button());
+
         // Search widget gets first crack
-        if (searchWidget.mouseClicked(mouse.x(), mouse.y(), mouse.button())) {
+        if (searchWidget.mouseClicked(mouse.x(), mouse.y(), button)) {
             return true;
         }
 
         for (CategoryPanel panel : categoryPanels) {
-            if (panel.mouseClicked(mouse.x(), mouse.y(), mouse.button(), scrollOffset)) {
+            if (panel.mouseClicked(mouse.x(), mouse.y(), button, scrollOffset)) {
                 return true;
             }
         }
@@ -96,8 +99,9 @@ public class ClickGuiScreen extends AbstractClickGuiScreen {
 
     @Override
     public boolean mouseReleased(@NotNull MouseButtonEvent mouse) {
+        int button = KeyUtils.toModButton(mouse.button());
         for (CategoryPanel panel : categoryPanels) {
-            if (panel.mouseReleased(mouse.x(), mouse.y(), mouse.button(), scrollOffset)) {
+            if (panel.mouseReleased(mouse.x(), mouse.y(), button, scrollOffset)) {
                 return true;
             }
         }
@@ -112,18 +116,15 @@ public class ClickGuiScreen extends AbstractClickGuiScreen {
 
     @Override
     public boolean keyPressed(KeyEvent keyCode) {
-        int glfwKey = keyCode.input();
-        int mods = keyCode.modifiers();
-
         // 绑定模式优先：正在等待按键的模块行先消费（Esc 由其取消绑定）
         if (ModuleComponent.hasActiveBinding()) {
-            if (ModuleComponent.dispatchKeyPress(glfwKey)) {
+            if (ModuleComponent.dispatchKeyPress(keyCode.input())) {
                 return true;
             }
         }
 
         // ESC closes the GUI (or clears search if filter active)
-        if (glfwKey == GLFW.GLFW_KEY_ESCAPE) {
+        if (keyCode.isEscape()) {
             if (searchWidget.hasFilter()) {
                 searchWidget.clear();
                 return true;
@@ -132,11 +133,20 @@ public class ClickGuiScreen extends AbstractClickGuiScreen {
             return true;
         }
 
-        // Forward to search widget (includes text input + backspace)
-        if (searchWidget.keyPressed(glfwKey, mods)) {
+        // Backspace while the search bar is focused
+        if (searchWidget.keyPressed(keyCode)) {
             return true;
         }
 
         return super.keyPressed(keyCode);
+    }
+
+    @Override
+    public boolean charTyped(CharacterEvent event) {
+        // Forward typed text to the search widget (layout/shift resolved by MC)
+        if (searchWidget.charTyped(event)) {
+            return true;
+        }
+        return super.charTyped(event);
     }
 }
