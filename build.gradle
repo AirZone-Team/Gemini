@@ -204,6 +204,7 @@ tasks.register('verifyDistribution', VerifyDistribution) {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = 'Verifies the directly installable NeoForge JarJar artifact.'
     archiveFile = installableJar.flatMap { it.archiveFile }
+    generatedShaders = geminiSlang.outputDirectory
 }
 
 tasks.named('check') {

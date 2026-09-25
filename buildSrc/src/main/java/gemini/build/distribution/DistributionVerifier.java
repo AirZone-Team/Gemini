@@ -19,13 +19,6 @@ import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 
 public final class DistributionVerifier {
-    /**
-     * Compiled {@code .vsh/.fsh} resources the distribution must carry: every
-     * Slang source plus its define-variants from variants.json. Published so the
-     * verifier's own test cannot drift from the number it checks.
-     */
-    public static final int SHADER_RESOURCES = 137;   // 109 sources + 28 variants
-
     private static final String JARJAR_PREFIX = "META-INF/jarjar/";
     private static final String JARJAR_METADATA = JARJAR_PREFIX + "metadata.json";
     private static final Pattern IDENTIFIER = Pattern.compile(
@@ -47,16 +40,17 @@ public final class DistributionVerifier {
     private DistributionVerifier() {
     }
 
-    public static void verify(Path archive) throws IOException {
+    public static void verify(Path archive, Path generatedShaderRoot) throws IOException {
+        Set<String> expectedShaders = generatedShaderPaths(generatedShaderRoot);
         List<String> errors = new ArrayList<>();
         Map<String, byte[]> nestedJars = new LinkedHashMap<>();
         Set<String> javaCvClasses = new java.util.HashSet<>();
+        Set<String> packagedShaders = new java.util.HashSet<>();
         boolean hasJavaCppClasses = false;
         boolean hasJavaCppNative = false;
         boolean hasFfmpegClasses = false;
         boolean hasFfmpegNative = false;
         String metadata = null;
-        int shaderCount = 0;
 
         try (ZipFile zip = new ZipFile(archive.toFile())) {
             for (ZipEntry entry : Collections.list(zip.entries())) {
@@ -82,8 +76,8 @@ public final class DistributionVerifier {
                 if (nativeLib && name.startsWith("org/bytedeco/ffmpeg/")) {
                     hasFfmpegNative = true;
                 }
-                if (name.endsWith(".vsh") || name.endsWith(".fsh")) {
-                    shaderCount++;
+                if (isShaderResource(name)) {
+                    packagedShaders.add(name);
                 }
                 rejectTopLevel(name, errors);
                 if (name.equals(JARJAR_METADATA)) {
@@ -94,10 +88,7 @@ public final class DistributionVerifier {
             }
         }
 
-        if (shaderCount != SHADER_RESOURCES) {
-            errors.add("expected exactly " + SHADER_RESOURCES
-                    + " .vsh/.fsh resources, found " + shaderCount);
-        }
+        verifyShaderResources(expectedShaders, packagedShaders, errors);
         if (metadata == null) {
             errors.add("missing " + JARJAR_METADATA);
         } else {
@@ -113,6 +104,47 @@ public final class DistributionVerifier {
         if (!errors.isEmpty()) {
             throw new IllegalStateException("Distribution verification failed for " + archive + ":\n - "
                     + String.join("\n - ", errors));
+        }
+    }
+
+    private static boolean isShaderResource(String name) {
+        return name.endsWith(".vsh") || name.endsWith(".fsh");
+    }
+
+    /**
+     * Relative {@code .vsh/.fsh} paths produced by {@code compileSlangShaders},
+     * which is exactly what the distribution has to carry. Derived from the
+     * build output so adding a shader or a variants.json entry cannot stale a
+     * hand-counted expectation.
+     */
+    public static Set<String> generatedShaderPaths(Path generatedShaderRoot) throws IOException {
+        if (!java.nio.file.Files.isDirectory(generatedShaderRoot)) {
+            throw new IOException("Generated shader directory is missing: " + generatedShaderRoot
+                    + ". compileSlangShaders must run before the distribution can be verified.");
+        }
+        try (var paths = java.nio.file.Files.walk(generatedShaderRoot)) {
+            return paths.filter(java.nio.file.Files::isRegularFile)
+                    .filter(path -> isShaderResource(generatedShaderRoot.relativize(path).toString()))
+                    .map(path -> generatedShaderRoot.relativize(path).toString().replace('\\', '/'))
+                    .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
+        }
+    }
+
+    private static void verifyShaderResources(Set<String> expected, Set<String> packaged, List<String> errors) {
+        if (expected.isEmpty()) {
+            errors.add("no generated .vsh/.fsh resources found; the distribution cannot be verified against "
+                    + "an empty Slang output");
+            return;
+        }
+        Set<String> missing = new java.util.TreeSet<>(expected);
+        missing.removeAll(packaged);
+        Set<String> stray = new java.util.TreeSet<>(packaged);
+        stray.removeAll(expected);
+        if (!missing.isEmpty()) {
+            errors.add("generated shaders missing from the distribution: " + String.join(", ", missing));
+        }
+        if (!stray.isEmpty()) {
+            errors.add("shaders packaged without a generated source: " + String.join(", ", stray));
         }
     }
 
