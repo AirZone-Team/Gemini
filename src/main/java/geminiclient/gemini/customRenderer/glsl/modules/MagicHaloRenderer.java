@@ -62,7 +62,12 @@ public final class MagicHaloRenderer {
             .putVec4().putVec4().putVec4().putVec4()
             .get();
 
-    private static GpuBuffer haloUniforms;
+    /**
+     * One buffer per pass. A persistently mapped buffer is visible to the GPU as
+     * soon as it is written, so reusing a single buffer for the main and accent
+     * draw would let the second write overwrite the first.
+     */
+    private static final GpuBuffer[] haloUniforms = new GpuBuffer[2];
 
     private static final DepthStencilState HALO_DEPTH =
             new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false, 1.0F, 1.0F);
@@ -117,7 +122,9 @@ public final class MagicHaloRenderer {
             float pulse,
             float distortion,
             float rainbowSpeed,
-            float tiltDegrees
+            float tiltDegrees,
+            float dynamics,
+            boolean dualTone
     ) {}
 
     public static void draw(PoseStack poseStack,
@@ -126,10 +133,11 @@ public final class MagicHaloRenderer {
                             Settings settings) {
         if (radius <= 0f || settings.alpha() < 0.001f || settings.intensity() < 0.001f) return;
 
-        ensureUniformBuffer();
-
         Camera camera = mc.getEntityRenderDispatcher().camera;
         if (camera == null) return;
+
+        int passCount = settings.dualTone() ? 2 : 1;
+        ensureUniformBuffers(passCount);
 
         float cx = (float) camera.position().x;
         float cy = (float) camera.position().y;
@@ -189,22 +197,27 @@ public final class MagicHaloRenderer {
                     : null;
 
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            writeUniforms(encoder, settings);
+            for (int pass = 0; pass < passCount; pass++) {
+                // The accent layer rides slightly outside the main crest with a
+                // sparser gate, which is what separates two tone layers instead
+                // of doubling every stroke into one pale band.
+                writeUniforms(haloUniforms[pass], settings, pass);
 
-            try (RenderPass pass = encoder.createRenderPass(
-                    () -> "MagicHalo",
-                    colorTexture,
-                    Optional.empty(),
-                    depthTexture,
-                    OptionalDouble.empty())) {
+                try (RenderPass renderPass = encoder.createRenderPass(
+                        () -> "MagicHalo",
+                        colorTexture,
+                        Optional.empty(),
+                        depthTexture,
+                        OptionalDouble.empty())) {
 
-                pass.setPipeline(HALO_PIPE);
-                RenderSystem.bindDefaultUniforms(pass);
-                pass.setUniform("DynamicTransforms", dynamicTransforms);
-                pass.setUniform("HaloUniforms", haloUniforms);
-                pass.setVertexBuffer(0, vertices.slice());
-                pass.setIndexBuffer(indices, indexType);
-                pass.drawIndexed(mesh.drawState().indexCount(), 1, 0, 0, 0);
+                    renderPass.setPipeline(HALO_PIPE);
+                    RenderSystem.bindDefaultUniforms(renderPass);
+                    renderPass.setUniform("DynamicTransforms", dynamicTransforms);
+                    renderPass.setUniform("HaloUniforms", haloUniforms[pass]);
+                    renderPass.setVertexBuffer(0, vertices.slice());
+                    renderPass.setIndexBuffer(indices, indexType);
+                    renderPass.drawIndexed(mesh.drawState().indexCount(), 1, 0, 0, 0);
+                }
             }
         } finally {
             mesh.close();
@@ -213,20 +226,23 @@ public final class MagicHaloRenderer {
         }
     }
 
-    private static void ensureUniformBuffer() {
-        if (haloUniforms != null) return;
-        haloUniforms = RenderSystem.getDevice().createBuffer(
-                () -> "Gemini MagicHalo Uniforms",
-                GpuBuffer.USAGE_MAP_WRITE | GpuBuffer.USAGE_UNIFORM,
-                HALO_UNIFORM_SIZE);
+    private static void ensureUniformBuffers(int passCount) {
+        for (int pass = 0; pass < passCount; pass++) {
+            if (haloUniforms[pass] == null) {
+                haloUniforms[pass] = RenderSystem.getDevice().createBuffer(
+                        () -> "Gemini MagicHalo Uniforms",
+                        GpuBuffer.USAGE_MAP_WRITE | GpuBuffer.USAGE_UNIFORM,
+                        HALO_UNIFORM_SIZE);
+            }
+        }
     }
 
-    private static void writeUniforms(CommandEncoder encoder, Settings settings) {
+    private static void writeUniforms(GpuBuffer target, Settings settings, int pass) {
         float[] primary = rgb(settings.primaryColor());
         float[] secondary = rgb(settings.secondaryColor());
         float[] accent = rgb(settings.accentColor());
 
-        try (GpuBufferSlice.MappedView view = haloUniforms.map(false, true)) {
+        try (GpuBufferSlice.MappedView view = target.map(false, true)) {
             Std140Builder.intoBuffer(view.data())
                     .putVec4(settings.time(), settings.style(), settings.colorMode(), settings.flags())
                     .putVec4(primary[0], primary[1], primary[2], settings.alpha())
@@ -238,7 +254,7 @@ public final class MagicHaloRenderer {
                             settings.particleDensity(), settings.sharpness())
                     .putVec4(settings.rotation(), settings.pulse(),
                             settings.distortion(), settings.rainbowSpeed())
-                    .putVec4(0f, 0f, 0f, 0f);
+                    .putVec4(settings.dynamics(), pass, 0f, 0f);
         }
     }
 

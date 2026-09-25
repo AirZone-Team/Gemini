@@ -81,4 +81,9 @@ public abstract class Md3SliderComponent extends Md3ValueComponent {
         }
         return false;
     }
+
+    @Override
+    public void cancelDrag() {
+        dragging = false;
+    }
 }

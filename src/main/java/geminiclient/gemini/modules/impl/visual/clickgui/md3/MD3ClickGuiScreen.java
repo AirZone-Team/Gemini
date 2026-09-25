@@ -376,6 +376,13 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
         double mouseY = logicalY(mouse.y());
         int button = mouse.button();
 
+        // A fresh left press proves every previous press has ended, even when
+        // its release event was lost (button let go outside the window after
+        // focus changed). Clear stale drag states before routing the press.
+        if (button == 0) {
+            cancelAllDrags();
+        }
+
         if (!inWindow(mouseX, mouseY)) {
             if (openOverlay != null) {
                 openOverlay = null;
@@ -447,6 +454,26 @@ public class MD3ClickGuiScreen extends AbstractClickGuiScreen implements Md3Over
             }
         }
         return super.mouseReleased(mouse);
+    }
+
+    /**
+     * Ends the window drag and every drag inside module rows or the open
+     * overlay, recovering from release events that never reached the screen.
+     */
+    private void cancelAllDrags() {
+        dragging = false;
+        if (openOverlay != null) {
+            openOverlay.cancelDrag();
+        }
+        for (Md3ModuleComponent row : allModules) {
+            row.cancelDrag();
+        }
+    }
+
+    @Override
+    public void removed() {
+        cancelAllDrags();
+        super.removed();
     }
 
     @Override

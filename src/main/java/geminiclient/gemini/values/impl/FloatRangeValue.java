@@ -15,17 +15,21 @@ public class FloatRangeValue extends ValueParent {
         super(name);
         this.min = min;
         this.max = max;
-        // 确保初始值在合法范围内
-        this.minValue = Math.max(min, Math.min(max, minValue));
-        this.maxValue = Math.max(min, Math.min(max, maxValue));
+        // 确保初始值在合法范围内，并维持 minValue <= maxValue 不变式
+        float lo = Math.max(min, Math.min(max, minValue));
+        float hi = Math.max(min, Math.min(max, maxValue));
+        this.minValue = Math.min(lo, hi);
+        this.maxValue = Math.max(lo, hi);
     }
 
     public FloatRangeValue(String name, float minValue, float maxValue, float min, float max, Supplier<Boolean> booleanSupplier) {
         super(name, booleanSupplier);
         this.min = min;
         this.max = max;
-        this.minValue = Math.max(min, Math.min(max, minValue));
-        this.maxValue = Math.max(min, Math.min(max, maxValue));
+        float lo = Math.max(min, Math.min(max, minValue));
+        float hi = Math.max(min, Math.min(max, maxValue));
+        this.minValue = Math.min(lo, hi);
+        this.maxValue = Math.max(lo, hi);
     }
 
     // Getter

@@ -1,10 +1,13 @@
 // Slang source of truth. Generated Minecraft GLSL is written to build/generated.
 // GLSL-compatible spellings below are provided by Slang's compatibility module.
-// Magic Circle / Tower vertex shader — camera-facing billboards.
+// Summoning-array vertex shader — one world-space plane of the array.
 //
-// vertexColor.r = time progress within stage (0→1)
-// vertexColor.g = stage ID (1=circle, 2=tower)
-// vertexColor.b = intensity
+// The renderer orients and turns every plane in its own geometry, so nothing
+// here rotates: the vertex colour only carries bounded values.
+//
+// vertexColor.r = reveal (0→1 summon-script progress)
+// vertexColor.g = animation phase (0→1, wraps seamlessly)
+// vertexColor.b = energy / 4 (HDR)
 // vertexColor.a = master alpha
 
 layout(std140) uniform DynamicTransforms {

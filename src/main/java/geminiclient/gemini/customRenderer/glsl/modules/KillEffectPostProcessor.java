@@ -61,16 +61,30 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
  * vec4 Center2:      ndcX, ndcY, 0, 0
  * vec4 PassParams:   distortionStr, godRayStr, chromaticStr, bloomRadius
  * vec4 BHParams:     bhRadiusUV, bhStage, bhProgress, bhIntensity
+ *                    (bhRadiusUV in the shaders' WIDTH-normalized distance
+ *                     units: delta = (uv-center)*(1, fbH/fbW), see below)
  * vec4 CameraParams: fovRad, aspect, near, far
  * vec4 LightViewPos: viewX, viewY, viewZ, radius
  * vec4 LightColor:   r, g, b, intensity
- * vec4 MiscParams:   ssrIntensity, volumetricSteps, chainFade, 0
+ * vec4 MiscParams:   ssrIntensity, volumetricSteps, chainFade, bloomFalloff
+ * vec4 DiskPlane:    axisX, axisY, squash, farSide
  * </pre>
  *
  * <p><b>chainFade</b> (MiscParams.z): 0→1 smoothstep ramp driven by effect
  * age. The ACES pass crossfades between the raw scene and the tone-mapped
  * output by this value, so the global tone/vignette shift eases in rather
  * than popping the moment the chain activates (flash fix).</p>
+ *
+ * <p><b>bloomFalloff</b> (MiscParams.w): spatial gating of the bright-pass
+ * extraction. 0 = legacy whole-screen bloom (Hypernova); &gt;0 = the bloom
+ * source fades exponentially with screen-space distance to the effect
+ * center, so Hell Hand's glow wraps the rift instead of hazing the whole
+ * screen.</p>
+ *
+ * <p><b>DiskPlane</b>: the black hole's accretion disk as it actually projects
+ * onto this frame — the screen direction of the disk normal (the world up
+ * axis), its foreshortening, and which side of the ellipse is the far one.
+ * Only the BLACK_HOLE pass reads it.</p>
  */
 public final class KillEffectPostProcessor {
 
@@ -93,7 +107,8 @@ public final class KillEffectPostProcessor {
             .putVec4()  // CameraParams: fovRad, aspect, near, far
             .putVec4()  // LightViewPos: viewX, viewY, viewZ, radius
             .putVec4()  // LightColor:   r, g, b, intensity
-            .putVec4()  // MiscParams:   ssrIntensity, volumetricSteps, 0, 0
+            .putVec4()  // MiscParams:   ssrIntensity, volumetricSteps, chainFade, bloomFalloff
+            .putVec4()  // DiskPlane:    axisX, axisY, squash, farSide
             .get();
 
     // ── Ping-pong texture targets ──────────────────────────────────
@@ -318,21 +333,28 @@ public final class KillEffectPostProcessor {
      * @param bhStage           black hole stage ID (0=inactive)
      * @param bhProgress        black hole stage progress 0→1
      * @param bhIntensity       black hole intensity multiplier
+     * @param bhShadowRadius    apparent event-horizon radius of the hole in
+     *                          blocks — the same value the world-space billboard
+     *                          is sized from, so the two renders cover one disk
      * @param lightWorldPos     world-space {x, y, z, radius} of glow sphere (or null)
      * @param lightColor        light color {r, g, b, intensity} (or null)
      * @param ssrIntensity      screen-space reflection strength (0=none)
      * @param volumetricSteps   ray-march step count for volumetric god rays (8-32)
      * @param chainFade         global chain fade-in 0→1 (smoothstep); crossfades
      *                          the ACES output with the raw scene to avoid pops
+     * @param bloomFalloff      spatial bloom gating: 0 = whole-screen bloom
+     *                          (Hypernova), &gt;0 = bloom extraction fades with
+     *                          screen-space distance to center1 (Hell Hand)
      */
     public static void processFrame(float bloomStrength, float threshold,
                                      float distortionStr, float godRayStr,
                                      float chromaticStr, float bloomRadius,
                                      double[] center1World, double[] center2World,
                                      int bhStage, float bhProgress, float bhIntensity,
+                                     float bhShadowRadius,
                                      float[] lightWorldPos, float[] lightColor,
                                      float ssrIntensity, int volumetricSteps,
-                                     float chainFade) {
+                                     float chainFade, float bloomFalloff) {
         boolean lightActive = lightWorldPos != null && lightColor != null
                 && lightColor.length >= 4 && lightColor[3] > 0.01f;
         if (bloomStrength <= 0f && distortionStr <= 0f
@@ -359,7 +381,12 @@ public final class KillEffectPostProcessor {
         org.joml.Vector3f up      = camRot.transform(new org.joml.Vector3f(0, 1, 0));
         org.joml.Vector3f right   = camRot.transform(new org.joml.Vector3f(1, 0, 0));
 
-        float fovRad = (float) Math.toRadians(70.0);
+        // The camera's own FOV — it already folds in the user's setting, the
+        // sprint/scoping modifiers and the partial-tick lerp, which is what the
+        // projection matrix the world pass rendered with is built from. A
+        // hardcoded 70° put Center1 and the horizon radius on a different
+        // screen mapping than the billboard they have to line up with.
+        float fovRad = (float) Math.toRadians(cam.getFov());
         float h = (float) Math.tan(fovRad * 0.5);
         float aspect = (float) fbW / (float) fbH;
         float zNear = 0.05f;
@@ -368,6 +395,10 @@ public final class KillEffectPostProcessor {
         // ── NDC projection for center1 / center2 ───────────────────
         float ndc1x = 0f, ndc1y = 0f, worldDist1 = 0f;
         float ndc2x = 0f, ndc2y = 0f;
+        float bhRadiusUV = 0f;
+        // Accretion disk as projected on this frame: screen direction of the
+        // disk normal, its foreshortening, and which side is the far one.
+        float diskAxisX = 0f, diskAxisY = 1f, diskSquash = 0.235f, diskFarSide = 1f;
 
         if (center1World != null) {
             float rx = (float)(center1World[0] - cx);
@@ -385,6 +416,40 @@ public final class KillEffectPostProcessor {
                 ndc1x = Math.clamp(ndc1x, -2f, 2f);
                 ndc1y = Math.clamp(ndc1y, -2f, 2f);
             }
+
+            // ── BH screen-space radius ─────────────────────────────
+            // Angular size of the horizon → NDC (height-based), then into the
+            // WIDTH-normalized units the BLACK_HOLE / SHOCKWAVE passes measure
+            // distances in: those shaders use delta = (uv - center) * (1, fbH/fbW),
+            // so a radius R in that space spans R·fbW pixels. Mixing the
+            // height-based UV radius straight into that metric inflates the
+            // screen-space event horizon by fbW/fbH (~1.78× on 16:9) — the black
+            // disk swallows the world-space photon ring and the two hole renders
+            // visibly disagree on size. Convert explicitly: rWidth = rHeight·fbH/fbW.
+            if (viewZ > 0.05f && bhShadowRadius > 0f) {
+                bhRadiusUV = (bhShadowRadius / viewZ) / h * 0.5f;
+                bhRadiusUV *= (float) fbH / (float) fbW;   // height UV → width-normalized
+                bhRadiusUV = Math.clamp(bhRadiusUV, 0.002f, 2.0f);
+            }
+
+            // The disk lies in the world XZ plane, so its normal is world up.
+            // Projected, it becomes an ellipse whose minor axis runs along the
+            // screen image of that normal and whose minor/major ratio is the
+            // foreshortening |up · holeToCamera|. Hardcoding one squash instead
+            // made the shader disk keep a fixed tilt while the 3D accretion
+            // particles turned with the view, so the two disagreed everywhere
+            // but the angle the constant was tuned for.
+            float axisLen = (float) Math.hypot(right.y, up.y);
+            if (axisLen > 1e-4f) {
+                diskAxisX = right.y / axisLen;
+                diskAxisY = up.y / axisLen;
+            }
+            if (worldDist1 > 1e-3f) {
+                diskSquash = Math.clamp(Math.abs(ry) / worldDist1, 0.05f, 1f);
+                // ry < 0 ⇔ the camera sits above the hole ⇔ we look down on the
+                // disk, so its far rim lands on the upper side of the ellipse.
+                diskFarSide = ry <= 0f ? 1f : -1f;
+            }
         }
         if (center2World != null) {
             float rx = (float)(center2World[0] - cx);
@@ -400,22 +465,6 @@ public final class KillEffectPostProcessor {
                 ndc2y = viewY / (viewZ * h);
                 ndc2x = Math.clamp(ndc2x, -2f, 2f);
                 ndc2y = Math.clamp(ndc2y, -2f, 2f);
-            }
-        }
-
-        // ── BH screen-space radius ─────────────────────────────────
-        float bhRadiusUV = 0f;
-        if (center1World != null) {
-            float rx = (float)(center1World[0] - cx);
-            float ry = (float)(center1World[1] - cy);
-            float rz = (float)(center1World[2] - cz);
-            float viewZ = rx * forward.x + ry * forward.y + rz * forward.z;
-            if (viewZ > 0.05f) {
-                float bhWorldSize = 3.0f;
-                float angularSize = bhWorldSize / viewZ;
-                float ndcRadius = angularSize / h;
-                bhRadiusUV = ndcRadius * 0.5f;
-                bhRadiusUV = Math.clamp(bhRadiusUV, 0.005f, 2.0f);
             }
         }
 
@@ -458,7 +507,8 @@ public final class KillEffectPostProcessor {
             b.putVec4(fovRad, aspect, zNear, zFar);                    // CameraParams
             b.putVec4(lvX, lvY, lvZ, lvRadius);                       // LightViewPos
             b.putVec4(lcR, lcG, lcB, lcI);                            // LightColor
-            b.putVec4(ssrIntensity, (float)steps, chainFade, 0f);     // MiscParams
+            b.putVec4(ssrIntensity, (float)steps, chainFade, bloomFalloff); // MiscParams
+            b.putVec4(diskAxisX, diskAxisY, diskSquash, diskFarSide);       // DiskPlane
         }
 
         // ══════════════════════════════════════════════════════════
@@ -553,7 +603,7 @@ public final class KillEffectPostProcessor {
         }
 
         // ── Pass 7a: Black Hole Center (stages 3-5) ──────────────
-        if (bhRadiusUV > 0.005f && bhStage >= 3 && bhStage <= 5) {
+        if (bhRadiusUV > 0.002f && bhStage >= 3 && bhStage <= 5) {
             GpuTextureView bhDest = (composited == pingView) ? pongView : pingView;
             runPass(encoder, blackHolePipe, composited, dummyBloom, bhDest, "Kill BH Center");
             composited = bhDest;

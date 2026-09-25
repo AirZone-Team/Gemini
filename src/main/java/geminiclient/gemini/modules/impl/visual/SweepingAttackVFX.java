@@ -13,6 +13,7 @@ import geminiclient.gemini.values.impl.FloatValue;
 import geminiclient.gemini.values.impl.IntValue;
 import geminiclient.gemini.values.impl.ListValue;
 import net.minecraft.client.Camera;
+import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -20,7 +21,7 @@ import net.minecraft.world.phys.Vec3;
  *
  * <p>The module exposes complete art direction rather than one hard-coded
  * cyan slash: five procedural materials, four color flows, six presets and
- * independently controllable arc, echo, line, particle, lightning, ring,
+ * independently controllable arc, echo, line, particle, tear, lightning, ring,
  * burst and post-processing layers.</p>
  */
 public final class SweepingAttackVFX extends Module {
@@ -85,6 +86,15 @@ public final class SweepingAttackVFX extends Module {
     private final FloatValue particleGravity = new FloatValue("Particle Gravity", 2.6f, -4f, 9f,
             () -> enableParticles.enabled);
 
+    // Air tear
+    private final BoolValue enableAirTear = new BoolValue("Air Tear", true);
+    private final IntValue tearSlices = new IntValue("Tear Slices", 3, 1, 6,
+            () -> enableAirTear.enabled);
+    private final FloatValue tearWidth = new FloatValue("Tear Width", 0.62f, 0.08f, 1.8f,
+            () -> enableAirTear.enabled);
+    private final FloatValue tearHold = new FloatValue("Tear Hold", 0.4f, 0f, 1f,
+            () -> enableAirTear.enabled);
+
     // Lightning
     private final BoolValue enableLightning = new BoolValue("Lightning", true);
     private final IntValue lightningBolts = new IntValue("Bolt Count", 7, 0, 12,
@@ -133,6 +143,7 @@ public final class SweepingAttackVFX extends Module {
                 enableSpeedLines, speedLineCount, lineLength, lineWidth,
                 enableParticles, particleCount, particleSpeed, particleSpread,
                 particleSize, particleGravity,
+                enableAirTear, tearSlices, tearWidth, tearHold,
                 enableLightning, lightningBolts, lightningWidth,
                 enableRing, ringCount, ringScale, ringThickness, enableCoreBurst,
                 enablePost, distortion, chromatic, flash, vignette,
@@ -152,28 +163,49 @@ public final class SweepingAttackVFX extends Module {
     }
 
     /**
-     * Spawn toward the attacked entity. Called by {@code MixinPlayer}.
+     * Spawn from the {@code sweep_attack} particle the server broadcasts after a
+     * sweep landed. Called by {@code MixinClientPacketListener}.
+     *
+     * <p>Vanilla gates the whole sweep body of {@code Player#doSweepAttack} behind
+     * {@code level() instanceof ServerLevel}, so a multiplayer client can never hook
+     * it locally. The particle packet is the only signal every sweep produces on the
+     * client, in both single- and multiplayer.</p>
      */
-    public void spawnSweepEffect(net.minecraft.world.entity.player.Player player,
-                                 double targetX, double targetZ) {
+    public void spawnSweepEffectFromParticle(double particleX, double particleY, double particleZ,
+                                             double xOffset, double zOffset) {
         if (mc.player == null || mc.level == null) return;
-        double deltaX = targetX - player.getX();
-        double deltaZ = targetZ - player.getZ();
-        double length = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+        double length = Math.sqrt(xOffset * xOffset + zOffset * zOffset);
         float directionX;
         float directionZ;
         if (length > 0.001) {
-            directionX = (float) (deltaX / length);
-            directionZ = (float) (deltaZ / length);
+            directionX = (float) (xOffset / length);
+            directionZ = (float) (zOffset / length);
         } else {
-            float yaw = (float) Math.toRadians(player.getYRot());
+            float yaw = (float) Math.toRadians(mc.player.getYRot());
             directionX = (float) -Math.sin(yaw);
             directionZ = (float) Math.cos(yaw);
         }
 
+        // Vanilla emits the particle one unit ahead of the attacker's body centre
+        // (getY(0.5), i.e. 0.9 above the feet); rewind the offset to recover the attacker.
+        Vec3 anchor = new Vec3(particleX - directionX, particleY - 0.9, particleZ - directionZ);
+        for (AbstractClientPlayer attacker : mc.level.players()) {
+            double dx = attacker.getX() - anchor.x;
+            double dz = attacker.getZ() - anchor.z;
+            if (dx * dx + dz * dz < 0.5625) {
+                anchor = attacker.position();
+                break;
+            }
+        }
+
+        double nearX = anchor.x - mc.player.getX();
+        double nearZ = anchor.z - mc.player.getZ();
+        float maxDistance = renderDistance.getValue();
+        if (nearX * nearX + nearZ * nearZ > maxDistance * maxDistance) return;
+
         float baseAngle = (float) Math.atan2(directionZ, directionX);
         float range = (float) Math.toRadians(arcAngle.getValue());
-        spawnEffect(player.position(), directionX, directionZ,
+        spawnEffect(anchor, directionX, directionZ,
                 baseAngle - range * 0.5f, baseAngle + range * 0.5f);
     }
 
@@ -250,14 +282,16 @@ public final class SweepingAttackVFX extends Module {
         return new SweepAttackRenderer.Config(
                 style.index, colorMode.index, quality.index,
                 layers.getValue(), echoes.getValue(), ringCount.getValue(),
-                speedLineCount.getValue(),
+                speedLineCount.getValue(), tearSlices.getValue(),
                 enableArc.enabled, enableSpeedLines.enabled, enableParticles.enabled,
                 enableLightning.enabled, enableRing.enabled, enableCoreBurst.enabled,
+                enableAirTear.enabled,
                 intensity.getValue(), opacity.getValue(), radius.getValue(),
                 thickness.getValue(), verticalLift.getValue(), glow.getValue(),
                 noise.getValue(), flowSpeed.getValue(), echoSpacing.getValue(),
                 ringScale.getValue(), ringThickness.getValue(),
                 lineLength.getValue(), lineWidth.getValue(), lightningWidth.getValue(),
+                tearWidth.getValue(), tearHold.getValue(),
                 primary[0], primary[1], primary[2],
                 accent[0], accent[1], accent[2],
                 core[0], core[1], core[2]
@@ -314,6 +348,7 @@ public final class SweepingAttackVFX extends Module {
             enableArc.setEnabled(true);
             enableSpeedLines.setEnabled(true);
             enableParticles.setEnabled(true);
+            enableAirTear.setEnabled(true);
             enableRing.setEnabled(true);
             enableCoreBurst.setEnabled(true);
             enablePost.setEnabled(true);

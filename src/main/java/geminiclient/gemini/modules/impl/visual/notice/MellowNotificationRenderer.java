@@ -18,7 +18,7 @@ import static geminiclient.gemini.base.MinecraftInstance.mc;
  * <ul>
  *   <li>近白色圆角卡片 + GLSL 柔和投影（{@link GlowRenderer} / glow_rect 着色器）</li>
  *   <li>左侧淡紫色圆形图标底盘，深色 PNG 图标居中</li>
- *   <li>双行文本：深色粗体标题 + 紫色消息（Google Sans，MSDF 渲染管线）</li>
+ *   <li>双行文本：深色粗体标题 + 紫色消息（Google Sans，Slug 渲染管线）</li>
  *   <li>右侧 Material 3 圆形波浪进度条：浅色整圈轨道 + 垂直渐变波浪进度带，
  *       按通知生命周期自 12 点方向顺时针扫描（{@link SdfUIRenderer} 波浪环
  *       SDF，fwidth 抗锯齿）</li>
@@ -224,7 +224,7 @@ public final class MellowNotificationRenderer {
                 circleY + (CIRCLE_SIZE - ICON_SIZE) / 2,
                 ICON_SIZE, iconTint);
 
-        // ---- 4. 标题 + 消息（Google Sans，MSDF 管线） ----
+        // ---- 4. 标题 + 消息（Google Sans，Slug 管线） ----
         float textX  = ix + PAD_LEFT + CIRCLE_SIZE + TEXT_GAP;
         float blockH = titleLineHeight() + LINE_SPACING + messageLineHeight();
         float titleY = iy + (CARD_HEIGHT - blockH) / 2f;

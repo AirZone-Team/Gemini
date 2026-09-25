@@ -84,7 +84,7 @@ public class BackgroundSelectorScreen extends Screen {
 
     /**
      * 预热背景选择器字体，由 {@code UiShaderWarmup} 在加载界面调用。
-     * 调用方需随后执行 {@code CustomFontRenderer.flushAllPages()}。
+     * 调用方需随后执行 {@code CustomFontRenderer.flushPendingGlyphs()}。
      */
     public static void warmup() {
         try {
@@ -108,7 +108,7 @@ public class BackgroundSelectorScreen extends Screen {
                 }
             }
         } catch (Throwable t) {
-            // 预热失败不影响运行：字形仍会惰性栅格化。
+            // 预热失败不影响运行：字形仍会惰性三角化。
         }
     }
 

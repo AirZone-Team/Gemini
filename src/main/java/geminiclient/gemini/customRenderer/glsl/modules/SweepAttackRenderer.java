@@ -61,12 +61,14 @@ public final class SweepAttackRenderer {
             int echoes,
             int ringCount,
             int speedLineCount,
+            int tearSlices,
             boolean arc,
             boolean speedLines,
             boolean particles,
             boolean lightning,
             boolean ring,
             boolean coreBurst,
+            boolean airTear,
             float intensity,
             float opacity,
             float radius,
@@ -81,6 +83,8 @@ public final class SweepAttackRenderer {
             float lineLength,
             float lineWidth,
             float lightningWidth,
+            float tearWidth,
+            float tearHold,
             float primaryR,
             float primaryG,
             float primaryB,
@@ -140,6 +144,23 @@ public final class SweepAttackRenderer {
             .withCull(false)
             .build();
 
+    /**
+     * Air tear: shares the arc vertex stage but blends "over" instead of
+     * adding, so the fissure can punch a lightless hole in the scene.
+     */
+    public static final RenderPipeline SWEEP_TEAR_PIPE = RenderPipeline.builder(
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
+            .withLocation(getIdentifier("pipeline/sweep_tear"))
+            .withVertexShader(getIdentifier("core/sweep_arc"))
+            .withFragmentShader(getIdentifier("core/sweep_tear"))
+            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
+            .withBindGroupLayout(GeminiRenderPipelines.uniform("SweepUniforms"))
+            .withDepthStencilState(DEPTH_NO_WRITE)
+            .withColorTargetState(TRANSLUCENT_BLEND)
+            .withCull(false)
+            .build();
+
     public static final RenderPipeline SWEEP_POST_PIPE = RenderPipeline.builder(
                     RenderPipelines.POST_PROCESSING_SNIPPET)
             .withLocation(getIdentifier("pipeline/sweep_post"))
@@ -169,6 +190,7 @@ public final class SweepAttackRenderer {
         registry.accept(SWEEP_ARC_PIPE);
         registry.accept(SWEEP_PARTICLE_PIPE);
         registry.accept(SWEEP_RING_PIPE);
+        registry.accept(SWEEP_TEAR_PIPE);
         registry.accept(SWEEP_POST_PIPE);
     }
 
@@ -212,6 +234,9 @@ public final class SweepAttackRenderer {
 
         writeUniforms(inst, nowMs, sweep, effect, config);
 
+        // The tear blends "over", so it has to carve its void before the
+        // additive layers paint their glow into it.
+        if (config.airTear()) drawAirTear(poseStack, inst, sweep, effect, config);
         if (config.arc()) drawArc(poseStack, inst, sweep, arcAlpha, config);
         if (config.speedLines()) drawSpeedLines(poseStack, inst, sweep, arcAlpha, config);
         if (config.particles()) drawParticles(poseStack, inst, particleAlpha, config);
@@ -305,6 +330,80 @@ public final class SweepAttackRenderer {
                         (float) (inst.z + Math.sin(angle) * radius) - cameraZ)
                 .setUv(u, v)
                 .setColor(color);
+    }
+
+    /**
+     * Carves the air the blade has already passed through. Each slice trails
+     * the sweep by a little so the rifts fan out instead of stacking.
+     */
+    private static void drawAirTear(PoseStack poseStack, SweepAttackInstance inst,
+                                    float sweepProgress, float effect, Config config) {
+        float open = smoothstep(0.015f, 0.085f, effect);
+        float healStart = 0.18f + clamp01(config.tearHold()) * 0.55f;
+        float heal = clamp01((effect - healStart) / Math.max(0.06f, 1f - healStart));
+        float alpha = open * (1f - heal * heal) * config.intensity();
+        if (alpha < 0.004f || sweepProgress < 0.03f) return;
+
+        Camera camera = mc.getEntityRenderDispatcher().camera;
+        float cameraX = (float) camera.position().x;
+        float cameraY = (float) camera.position().y;
+        float cameraZ = (float) camera.position().z;
+        Matrix4f matrix = poseStack.last().pose();
+        float range = positiveAngleRange(inst.arcStart, inst.arcEnd);
+        float halfHeight = Math.max(0.04f, config.tearWidth()) * 0.5f;
+        int slices = Math.min(Math.max(config.tearSlices(), 1), 6);
+        int segments = switch (config.quality()) {
+            case 0 -> 10;
+            case 1 -> 14;
+            case 3 -> 26;
+            default -> 18;
+        };
+        BufferBuilder buffer = GeminiTesselator.getInstance()
+                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+
+        for (int slice = slices - 1; slice >= 0; slice--) {
+            float span = clamp01(sweepProgress - slice * 0.055f);
+            if (span < 0.05f) continue;
+            float variation = pseudo(slice * 23 + 5, inst.seed);
+            float radius = config.radius()
+                    * (1f - slice * 0.055f + (variation - 0.5f) * 0.17f);
+            float heightShift = (pseudo(slice + 61, inst.seed) - 0.5f) * halfHeight * 1.6f;
+            float sliceAlpha = alpha * (1f - slice * 0.12f);
+            float sliceHeal = clamp01(heal * (1f + slice * 0.1f));
+            int color = packColor(variation, 0f, sliceHeal, sliceAlpha);
+
+            for (int i = 0; i < segments; i++) {
+                float t0 = (float) i / segments;
+                float t1 = (float) (i + 1) / segments;
+                float angle0 = inst.arcStart + range * span * t0;
+                float angle1 = inst.arcStart + range * span * t1;
+                // Wobbling the centre line per segment is what makes the rift
+                // read as torn rather than as another smooth band.
+                float base0 = (float) inst.y + heightShift + config.verticalLift()
+                        * (float) Math.sin(t0 * Math.PI)
+                        + (pseudo(i * 7 + slice * 31, inst.seed) - 0.5f) * halfHeight * 0.55f;
+                float base1 = (float) inst.y + heightShift + config.verticalLift()
+                        * (float) Math.sin(t1 * Math.PI)
+                        + (pseudo((i + 1) * 7 + slice * 31, inst.seed) - 0.5f) * halfHeight * 0.55f;
+                // The cut feathers out at both tips.
+                float extent0 = halfHeight * (0.3f + 0.7f * (float) Math.sin(t0 * Math.PI));
+                float extent1 = halfHeight * (0.3f + 0.7f * (float) Math.sin(t1 * Math.PI));
+                float x0 = (float) (inst.x + Math.cos(angle0) * radius) - cameraX;
+                float z0 = (float) (inst.z + Math.sin(angle0) * radius) - cameraZ;
+                float x1 = (float) (inst.x + Math.cos(angle1) * radius) - cameraX;
+                float z1 = (float) (inst.z + Math.sin(angle1) * radius) - cameraZ;
+
+                buffer.addVertex(matrix, x0, base0 - extent0 - cameraY, z0)
+                        .setUv(t0, 0f).setColor(color);
+                buffer.addVertex(matrix, x0, base0 + extent0 - cameraY, z0)
+                        .setUv(t0, 1f).setColor(color);
+                buffer.addVertex(matrix, x1, base1 + extent1 - cameraY, z1)
+                        .setUv(t1, 1f).setColor(color);
+                buffer.addVertex(matrix, x1, base1 - extent1 - cameraY, z1)
+                        .setUv(t1, 0f).setColor(color);
+            }
+        }
+        drawBuiltMesh(buffer, SWEEP_TEAR_PIPE, nowSeconds());
     }
 
     private static void drawSpeedLines(PoseStack poseStack, SweepAttackInstance inst,
@@ -653,5 +752,10 @@ public final class SweepAttackRenderer {
 
     private static float clamp01(float value) {
         return Math.max(0f, Math.min(1f, value));
+    }
+
+    private static float smoothstep(float edge0, float edge1, float value) {
+        float t = clamp01((value - edge0) / Math.max(edge1 - edge0, 0.0001f));
+        return t * t * (3f - 2f * t);
     }
 }

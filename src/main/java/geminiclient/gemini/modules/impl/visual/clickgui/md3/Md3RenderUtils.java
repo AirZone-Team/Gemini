@@ -242,8 +242,22 @@ public final class Md3RenderUtils {
         return getIdentifier("icon/clickgui/" + name + ".png");
     }
 
-    private static void drawTextureIcon(GuiGraphicsExtractor gui, Identifier texture,
-                                        int cx, int cy, int size, int color) {
+    /** Material Symbols texture from the ClickGui icon set. */
+    public static Identifier clickGuiIcon(String name) {
+        return icon(name);
+    }
+
+    /** Material Symbols texture from the main-menu icon set. */
+    public static Identifier menuIcon(String name) {
+        return getIdentifier("icon/mainmenu/" + name + ".png");
+    }
+
+    /**
+     * ARGB-tinted 24px Material Symbols texture, centred on (cx, cy) and
+     * scaled to {@code size}. Tint 0 renders the texture unmodified.
+     */
+    public static void drawTextureIcon(GuiGraphicsExtractor gui, Identifier texture,
+                                       int cx, int cy, int size, int color) {
         if (texture == null || size <= 0 || ((color >>> 24) & 0xFF) == 0) return;
         var pose = gui.pose();
         pose.pushMatrix();

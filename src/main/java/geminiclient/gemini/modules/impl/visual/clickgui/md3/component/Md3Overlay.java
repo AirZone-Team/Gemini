@@ -24,6 +24,10 @@ public interface Md3Overlay {
         return false;
     }
 
+    /** Forcibly ends any in-progress drag (lost release events, screen close). */
+    default void cancelDrag() {
+    }
+
     /** Screen-side owner of the currently open overlay. */
     interface Host {
         void openOverlay(Md3Overlay overlay);

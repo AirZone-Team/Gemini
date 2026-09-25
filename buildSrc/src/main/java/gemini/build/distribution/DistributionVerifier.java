@@ -19,6 +19,13 @@ import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 
 public final class DistributionVerifier {
+    /**
+     * Compiled {@code .vsh/.fsh} resources the distribution must carry: every
+     * Slang source plus its define-variants from variants.json. Published so the
+     * verifier's own test cannot drift from the number it checks.
+     */
+    public static final int SHADER_RESOURCES = 137;   // 109 sources + 28 variants
+
     private static final String JARJAR_PREFIX = "META-INF/jarjar/";
     private static final String JARJAR_METADATA = JARJAR_PREFIX + "metadata.json";
     private static final Pattern IDENTIFIER = Pattern.compile(
@@ -87,8 +94,9 @@ public final class DistributionVerifier {
             }
         }
 
-        if (shaderCount != 113) {
-            errors.add("expected exactly 113 .vsh/.fsh resources, found " + shaderCount);
+        if (shaderCount != SHADER_RESOURCES) {
+            errors.add("expected exactly " + SHADER_RESOURCES
+                    + " .vsh/.fsh resources, found " + shaderCount);
         }
         if (metadata == null) {
             errors.add("missing " + JARJAR_METADATA);

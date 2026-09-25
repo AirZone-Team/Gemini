@@ -7,20 +7,26 @@ import java.util.Random;
 /**
  * Per-entity-death state for the Hypernova Kill Effect.
  *
- * <h3>Timeline (10 stages, ~17.2s total)</h3>
+ * <h3>Timeline (10 stages, ~29.0s total)</h3>
  * <pre>
- * Stage 1: Magic Circle Birth   0.0 – 0.8s   — particles begin emerging in sky
- * Stage 2: Magic Tower          0.8 – 2.4s   — sky particles continue appearing
- * Stage 3: Black Hole Forming   2.4 – 3.4s   — sky particles pulled toward BH
- * Stage 4: Accretion            3.4 – 5.0s   — particles spiral into black hole
- * Stage 5: Collapse             5.0 – 6.0s   — extreme pull, rapid consumption
- * Stage 6: Void                 6.0 – 7.5s   — dead silence, tension builds, BH gone
- * Stage 7: Flash                7.5 – 8.2s   — dramatic multi-ring light pulse
- * Stage 8: Hypernova            8.2 –12.5s   — sustained shockwaves + fireball + nebula
- * Stage 9: Afterglow           12.5 –15.0s   — cooling stellar remnant
- * Stage 10: Fade-out           15.0 –17.2s   — post-afterglow dissolve; all planes fade
+ * Stage 1: Magic Circle Birth   0.0 – 3.2s   — the ground sigil draws itself, ring
+ *                                              by ring, and sky particles emerge
+ * Stage 2: Magic Tower          3.2 – 9.6s   — tiers rise, the armillary cage closes
+ *                                              round them, the script completes
+ * Stage 3: Black Hole Forming   9.6 –12.0s   — sky particles pulled toward BH
+ * Stage 4: Accretion            12.0–15.6s   — particles spiral into black hole
+ * Stage 5: Collapse             15.6–17.4s   — extreme pull, rapid consumption
+ * Stage 6: Void                 17.4–19.2s   — dead silence, tension builds, BH gone
+ * Stage 7: Flash                19.2–20.0s   — dramatic multi-ring light pulse
+ * Stage 8: Hypernova            20.0–24.3s   — sustained shockwaves + fireball + nebula
+ * Stage 9: Afterglow           24.3–26.8s   — cooling stellar remnant
+ * Stage 10: Fade-out           26.8–29.0s   — post-afterglow dissolve; all planes fade
  *                                              via reversed smoothstep alpha to zero
  * </pre>
+ *
+ * <p>Stages 1-2 are the summoning proper and deliberately carry most of the
+ * runtime: the array is laid down by travelling pen tips, so the sequence has to
+ * be long enough to read as a ritual rather than as a flash of gold.</p>
  */
 public class KillEffectInstance {
 
@@ -36,17 +42,18 @@ public class KillEffectInstance {
     public static final int STAGE_AFTERGLOW     = 9;   // was 8
     public static final int STAGE_FADE_OUT     = 10;  // post-afterglow smooth dissolve
 
-    // Timeline boundaries (seconds)
-    private static final double T_CIRCLE_END    = 0.8;
-    private static final double T_TOWER_END     = 2.4;
-    private static final double T_HOLE_END      = 3.4;
-    private static final double T_ACCRETION_END = 5.0;
-    private static final double T_COLLAPSE_END  = 6.0;
-    private static final double T_VOID_END      = 7.5;   // silence before flash
-    private static final double T_FLASH_END     = 8.2;   // enhanced: 0.7s pulse
-    private static final double T_NOVA_END      = 12.5;  // cinematic: 4.3s sustained explosion
-    private static final double T_AFTERGLOW_END = 15.0;  // 2.5s cooling remnant
-    private static final double T_FADE_OUT_END  = 17.2;  // 2.2s post-afterglow dissolve
+    // Timeline boundaries (seconds). Public so the timeline tests can assert
+    // against the real numbers instead of restating them.
+    public static final double T_CIRCLE_END    = 3.2;    // 3.2s for the sigil to draw itself
+    public static final double T_TOWER_END     = 9.6;    // 6.4s of rising tower
+    public static final double T_HOLE_END      = 12.0;   // 2.4s of formation
+    public static final double T_ACCRETION_END = 15.6;   // 3.6s of feeding
+    public static final double T_COLLAPSE_END  = 17.4;   // 1.8s of collapse
+    public static final double T_VOID_END      = 19.2;   // silence before flash
+    public static final double T_FLASH_END     = 20.0;   // 0.8s pulse
+    public static final double T_NOVA_END      = 24.3;   // 4.3s sustained explosion
+    public static final double T_AFTERGLOW_END = 26.8;   // 2.5s cooling remnant
+    public static final double T_FADE_OUT_END  = 29.0;   // 2.2s post-afterglow dissolve
 
     // ── Core state ─────────────────────────────────────────────────
 
@@ -141,29 +148,151 @@ public class KillEffectInstance {
             alpha = 1.0f - (float)Math.pow(2.0, -10.0 * t); // easeOutExpo
         }
         if (fadeOut && progress > 0.8f) {
-            // Ease-in: quick fade out
+            // Ease-in decay 1.0 → 0.0 across the tail window: zero slope at
+            // the window start (continuous with the pre-80% plateau), steep
+            // only at the very end. (The old formula jumped to ~0 the moment
+            // the window opened — the effect vanished at 80% instead of 100%.)
             float t = (progress - 0.8f) / 0.2f;
-            alpha = (float)Math.pow(2.0, 10.0 * (t - 1.0)); // easeInExpo
+            alpha = 1.0f - t * t;
         }
         return Math.clamp(alpha, 0f, 1f);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Cross-stage transition (magic tower ↔ black hole)
+    //  Summoning array (magic circle → tower → black hole)
     // ═══════════════════════════════════════════════════════════════
 
-    /** Transition overlap: fraction of each stage where both effects render. */
-    private static final float TRANSITION_OVERLAP = 0.30f; // 30% overlap
+    /**
+     * Where each figure sits in {@link #magicReveal}: the rim rings are laid
+     * down first, then the rune band, the great lattice, the satellite seals
+     * and last the central rosette. The fragment shader reads the same four
+     * boundaries, and the renderer caps a plane's reveal at one of them to
+     * leave that plane showing only the figures below it — which is how
+     * eighteen stacked planes stay legible instead of tangling into a pile of
+     * near-identical circles.
+     */
+    public static final float SCRIPT_RIM_END = 0.16f;
+    public static final float SCRIPT_RUNE_END = 0.34f;
+    public static final float SCRIPT_LATTICE_END = 0.60f;
+    public static final float SCRIPT_SEAL_END = 0.82f;
+
+    /** The summon script opens this long after the kill... */
+    private static final double SCRIPT_START = 0.25;
+    /** ...and closes this long before the tower begins collapsing, so every
+     *  figure is on the sky before the summon resolves. */
+    private static final double SCRIPT_END = T_TOWER_END - 1.30;
+
+    /**
+     * Wall-clock timing of the handover from array to hole, per side. The two
+     * stages are very different lengths now, so the overlap is timed in seconds
+     * rather than as one shared fraction of each stage.
+     *
+     * <p>The array is deliberately the last thing to go: it is eaten over
+     * {@link #MAGIC_DIE_SEC} while the hole is already open, so the swallow is
+     * visible against a dark disk instead of inside the array's own glare.</p>
+     */
+    private static final double XFADE_TOWER_SEC = 0.55;   // the array starts giving way
+    private static final double HOLE_OPEN_SEC   = 0.45;   // the hole reaches full strength
+    private static final double MAGIC_DIE_SEC   = 1.15;   // the array is fully swallowed
+
+    /** The same windows as fractions of the stage they sit in. */
+    public static final float XFADE_TOWER =
+            (float) (XFADE_TOWER_SEC / (T_TOWER_END - T_CIRCLE_END));
+    public static final float XFADE_HOLE =
+            (float) (HOLE_OPEN_SEC / (T_HOLE_END - T_TOWER_END));
+    public static final float MAGIC_DIE =
+            (float) (MAGIC_DIE_SEC / (T_HOLE_END - T_TOWER_END));
+
+    /** Absolute time the array has vanished; the hole owns the frame from here. */
+    public static final double T_MAGIC_END = T_TOWER_END + MAGIC_DIE_SEC;
+
+    /**
+     * The horizon does not inflate — it tears open. It snaps from a dot past
+     * its cruising size in {@link #HOLE_SNAP_SEC}, then falls back onto it over
+     * {@link #HOLE_SETTLE_SEC}. A disk that merely grows reads as a fade-in;
+     * one that overshoots and settles reads as something that <em>happened</em>.
+     */
+    private static final double HOLE_SNAP_SEC = 0.34;
+    private static final double HOLE_SETTLE_SEC = 0.40;
+    /** Size at rest, and the peak it overshoots to on the snap. */
+    private static final float HOLE_CRUISE = 1.5f;
+    private static final float HOLE_OVERSHOOT = 2.1f;
+
+    /** When the horizon stops overshooting and settles at its cruising size. */
+    public static final double T_HOLE_SETTLED = T_TOWER_END + HOLE_SNAP_SEC + HOLE_SETTLE_SEC;
+
+    /** Summon-script progress: 0 before the first pen lands, 1 once the core is lit. */
+    public float magicReveal(long nowMs) {
+        return smoothstep01((float) ((elapsedSec(nowMs) - SCRIPT_START) / (SCRIPT_END - SCRIPT_START)));
+    }
+
+    /**
+     * Accumulated rotation of the array in radians, accelerating over the last
+     * two seconds of the summon so the sky feels wound up as the hole opens.
+     *
+     * <p>The turn lives in the planes' geometry, never in a vertex-colour
+     * channel: those are bytes, and an angle sent through one advances in 1.4°
+     * jumps.</p>
+     */
+    public float magicSpin(long nowMs) {
+        double t = Math.max(0.0, elapsedSec(nowMs));
+        double x = Math.max(0.0, t - (T_TOWER_END - 2.0));
+        return (float) (t * 0.52 + x * x * 0.30);
+    }
+
+    /** How far the tower has risen: 0 = only the ground sigil, 1 = the full array. */
+    public float magicRise(long nowMs) {
+        return smoothstep01((float) ((elapsedSec(nowMs) - T_CIRCLE_END) / 2.8));
+    }
+
+    /**
+     * How far the array has given way: 0 through the summon, 0→1 across the
+     * last of the tower stage, then pinned. Drives the vertical squash and the
+     * radial pinch that pulls every plane onto the axis.
+     */
+    public float magicCollapse(long nowMs) {
+        int stage = currentStage(nowMs);
+        if (stage == STAGE_MAGIC_TOWER) {
+            float progress = stageProgress(nowMs);
+            if (progress <= 1f - XFADE_TOWER) return 0f;
+            return smoothstep01((progress - (1f - XFADE_TOWER)) / XFADE_TOWER);
+        }
+        return stage >= STAGE_BLACK_HOLE ? 1f : 0f;
+    }
+
+    /**
+     * Position of the swallow front, 0→1, travelling from above the top tier
+     * down through the ground sigil over the whole handover window.
+     *
+     * <p>Linear on purpose: this is a front moving through space, not an
+     * envelope easing in and out, and an eased front lingers where the planes
+     * are densest and turns the pile-up back into a glare.</p>
+     */
+    public float magicDrain(long nowMs) {
+        double start = T_TOWER_END - XFADE_TOWER_SEC;
+        return Math.clamp((float) ((elapsedSec(nowMs) - start) / (T_MAGIC_END - start)), 0f, 1f);
+    }
+
+    /** Energy flare centred on the moment the horizon tears open. */
+    public float magicSurge(long nowMs) {
+        double x = (elapsedSec(nowMs) - (T_TOWER_END + 0.15)) / 1.0;
+        return (float) Math.exp(-x * x);
+    }
+
+    private static float smoothstep01(float x) {
+        float t = Math.clamp(x, 0f, 1f);
+        return t * t * (3f - 2f * t);
+    }
 
     /**
      * Whether magic (circle/tower) should be visible at this moment.
-     * Includes the first part of the black hole stage for crossfade.
+     * Includes the whole swallow window of the black hole stage, so the array
+     * is seen being eaten rather than simply switching off.
      */
     public boolean shouldRenderMagic(long nowMs) {
         int stage = currentStage(nowMs);
         if (stage == STAGE_MAGIC_CIRCLE || stage == STAGE_MAGIC_TOWER) return true;
-        // Extend into the first TRANSITION_OVERLAP of black hole forming
-        if (stage == STAGE_BLACK_HOLE && stageProgress(nowMs) < TRANSITION_OVERLAP) return true;
+        if (stage == STAGE_BLACK_HOLE && stageProgress(nowMs) < MAGIC_DIE) return true;
         return false;
     }
 
@@ -175,31 +304,106 @@ public class KillEffectInstance {
     public boolean shouldRenderBlackHole(long nowMs) {
         int stage = currentStage(nowMs);
         if (stage >= STAGE_BLACK_HOLE && stage <= STAGE_COLLAPSE) return true;
-        // Pre-appear during the last TRANSITION_OVERLAP of the tower stage
-        if (stage == STAGE_MAGIC_TOWER && stageProgress(nowMs) > 1.0f - TRANSITION_OVERLAP) return true;
+        // Pre-appear during the last part of the tower stage
+        if (stage == STAGE_MAGIC_TOWER && stageProgress(nowMs) > 1.0f - XFADE_TOWER) return true;
         return false;
+    }
+
+    // ── Black hole geometry ────────────────────────────────────────
+
+    /**
+     * The hole does not open at the death point: it floats this many blocks
+     * above it, and the accretion disk, the particle sink and the summoning
+     * array's collapse all centre on the same spot.
+     */
+    public static final float HOLE_VISUAL_LIFT = 1.5f;
+
+    /**
+     * Half-extent of the world-space hole billboard, as a multiple of
+     * {@link #blackHoleSizeWorld}. Mirrors {@code HOLE_UV_SPAN} in
+     * kill_effect_hole.frag.
+     */
+    public static final float HOLE_UV_SPAN = 3.25f;
+
+    /**
+     * Apparent shadow radius of the hole in billboard UV units, where the quad
+     * spans [-1,1]. The shader's Schwarzschild radius is 0.22 UV and light
+     * bending widens the shadow to 2.6×r_s — the value that actually reads as
+     * "the black disk" on screen.
+     */
+    public static final float HOLE_SHADOW_UV = 0.22f * 2.6f;
+
+    /**
+     * Animated hole scale in blocks. Stages 3-5 grow / hold / shrink it; the
+     * tower→hole overlap starts it as a dot.
+     *
+     * <p>This is the <em>only</em> place the hole's size curve lives. The
+     * world-space billboard derives its half-extent from it and the screen-space
+     * post pass derives its shadow radius from {@link
+     * #blackHoleShadowRadiusWorld} — the shaders no longer animate the radius a
+     * second time, which used to leave the two renders disagreeing mid-collapse
+     * with the screen-space disk large enough to swallow the billboard's photon
+     * ring.</p>
+     */
+    public float blackHoleSizeWorld(long nowMs) {
+        int stage = currentStage(nowMs);
+        float progress = stageProgress(nowMs);
+
+        if (stage == STAGE_MAGIC_TOWER) {
+            // Pre-appears as a tiny dot while the tower compresses
+            float t = Math.max((progress - (1f - XFADE_TOWER)) / XFADE_TOWER, 0f);
+            return 0.02f + t * t * 0.28f;
+        }
+        if (stage == STAGE_BLACK_HOLE) {
+            double since = elapsedSec(nowMs) - T_TOWER_END;
+            if (since < HOLE_SNAP_SEC) {
+                // Tear open: from the pre-appearing dot to past cruising size
+                float t = smoothstep01((float) (since / HOLE_SNAP_SEC));
+                return 0.3f + (HOLE_OVERSHOOT - 0.3f) * t;
+            }
+            if (since < HOLE_SNAP_SEC + HOLE_SETTLE_SEC) {
+                // ...and fall back onto it, which is what sells the overshoot
+                float t = smoothstep01((float) ((since - HOLE_SNAP_SEC) / HOLE_SETTLE_SEC));
+                return HOLE_OVERSHOOT + (HOLE_CRUISE - HOLE_OVERSHOOT) * t;
+            }
+            return HOLE_CRUISE;
+        }
+        if (stage == STAGE_COLLAPSE) {
+            return HOLE_CRUISE * (1f - progress * 0.8f);
+        }
+        return HOLE_CRUISE; // accretion: full size
+    }
+
+    /** Apparent shadow (event-horizon) radius of the hole in blocks. */
+    public float blackHoleShadowRadiusWorld(long nowMs) {
+        return blackHoleSizeWorld(nowMs) * HOLE_UV_SPAN * HOLE_SHADOW_UV;
     }
 
     /**
      * Alpha for magic rendering during tower→BH cross-stage transition.
-     *   - Tower stage: 1.0, dropping to 0 in the last TRANSITION_OVERLAP
-     *   - BH stage first TRANSITION_OVERLAP: continues dropping from previous value to 0
+     *   - Tower stage: 1.0, dropping to 0.5 over the last XFADE_TOWER
+     *   - BH stage's first MAGIC_DIE: continues dropping 0.5 → 0, so the array
+     *     outlives the hole's opening and is visibly swallowed by it
+     *     (linear within each window, and the two windows meet on 0.5 at the
+     *     stage boundary, so there is no step)
      */
     public float magicTransitionAlpha(long nowMs) {
         int stage = currentStage(nowMs);
         float progress = stageProgress(nowMs);
 
         if (stage == STAGE_MAGIC_TOWER) {
-            if (progress > 1.0f - TRANSITION_OVERLAP) {
-                // Fade out during the last portion of tower stage
-                return 1.0f - (progress - (1.0f - TRANSITION_OVERLAP)) / TRANSITION_OVERLAP;
+            if (progress > 1.0f - XFADE_TOWER) {
+                // Drop 1.0 → 0.5 during the last portion of tower stage
+                float t = (progress - (1.0f - XFADE_TOWER)) / XFADE_TOWER;
+                return 1.0f - 0.5f * t;
             }
             return 1.0f;
         }
         if (stage == STAGE_BLACK_HOLE) {
-            if (progress < TRANSITION_OVERLAP) {
-                // Continue fading out during the first portion of BH stage
-                return 1.0f - (1.0f - TRANSITION_OVERLAP + progress) / (1.0f + TRANSITION_OVERLAP);
+            if (progress < MAGIC_DIE) {
+                // Continue 0.5 → 0.0 across the whole swallow window
+                float t = progress / MAGIC_DIE;
+                return 0.5f * (1.0f - t);
             }
             return 0f;
         }
@@ -209,8 +413,8 @@ public class KillEffectInstance {
 
     /**
      * Alpha for black hole rendering during tower→BH cross-stage transition.
-     *   - Tower stage last TRANSITION_OVERLAP: 0 → 0.3 (pre-appear, faint)
-     *   - BH stage: 0.3 → 1.0 over the first TRANSITION_OVERLAP, then 1.0
+     *   - Tower stage's last XFADE_TOWER: 0 → 0.35 (pre-appear, faint)
+     *   - BH stage's first XFADE_HOLE: 0.35 → 1.0, then 1.0
      *   - BH stage: captured during collapse by transitionAlpha fade-out
      */
     public float blackHoleTransitionAlpha(long nowMs) {
@@ -218,17 +422,17 @@ public class KillEffectInstance {
         float progress = stageProgress(nowMs);
 
         if (stage == STAGE_MAGIC_TOWER) {
-            if (progress > 1.0f - TRANSITION_OVERLAP) {
+            if (progress > 1.0f - XFADE_TOWER) {
                 // BH starts appearing faintly during the last portion of tower stage
-                float t = (progress - (1.0f - TRANSITION_OVERLAP)) / TRANSITION_OVERLAP;
+                float t = (progress - (1.0f - XFADE_TOWER)) / XFADE_TOWER;
                 return t * 0.35f; // max 0.35 during tower fade-out
             }
             return 0f;
         }
         if (stage == STAGE_BLACK_HOLE) {
-            if (progress < TRANSITION_OVERLAP) {
+            if (progress < XFADE_HOLE) {
                 // Ramp from 0.35 to 1.0 during the first portion of BH stage
-                float t = progress / TRANSITION_OVERLAP;
+                float t = progress / XFADE_HOLE;
                 return 0.35f + (1.0f - 0.35f) * t;
             }
             // After transition: use stage-internal alpha (collapse fade-out, etc.)
@@ -329,7 +533,7 @@ public class KillEffectInstance {
     private void respawnAccretionParticle(int index) {
         int off = index * 8;
         float cx = (float) position.x;
-        float cy = (float) position.y + 1.5f; // match black hole visual center
+        float cy = (float) position.y + HOLE_VISUAL_LIFT; // match black hole visual center
         float cz = (float) position.z;
 
         // ── Disk distribution: particles in equatorial plane (XZ) ──
@@ -395,7 +599,7 @@ public class KillEffectInstance {
         if (stage < 1 || stage > STAGE_COLLAPSE) return;
 
         float cx = (float) position.x;
-        float cy = (float) position.y + 1.5f; // black hole visual center
+        float cy = (float) position.y + HOLE_VISUAL_LIFT; // black hole visual center
         float cz = (float) position.z;
 
         boolean isPreBH = stage == STAGE_MAGIC_CIRCLE || stage == STAGE_MAGIC_TOWER;

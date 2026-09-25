@@ -116,9 +116,20 @@ public abstract class Md3RangeSliderComponent extends Md3ValueComponent {
 
     private void updateFromMouse(double mouseX) {
         float fraction = clamp01((float) (mouseX - x) / width);
+        float minFraction = clamp01(getMinFraction());
+        float maxFraction = clamp01(getMaxFraction());
+        // The value classes enforce minValue <= maxValue, so once the thumbs are
+        // merged the dragged thumb's new position is always rejected and the
+        // slider freezes. Hand the drag over to the other thumb when the pointer
+        // crosses it so merged thumbs can be pulled apart in either direction.
+        if (draggingThumb == THUMB_MIN && fraction > maxFraction) {
+            draggingThumb = THUMB_MAX;
+        } else if (draggingThumb == THUMB_MAX && fraction < minFraction) {
+            draggingThumb = THUMB_MIN;
+        }
         if (draggingThumb == THUMB_MIN) {
             setMinFromFraction(fraction);
-        } else {
+        } else if (draggingThumb == THUMB_MAX) {
             setMaxFromFraction(fraction);
         }
     }
@@ -144,6 +155,11 @@ public abstract class Md3RangeSliderComponent extends Md3ValueComponent {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public void cancelDrag() {
+        draggingThumb = THUMB_NONE;
     }
 
     private static float clamp01(float v) {

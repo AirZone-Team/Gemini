@@ -1,15 +1,9 @@
 // Slang source of truth. Generated Minecraft GLSL is written to build/generated.
 // GLSL-compatible spellings below are provided by Slang's compatibility module.
 // ── Instanced Particle Vertex Shader ─────────────────────────────
-// Camera-facing billboard. Color: R=ageRatio, G=type, B=intensity, A=alpha.
-// ModelOffset.x carries animation time (set by Java, unused in VS).
-
-layout(location = 0) in vec3 Position;
-layout(location = 1) in vec2 UV;
-layout(location = 2) in vec4 Color;
-
-out vec2 vUv;
-out vec4 vColor;
+// The billboard basis is already rotated in Java, so the quad needs no angle
+// here. Configuration travels as flat integer varyings: interpolating a shape id
+// or a seed through a byte colour channel lets a neighbour's value bleed in.
 
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;
@@ -22,12 +16,23 @@ layout(std140) uniform Projection {
     mat4 ProjMat;
 };
 
+in vec3 Position;
+in vec4 Color;
+in vec2 UV0;
+in ivec2 UV1;
+in ivec2 UV2;
+
+out vec4 vertexColor;
+out vec2 uvCoord;
+flat out ivec2 styleWords;
+flat out ivec2 materialWords;
+
 [shader("vertex")]
 
 void main() {
-    vUv    = UV;
-    vColor = Color;
-
-    // ModelOffset.x carries animation time but is NOT added to position.
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+    vertexColor = Color;
+    uvCoord = UV0;
+    styleWords = UV1;
+    materialWords = UV2;
 }

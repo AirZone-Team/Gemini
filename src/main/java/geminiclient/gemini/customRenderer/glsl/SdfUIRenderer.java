@@ -127,6 +127,38 @@ public final class SdfUIRenderer {
             .withCull(false)
             .build();
 
+    /**
+     * 启动加载画面四角星外圈的环形进度（淡轨道 + 四色角渐变进度弧 + 笔尖辉光）：
+     * fwidth 反走样。进度与整体透明度走 shapeParams，(中线半径, 带厚) 走 elemSize，
+     * 配色常量固化在 {@code core/sdf_loader_ring.frag.slang}，与星形管线同式同色。
+     */
+    public static final RenderPipeline SDF_LOADER_RING_PIPELINE = RenderPipeline.builder(
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
+            .withLocation(getIdentifier("pipeline/sdf_loader_ring"))
+            .withVertexShader(getIdentifier("core/sdf_rounded"))
+            .withFragmentShader(getIdentifier("core/sdf_loader_ring"))
+            .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+            .withVertexBinding(0, SDF_FORMAT)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
+            .withCull(false)
+            .build();
+
+    /**
+     * 右指圆角等边三角形（主菜单抽屉把手）：精确 SDF + fwidth 反走样，
+     * 圆角半径比例走 shapeParams.x（0..40，单位：外接圆半径百分比），
+     * 与其余 SDF 管线共享 {@code core/sdf_rounded} 顶点着色器与 SDF_FORMAT。
+     */
+    public static final RenderPipeline SDF_TRIANGLE_PIPELINE = RenderPipeline.builder(
+                    GeminiRenderPipelines.MATRICES_PROJECTION_SNIPPET)
+            .withLocation(getIdentifier("pipeline/sdf_triangle"))
+            .withVertexShader(getIdentifier("core/sdf_rounded"))
+            .withFragmentShader(getIdentifier("core/sdf_triangle"))
+            .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+            .withVertexBinding(0, SDF_FORMAT)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
+            .withCull(false)
+            .build();
+
     public static final int ICON_HEART_FILLED = 0;
     public static final int ICON_HEART_OUTLINE = 1;
     public static final int ICON_CHEVRON_DOWN = 2;
@@ -152,6 +184,8 @@ public final class SdfUIRenderer {
         registry.accept(SDF_WAVY_RING_PIPELINE);
         registry.accept(SDF_ICON_PIPELINE);
         registry.accept(SDF_STAR_PIPELINE);
+        registry.accept(SDF_LOADER_RING_PIPELINE);
+        registry.accept(SDF_TRIANGLE_PIPELINE);
     }
 
     // ========================
@@ -254,6 +288,32 @@ public final class SdfUIRenderer {
     }
 
     /**
+     * 右指圆角等边三角形，垂直水平居中于 (cx, cy)。主菜单抽屉把手使用。
+     *
+     * @param size      外接盒边长（gui px）
+     * @param roundPct  圆角程度 0..40（外接圆半径百分比），越大越接近圆角三叶
+     * @param color     ARGB 填充色
+     */
+    public static void drawRoundedTriangle(GuiGraphicsExtractor gui, float cx, float cy,
+                                           int size, int roundPct, int color) {
+        if (size <= 0 || (color >>> 24) == 0) return;
+
+        float half = size / 2f;
+        float qx0 = cx - half - AA_MARGIN;
+        float qy0 = cy - half - AA_MARGIN;
+        float qx1 = cx + half + AA_MARGIN;
+        float qy1 = cy + half + AA_MARGIN;
+
+        gui.submitGuiElementRenderState(new SdfQuadState(
+                SDF_TRIANGLE_PIPELINE, new Matrix3x2f(gui.pose()),
+                qx0, qy0, qx1, qy1,
+                -AA_MARGIN, -AA_MARGIN, size + AA_MARGIN, size + AA_MARGIN,
+                size, size, Math.max(0, Math.min(40, roundPct)), 0,
+                color, color, color, color,
+                gui.peekScissorStack()));
+    }
+
+    /**
      * Circular ring band centred on {@code radius} px around (cx, cy),
      * {@code thickness} px wide with both edges anti-aliased — the circular
      * specialisation of {@link #drawOutline}.
@@ -341,6 +401,44 @@ public final class SdfUIRenderer {
                 qx0, qy0, qx1, qy1,
                 -AA_MARGIN, -AA_MARGIN, size + AA_MARGIN, size + AA_MARGIN,
                 size, size, outlineShort, fillShort,
+                0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
+                gui.peekScissorStack()));
+    }
+
+    /**
+     * 启动加载画面四角星外圈的环形进度（配套 {@link #drawLoaderStar}）：
+     * 整圈淡轨道 + 自 9 点钟方向顺时针扫入的四色角渐变进度弧 + 笔尖辉光，
+     * 配色与揭示参数化同星形管线（见 {@code core/sdf_loader_ring.frag.slang}）。
+     *
+     * @param midRadius 环中线半径（gui px）
+     * @param thickness 带厚（gui px）
+     * @param ringP     进度揭示 0..1；≥0.999 为满环（笔尖辉光熄灭）
+     * @param alpha     元素整体透明度 0..1（呼吸脉动与过渡淡出用）
+     */
+    public static void drawLoaderRing(GuiGraphicsExtractor gui, float cx, float cy,
+                                      float midRadius, float thickness,
+                                      float ringP, float alpha) {
+        if (midRadius <= 0f || thickness <= 0f || alpha <= 0.004f) {
+            return;
+        }
+
+        // 圆心定位必须与片元着色器的 bound = midR + thickness/2 完全一致：
+        // 先量化为 int（SHORT 通道）再据此布 quad，避免取整位移蚕食 AA_MARGIN
+        int midRInt = Math.round(midRadius);
+        int thickInt = Math.max(1, Math.round(thickness));
+        float bound = midRInt + thickInt * 0.5f;
+        float side = bound * 2.0f;
+        float qx0 = cx - bound - AA_MARGIN, qy0 = cy - bound - AA_MARGIN;
+        float qx1 = cx + bound + AA_MARGIN, qy1 = cy + bound + AA_MARGIN;
+
+        int progressShort = (int) (Math.min(1f, Math.max(0f, ringP)) * 10000);
+        int alphaShort    = (int) (Math.min(1f, Math.max(0f, alpha)) * 10000);
+
+        gui.submitGuiElementRenderState(new SdfQuadState(
+                SDF_LOADER_RING_PIPELINE, new Matrix3x2f(gui.pose()),
+                qx0, qy0, qx1, qy1,
+                -AA_MARGIN, -AA_MARGIN, side + AA_MARGIN, side + AA_MARGIN,
+                midRInt, thickInt, progressShort, alphaShort,
                 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
                 gui.peekScissorStack()));
     }

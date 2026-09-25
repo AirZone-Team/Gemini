@@ -59,6 +59,7 @@ public class ModuleManager {
                 new InstancedParticle(),
                 new SweepingAttackVFX(),
                 new BlockESP(),
+                new BlackHolePet(),
                 new Disabler(),
                 new Blink(),
                 new Osu4k()

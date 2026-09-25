@@ -1,40 +1,30 @@
 // Slang source of truth. Generated Minecraft GLSL is written to build/generated.
 // GLSL-compatible spellings below are provided by Slang's compatibility module.
-// MTSDF (Multi-channel + True Signed Distance Field) font fragment shader.
-// Every per-fragment step lives here: atlas sampling, signed-distance
-// reconstruction, derivative-based anti-aliasing, and per-vertex color
-// modulation.
+// SLUG font fragment shader: turns a glyph triangle's interpolated signed
+// distance into coverage. Nothing is sampled — the whole step is arithmetic on
+// the varyings, so there is no atlas, no field range to decode and no metadata
+// texel to read.
 //
-// Atlas layout (written by MsdfGenerator, Java):
-//   R, G, B — three signed distance fields, each tracking a differently
-//             colored subset of the glyph outline edges. The true edge
-//             distance is reconstructed per fragment as the MEDIAN of the
-//             three channels, which preserves sharp corners that
-//             single-channel SDF rounds off.
-//   A       — the true signed distance over ALL edges. The median field
-//             saturates beyond RANGE/2 px from the contour (all channels
-//             clamp to 0 or 1); the alpha channel keeps a smooth gradient
-//             there for effects that require a true Euclidean distance and
-//             stabilizes coverage under extreme minification.
+// Geometry contract (geminiclient.gemini.customRenderer.glsl.slug.SlugGeometry):
 //
-//   0.0   = RANGE/2 px (or more) outside the glyph
-//   0.5   = exactly on the glyph edge
-//   1.0   = RANGE/2 px (or more) inside the glyph
+//   phi   signed distance to the contour in logical units: 0 exactly on the
+//         outline, down to -AA_MARGIN at the outer edge of the fringe and up to
+//         half that at its inner edge.
+//   kind  0 for the triangles covering the outline eroded by the inner fringe,
+//         1 for either side of the fringe. The three sets are disjoint — blaze3d
+//         gives the GUI no stencil buffer and GuiRenderer replays a batch with
+//         one blend state, so coverage cannot be accumulated and each fragment
+//         must be owned by exactly one kind of triangle.
 //
-// Anti-aliasing follows the reference msdfgen shader: screenPxRange()
-// converts the distance-field range into output screen pixels via texture
-// derivatives, yielding a constant ~1 px wide AA band at any zoom level —
-// glyphs stay crisp from 8 px to 512 px+.
+// Anti-aliasing comes from phi's own screen-space derivative: within a fringe
+// triangle the distance is affine in position, so length(vec2(dFdx(phi),
+// dFdy(phi))) is exactly the number of logical units spanned by one output
+// pixel, and the ramp keeps its ~1 px width at any zoom or GUI scale.
 //
-// NO mirrored constants: the atlas is self-describing. The field range is
-// read from metadata texel (0,0) — written by MsdfGenerator (Java), whose
-// RANGE is the single source of truth. Atlas size comes from textureSize()
-// and on-screen scale from texture-coordinate derivatives. (MC's GuiRenderer
-// only binds the default
-// UBOs, so a custom uniform block could never be populated for GUI elements;
-// a metadata texel is the robust channel for this value.)
-
-uniform sampler2D Sampler0;
+// The ramp straddles the contour, so a fragment only reaches full alpha half a
+// pixel inside it. That is what keeps a stem's weight true: a fringe confined
+// to the outside has to saturate at the contour itself, which adds half a
+// device pixel to every side of every stroke and closes a counter at UI sizes.
 
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;
@@ -44,56 +34,26 @@ layout(std140) uniform DynamicTransforms {
 };
 
 in vec4 vertexColor;
-in vec2 texCoord;
+in float phi;
+in float kind;
 
 out vec4 fragColor;
-
-float median(float r, float g, float b) {
-    return max(min(r, g), min(max(r, g), b));
-}
-
-// Distance range in atlas pixels, decoded from metadata texel (0,0).
-// RANGE*256 is stored as unsigned 16-bit fixed point: R is the low byte and
-// G the high byte. texelFetch ignores filtering.
-float pxRange() {
-    vec2 bytes = round(texelFetch(Sampler0, ivec2(0, 0), 0).rg * 255.0);
-    return (bytes.x + 256.0 * bytes.y) / 256.0;
-}
-
-float screenPxRange() {
-    // textureSize = full atlas size, so unitRange is the field range in
-    // atlas UV units and texCoord derivatives need no per-glyph scaling.
-    vec2 unitRange = vec2(pxRange()) / vec2(textureSize(Sampler0, 0));
-    // Exact derivative length remains correct under non-uniform scaling and
-    // rotation; 1/fwidth(texCoord) is only an approximation.
-    vec2 dx = dFdx(texCoord);
-    vec2 dy = dFdy(texCoord);
-    vec2 screenTexSize = inversesqrt(dx * dx + dy * dy);
-    return max(0.5 * dot(unitRange, screenTexSize), 1.0);
-}
 
 [shader("fragment")]
 
 void main() {
-    vec4 msd = texture(Sampler0, texCoord);
-    float msdfDistance = median(msd.r, msd.g, msd.b);
-    float screenRange = screenPxRange();
-
-    // Below two output pixels of distance range, MSDF channel interpolation
-    // can no longer reliably retain corner detail. At that scale the detail
-    // is subpixel anyway, so transition to MTSDF's true-distance alpha for a
-    // stable silhouette. Full-size and enlarged text remains pure MSDF.
-    float msdfWeight = smoothstep(1.0, 2.0, screenRange);
-    float distance = mix(msd.a, msdfDistance, msdfWeight);
-
-    float screenPxDistance = screenRange * (distance - 0.5);
-    float alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+    // Units of phi per output pixel. Solid triangles hold phi at a constant,
+    // which would make this zero; the floor keeps the unused quotient finite so
+    // a GPU that evaluates both branches can't produce a NaN.
+    float unitsPerPixel = max(length(vec2(dFdx(phi), dFdy(phi))), 1e-7);
+    float alpha = kind < 0.5 ? 1.0 : clamp(0.5 + phi / unitsPerPixel, 0.0, 1.0);
 
     // Apply vertex color (includes per-character tint/gradient)
     vec4 color = vec4(vertexColor.rgb, vertexColor.a * alpha) * ColorModulator;
 
-    // Discard fully transparent pixels for early-Z optimization
-    if (color.a < 0.004) {
+    // Skip the outer fringe entirely: it contributes nothing, and blending a
+    // zero-alpha fragment over the background still costs a read-modify-write.
+    if (color.a <= 0.0) {
         discard;
     }
 

@@ -176,6 +176,16 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
             return swatchY() + SWATCH + 12;
         }
 
+        /**
+         * Vertical offset of the entrance animation. Must be applied to every
+         * hit test as well, otherwise clicks during the first frames land on
+         * the lifted drawing at the wrong row.
+         */
+        private int currentLift() {
+            float openT = Math.min(1f, (System.currentTimeMillis() - openedAtMs) / 180f);
+            return Math.round((1f - Md3Anim.easeOutCubic(openT)) * 5);
+        }
+
         @Override
         public void render(GuiGraphicsExtractor gui, int mouseX, int mouseY, float partialTicks) {
             if (dragTarget == 1) {
@@ -186,8 +196,7 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
                 updateAlpha(mouseX);
             }
 
-            float openT = Math.min(1f, (System.currentTimeMillis() - openedAtMs) / 180f);
-            int lift = Math.round((1f - Md3Anim.easeOutCubic(openT)) * 5);
+            int lift = currentLift();
             int drawY = py + lift;
 
             Md3Theme.elevation2(gui, px, drawY, PICKER_W, ph, Md3Theme.R_CARD);
@@ -363,25 +372,26 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
                 return false;
             }
 
+            int lift = currentLift();
             int doneW = 58;
             int doneX = svX() + svW() - doneW;
-            if (inRect(mouseX, mouseY, doneX, footerY(), doneW, FOOTER_H)) {
+            if (inRect(mouseX, mouseY, doneX, footerY() + lift, doneW, FOOTER_H)) {
                 overlayHost.closeOverlay();
                 return true;
             }
-            if (inRect(mouseX, mouseY, svX(), svY(), svW(), SV_H)) {
+            if (inRect(mouseX, mouseY, svX(), svY() + lift, svW(), SV_H)) {
                 dragTarget = 1;
                 updateSV(mouseX, mouseY);
                 return true;
             }
             if (inRect(mouseX, mouseY,
-                    svX() - 4, hueY() - 3, svW() + 8, SLIDER_H + 6)) {
+                    svX() - 4, hueY() + lift - 3, svW() + 8, SLIDER_H + 6)) {
                 dragTarget = 2;
                 updateHue(mouseX);
                 return true;
             }
             if (inRect(mouseX, mouseY,
-                    svX() - 4, alphaY() - 3, svW() + 8, SLIDER_H + 6)) {
+                    svX() - 4, alphaY() + lift - 3, svW() + 8, SLIDER_H + 6)) {
                 dragTarget = 3;
                 updateAlpha(mouseX);
                 return true;
@@ -389,7 +399,8 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
             for (int i = 0; i < PRESET_COLORS.length; i++) {
                 int swatchX = svX() + i * (SWATCH + SWATCH_GAP);
                 if (inRect(mouseX, mouseY,
-                        swatchX - 3, swatchY() - 3, SWATCH + 6, SWATCH + 6)) {
+                        swatchX - 3, swatchY() + lift - 3, SWATCH + 6, SWATCH + 6)) {
+                    dragTarget = 0;
                     selectPreset(PRESET_COLORS[i]);
                     return true;
                 }
@@ -469,9 +480,15 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
             return false;
         }
 
+        @Override
+        public void cancelDrag() {
+            dragTarget = 0;
+        }
+
         private void updateSV(double mouseX, double mouseY) {
+            int lift = currentLift();
             sat = clamp((float) (mouseX - svX()) / svW());
-            bri = 1f - clamp((float) (mouseY - svY()) / SV_H);
+            bri = 1f - clamp((float) (mouseY - (svY() + lift)) / SV_H);
             apply();
         }
 
@@ -487,8 +504,9 @@ public class Md3ColorValueComponent extends Md3ValueComponent {
 
         @Override
         public boolean contains(double mouseX, double mouseY) {
+            int lift = currentLift();
             return mouseX >= px && mouseX <= px + PICKER_W
-                    && mouseY >= py && mouseY <= py + ph;
+                    && mouseY >= py + lift && mouseY <= py + lift + ph;
         }
 
         @Override

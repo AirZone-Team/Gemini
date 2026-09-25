@@ -16,12 +16,14 @@ public final class Md3ModuleDescriptions {
 
     private static final Map<String, String> DESCRIPTIONS = Map.ofEntries(
             Map.entry("KillAura", "Automatically attacks nearby entities"),
+            Map.entry("KillEffect", "Plays a cinematic effect on every kill"),
             Map.entry("Velocity", "Modifies knockback taken"),
             Map.entry("AutoThrow", "Throws projectiles automatically"),
             Map.entry("ClickGui", "Opens this configuration screen"),
             Map.entry("TargetDisplay", "Shows information about your target"),
             Map.entry("Notification", "Shows module toggle notifications"),
-            Map.entry("SweepingAttackVFX", "Custom sweep attack visual effects")
+            Map.entry("SweepingAttackVFX", "Custom sweep attack visual effects"),
+            Map.entry("BlackHolePet", "A black hole that rides your shoulder")
     );
 
     public static String get(String moduleName) {

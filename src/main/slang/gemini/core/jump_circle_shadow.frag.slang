@@ -39,10 +39,12 @@ void main() {
 
     float radius = mix(0.12, 0.82, 1.0 - pow(1.0 - life, 3.0));
     float body = 1.0 - smoothstep(radius * 0.20, radius + 0.20, distanceValue);
-    float wave = 1.0 - smoothstep(0.06, 0.19, abs(distanceValue - radius * 0.76));
+    // A wide feather keeps this a grounding shadow; the tight dark stripe it used
+    // to draw reads as a second ring once the decal above it goes crisp.
+    float wave = 1.0 - smoothstep(0.05, 0.26, abs(distanceValue - radius * 0.72));
     float breakup = 0.78 + noise(p * 7.0 + life * 2.4) * 0.22;
     float fade = smoothstep(0.0, 0.04, life) * (1.0 - smoothstep(0.52, 1.0, life));
-    float alpha = (body * 0.54 + wave * 0.46) * breakup * fade * opacity;
+    float alpha = (body * 0.66 + wave * 0.26) * breakup * fade * opacity;
 
     fragColor = vec4(vertexColor.rgb, alpha) * ColorModulator;
     if (fragColor.a < 0.001) discard;

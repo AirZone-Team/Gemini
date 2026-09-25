@@ -66,6 +66,8 @@ public class JumpCircle extends Module {
     private final FloatValue thickness = new FloatValue("Thickness", 0.82f, 0.15f, 2.5f);
     private final FloatValue opacity = new FloatValue("Opacity", 0.92f, 0.05f, 1.0f);
     private final FloatValue brightness = new FloatValue("Brightness", 1.25f, 0.25f, 2.5f);
+    private final FloatValue clarity = new FloatValue("Clarity", 1.35f, 0.4f, 2.2f);
+    private final FloatValue dynamics = new FloatValue("Dynamics", 1.0f, 0.0f, 2.0f);
     private final FloatValue glow = new FloatValue("Glow", 1.15f, 0.0f, 2.5f);
     private final FloatValue distortion = new FloatValue("Distortion", 0.35f, 0.0f, 1.5f);
     private final FloatValue spin = new FloatValue("Spin", 1.0f, -3.0f, 3.0f);
@@ -89,6 +91,7 @@ public class JumpCircle extends Module {
     private boolean wasOnGround = true;
     private float peakFallDistance;
     private boolean applyingPreset;
+    private int spawnSerial;
 
     private enum JumpType {
         TAKEOFF(0),
@@ -102,7 +105,8 @@ public class JumpCircle extends Module {
         }
     }
 
-    private record JumpInstance(double x, double y, double z, long timestamp, JumpType type, float impact) {}
+    private record JumpInstance(double x, double y, double z, long timestamp,
+                                JumpType type, float impact, int seed) {}
 
     public JumpCircle() {
         super("JumpCircle", ModuleEnum.Visual);
@@ -112,7 +116,7 @@ public class JumpCircle extends Module {
                 takeoffColor, normalColor, heavyColor, accentColor, dualTone,
                 maxRadius, duration, timeScale, heightOffset,
                 heavyThreshold, impactScaling, heavyScale,
-                thickness, opacity, brightness, glow, distortion, spin,
+                thickness, opacity, brightness, clarity, dynamics, glow, distortion, spin,
                 layers, ringCount, runeDetail, particleDensity, spikes, shockwave, quality,
                 shadowColor, shadowOpacity, shadowSize,
                 maxCircles, cullDistance
@@ -162,8 +166,9 @@ public class JumpCircle extends Module {
 
     private void spawn(Vec3 position, JumpType type, float impact) {
         double groundY = JumpCircleRenderer.findGroundY(position.x, position.y, position.z);
-        activeCircles.add(new JumpInstance(position.x, groundY, position.z,
-                System.currentTimeMillis(), type, impact));
+        long stamp = System.currentTimeMillis();
+        activeCircles.add(new JumpInstance(position.x, groundY, position.z, stamp, type, impact,
+                (int) (((stamp + spawnSerial++ * 719L) >>> 5) & 1023L)));
 
         int cap = maxCircles.getValue();
         while (activeCircles.size() > cap) activeCircles.removeFirst();
@@ -209,23 +214,28 @@ public class JumpCircle extends Module {
             }
 
             int eventBits = instance.type.shaderId << 16;
+            int seedBits = instance.seed << 22;
             JumpCircleRenderer.drawJumpCircle(
                     event.poseStack(), instance.x, y, instance.z, halfSize,
                     packProgress(typeColor(instance.type), progress),
-                    styleBits | eventBits, materialBits
+                    styleBits | eventBits | seedBits, materialBits
             );
 
             if (dualTone.enabled) {
                 JumpCircleRenderer.drawJumpCircle(
                         event.poseStack(), instance.x, y + 0.0015, instance.z, halfSize,
                         packProgress(accentColor.getColor(), progress),
-                        accentBits | eventBits, materialBits
+                        accentBits | eventBits | seedBits, materialBits
                 );
             }
             return false;
         });
     }
 
+    /**
+     * Layout read by jump_circle.frag.slang. Bits 22..31 carry a per-instance
+     * seed so simultaneous circles do not animate in lockstep.
+     */
     private int packStyleBits(boolean accentLayer) {
         int bits = style.index & 0x7;
         bits |= (colorFlow.index & 0x3) << 3;
@@ -238,7 +248,7 @@ public class JumpCircle extends Module {
         if (accentLayer) bits |= 1 << 18;
         if (shockwave.enabled) bits |= 1 << 19;
         bits |= (easing.index & 0x3) << 20;
-        return bits;
+        return bits & 0x003FFFFF;
     }
 
     private int packMaterialBits() {
@@ -248,6 +258,8 @@ public class JumpCircle extends Module {
         bits |= quantize(spin.getValue(), -3f, 3f) << 12;
         bits |= quantize(opacity.getValue(), 0.05f, 1f, 7) << 16;
         bits |= quantize(brightness.getValue(), 0.25f, 2.5f, 7) << 19;
+        bits |= quantize(clarity.getValue(), 0.4f, 2.2f) << 22;
+        bits |= quantize(dynamics.getValue(), 0f, 2f) << 26;
         return bits;
     }
 
@@ -271,6 +283,8 @@ public class JumpCircle extends Module {
                 heavyColor.setColor(0xFFFF3B92);
                 accentColor.setColor(0xFFFFFFFF);
                 thickness.setValue(0.48f);
+                clarity.setValue(1.85f);
+                dynamics.setValue(1.4f);
                 glow.setValue(1.45f);
                 distortion.setValue(0.08f);
                 spin.setValue(1.6f);
@@ -287,6 +301,8 @@ public class JumpCircle extends Module {
                 heavyColor.setColor(0xFFD994FF);
                 accentColor.setColor(0xFFFFF1B8);
                 thickness.setValue(0.62f);
+                clarity.setValue(1.55f);
+                dynamics.setValue(0.9f);
                 glow.setValue(1.7f);
                 distortion.setValue(0.18f);
                 spin.setValue(0.65f);
@@ -303,6 +319,8 @@ public class JumpCircle extends Module {
                 heavyColor.setColor(0xFFFF301B);
                 accentColor.setColor(0xFFFFF0A4);
                 thickness.setValue(1.2f);
+                clarity.setValue(1.0f);
+                dynamics.setValue(1.65f);
                 glow.setValue(1.8f);
                 distortion.setValue(1.1f);
                 spin.setValue(1.2f);
@@ -320,6 +338,8 @@ public class JumpCircle extends Module {
                 accentColor.setColor(0xFFDDC7FF);
                 shadowColor.setColor(0xFF05030C);
                 thickness.setValue(0.75f);
+                clarity.setValue(1.25f);
+                dynamics.setValue(1.2f);
                 glow.setValue(0.85f);
                 distortion.setValue(0.85f);
                 spin.setValue(-1.1f);
@@ -337,6 +357,8 @@ public class JumpCircle extends Module {
                 accentColor.setColor(0xFFFFD77D);
                 shadowColor.setColor(0xFF160C2A);
                 thickness.setValue(0.82f);
+                clarity.setValue(1.35f);
+                dynamics.setValue(1.0f);
                 glow.setValue(1.15f);
                 distortion.setValue(0.35f);
                 spin.setValue(1f);

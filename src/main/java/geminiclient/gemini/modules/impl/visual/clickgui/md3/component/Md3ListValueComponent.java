@@ -76,11 +76,19 @@ public class Md3ListValueComponent extends Md3ValueComponent {
                     overlayHost.bottomEdge() - menuH - 8));
         }
 
+        /**
+         * Current drawing row: the entrance animation lifts the menu from
+         * below, so hit tests must follow this instead of the resting menuY.
+         */
+        private int drawY() {
+            float openT = Math.min(1.0f, (System.currentTimeMillis() - openedAtMs) / 150f);
+            return menuY - (int) ((1.0f - Md3Anim.easeOutCubic(openT)) * 4);
+        }
+
         @Override
         public void render(GuiGraphicsExtractor gui, int mouseX, int mouseY, float partialTicks) {
             // Entrance: settle into place with a short ease-out rise
-            float openT = Math.min(1.0f, (System.currentTimeMillis() - openedAtMs) / 150f);
-            int drawY = menuY - (int) ((1.0f - Md3Anim.easeOutCubic(openT)) * 4);
+            int drawY = drawY();
 
             int r = Md3Theme.R_CONTROL;
             Md3Theme.elevation2(gui, menuX, drawY, MENU_WIDTH, menuH, r);
@@ -123,8 +131,9 @@ public class Md3ListValueComponent extends Md3ValueComponent {
         @Override
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
             if (button != 0 || !contains(mouseX, mouseY)) return false;
+            int top = drawY();
             for (int i = 0; i < modes.size(); i++) {
-                int itemY = menuY + 4 + i * ITEM_HEIGHT;
+                int itemY = top + 4 + i * ITEM_HEIGHT;
                 if (mouseY >= itemY && mouseY <= itemY + ITEM_HEIGHT) {
                     listValue.setMode(modes.get(i));
                     overlayHost.closeOverlay();
@@ -141,8 +150,9 @@ public class Md3ListValueComponent extends Md3ValueComponent {
 
         @Override
         public boolean contains(double mouseX, double mouseY) {
+            int top = drawY();
             return mouseX >= menuX && mouseX <= menuX + MENU_WIDTH
-                    && mouseY >= menuY && mouseY <= menuY + menuH;
+                    && mouseY >= top && mouseY <= top + menuH;
         }
     }
 }

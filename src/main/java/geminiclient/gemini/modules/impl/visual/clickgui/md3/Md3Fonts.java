@@ -12,7 +12,7 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
  * Lazy-loaded MiSans {@link CustomFontRenderer.GlyphFont} holders for the
- * MD3 ClickGui. All MD3 text renders through the MSDF pipeline — never mc.font.
+ * MD3 ClickGui. All MD3 text renders through the SLUG vector pipeline — never mc.font.
  *
  * <p>Holders are lazy because font loading needs the resource manager,
  * which is unavailable at class-load time.</p>
@@ -72,13 +72,13 @@ public final class Md3Fonts {
     private static final String EXTRA_WARMUP_GLYPHS = "·—";
 
     /**
-     * Eagerly loads all five font faces and rasterises the printable-ASCII
+     * Eagerly loads all five font faces and tessellates the printable-ASCII
      * glyph set (plus {@link #EXTRA_WARMUP_GLYPHS}) for each, so the first
-     * ClickGui open doesn't stall on MSDF generation. Called by
+     * ClickGui open doesn't stall on outline triangulation. Called by
      * {@code UiShaderWarmup} on the render thread during resource reload;
-     * callers must follow with {@code CustomFontRenderer.flushAllPages()} to
-     * upload the pending atlas pages. Repeat calls are cheap — loaded faces
-     * and rasterised glyphs are cached.
+     * callers must follow with {@code CustomFontRenderer.flushPendingGlyphs()}
+     * to publish glyphs that were queued rather than built inline. Repeat
+     * calls are cheap — loaded faces and finished glyphs are cached.
      *
      * <p>中文不在此预热：body/label/title 三个面的中文集合由
      * {@code UiShaderWarmup} 的 {@code ui_font_warmup} 重载监听器在加载
@@ -103,9 +103,9 @@ public final class Md3Fonts {
 
     /**
      * Draws text with the given GlyphFont, falling back to the vanilla font.
-     * Coordinates are snapped to whole pixels: fractional origins blur MSDF
-     * glyph edges, and integer origins keep rendering crisp and consistent
-     * across HiDPI GUI scales.
+     * Coordinates are snapped to whole pixels: a fractional origin walks the
+     * analytic coverage ramp across the pixel grid, and integer origins keep
+     * rendering crisp and consistent across HiDPI GUI scales.
      */
     public static void drawText(GuiGraphicsExtractor gui, CustomFontRenderer.@Nullable GlyphFont font,
                                 String text, float x, float y, int color) {

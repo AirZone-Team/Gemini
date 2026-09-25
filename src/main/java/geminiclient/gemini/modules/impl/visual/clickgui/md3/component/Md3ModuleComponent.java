@@ -49,8 +49,10 @@ public class Md3ModuleComponent {
 
     public Md3ModuleComponent(Module module, Md3Overlay.Host overlayHost) {
         this.module = module;
+        // Value components receive their real width from layoutComponent() before
+        // the first render/click; the factory only needs the reference here.
         for (ValueParent value : module.getValues()) {
-            Md3ValueComponent component = Md3ValueComponentFactory.create(value, width, overlayHost);
+            Md3ValueComponent component = Md3ValueComponentFactory.create(value, 0, overlayHost);
             if (component != null) {
                 valueComponents.add(component);
             }
@@ -367,5 +369,13 @@ public class Md3ModuleComponent {
             if (component.mouseReleased(mouseX, mouseY, button)) return true;
         }
         return false;
+    }
+
+    /** Ends the switch press visual and any in-progress value drag in this row. */
+    public void cancelDrag() {
+        switchPressed = false;
+        for (Md3ValueComponent component : valueComponents) {
+            component.cancelDrag();
+        }
     }
 }

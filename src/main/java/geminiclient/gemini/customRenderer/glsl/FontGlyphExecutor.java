@@ -1,6 +1,6 @@
 package geminiclient.gemini.customRenderer.glsl;
 
-import geminiclient.gemini.customRenderer.glsl.msdf.MsdfGenerator;
+import geminiclient.gemini.customRenderer.glsl.slug.SlugGeometry;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,24 +12,23 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Off-thread MSDF generation for {@link CustomFontRenderer.GlyphFont}.
+ * Off-thread glyph tessellation for {@link CustomFontRenderer.GlyphFont}.
  *
- * <p>Generating one glyph's distance field costs on the order of 17 ms of
- * pure CPU work (CJK glyphs are the most expensive), which is far too slow to
- * run on the render thread — a single new sentence would stall a frame by
- * hundreds of milliseconds. The generation itself, however, is plain geometry
- * math over a pre-extracted {@link Shape}: it touches no AWT font state, no
- * GL objects and no atlas bookkeeping, so it moves to a background thread
- * without further synchronization.</p>
+ * <p>Flattening an outline and triangulating it costs well under a millisecond
+ * for a Latin glyph but can reach tens for a dense CJK one, and a newly opened
+ * screen tessellates dozens of glyphs at once — far too slow to run on the
+ * render thread. The work itself is plain geometry math over a
+ * {@link Shape} that the render thread has already extracted and will not touch
+ * again: it reads no AWT font state and no GL objects, so it moves to a
+ * background thread without further synchronization.</p>
  *
- * <p>Flow: the render thread extracts the outline and reserves an atlas cell
- * (all atlas state stays render-thread-confined), hands the shape here, and
- * the worker publishes finished pixel buffers on {@link #COMPLETED}. The
- * render thread picks them up in {@link #drain()} — called every frame via
- * {@code CustomFontRenderer.flushAllPages()} and before every layout pass —
- * where the pixels are written into the atlas and uploaded as a sub-region.
- * Until a glyph's generation lands, {@code Glyph.hasImage} stays false and
- * the draw path renders it through the vanilla fallback.</p>
+ * <p>Flow: the render thread extracts the outline, hands the shape here, and
+ * the worker publishes finished geometry on {@link #COMPLETED}. The render
+ * thread picks it up in {@link #drain()} — called every frame via
+ * {@code CustomFontRenderer.flushPendingGlyphs()} and before every layout
+ * pass — where it becomes the cached glyph's vertex data. Until that lands,
+ * {@code Glyph.hasGeometry} stays false and the draw path renders the
+ * character through the vanilla fallback.</p>
  */
 final class FontGlyphExecutor {
 
@@ -40,17 +39,17 @@ final class FontGlyphExecutor {
     }
 
     record PendingGlyph(CustomFontRenderer.GlyphFont font, int codePoint,
-                        Shape outline, int cellWidth, int cellHeight) {
+                        Shape outline) {
     }
 
     private record CompletedGlyph(CustomFontRenderer.GlyphFont font,
-                                  int codePoint, byte[] msdfPixels) {
+                                  int codePoint, SlugGeometry.Result geometry) {
     }
 
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(r -> {
-        Thread thread = new Thread(r, "Gemini-FontMSDF");
+        Thread thread = new Thread(r, "Gemini-FontTessellate");
         thread.setDaemon(true);
-        // Below-normal priority: background generation must never contend
+        // Below-normal priority: background tessellation must never contend
         // with the render thread for CPU when frames are tight.
         thread.setPriority(Thread.NORM_PRIORITY - 1);
         return thread;
@@ -64,14 +63,18 @@ final class FontGlyphExecutor {
             if (job.font().isDisposed()) {
                 return;
             }
-            byte[] pixels = MsdfGenerator.generate(
-                    job.outline(), job.cellWidth(), job.cellHeight());
-            COMPLETED.add(new CompletedGlyph(job.font(), job.codePoint(), pixels));
+            try {
+                COMPLETED.add(new CompletedGlyph(job.font(), job.codePoint(),
+                        job.font().buildGeometry(job.outline())));
+            } catch (Throwable t) {
+                LOGGER.warn("[Font] Tessellating glyph failed (cp={})",
+                        job.codePoint(), t);
+            }
         });
     }
 
     /**
-     * Render thread only. Applies every finished generation to its atlas page.
+     * Render thread only. Publishes every finished tessellation to its glyph.
      * Cheap when the queue is empty, so callers may invoke it per frame.
      * Individual failures are logged and skipped — a broken task must never
      * break the frame it drains in.
@@ -80,9 +83,9 @@ final class FontGlyphExecutor {
         CompletedGlyph done;
         while ((done = COMPLETED.poll()) != null) {
             try {
-                done.font().applyRaster(done.codePoint(), done.msdfPixels());
+                done.font().applyGeometry(done.codePoint(), done.geometry());
             } catch (Throwable t) {
-                LOGGER.warn("[Font] Applying generated glyph failed (cp={})",
+                LOGGER.warn("[Font] Applying tessellated glyph failed (cp={})",
                         done.codePoint(), t);
             }
         }

@@ -52,6 +52,14 @@ public abstract class Md3ValueComponent {
         return false;
     }
 
+    /**
+     * Forcibly ends any in-progress drag. Used when a release event may have
+     * been lost (e.g. the button was let go outside the window after focus
+     * changed), so a stale drag never keeps following the cursor.
+     */
+    public void cancelDrag() {
+    }
+
     protected boolean isHovered(double mouseX, double mouseY) {
         return mouseX >= x - HOVER_LEFT_EXTENSION
                 && mouseX <= x + width + HOVER_RIGHT_EXTENSION

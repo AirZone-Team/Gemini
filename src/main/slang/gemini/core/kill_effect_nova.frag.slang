@@ -185,35 +185,46 @@ void main() {
         // Ensure envelope never goes fully to zero at t=0
         if (t < 0.01) env = t / 0.01 * env;
 
-        // ── Core: intense central spot, wider than before ─────────
-        float core = exp(-d * d * 50.0) * env * 200.0;
+        // ── Core: intense central spot ────────────────────────────
+        // Every multiplier here used to be an order of magnitude higher (core
+        // ×200, inner ×30, and a flat violet lift added across the whole
+        // billboard). Feeding ACES a plateau of several hundred is not a
+        // brighter flash, it is a white screen: the roll-off at the end of this
+        // branch only helps if the peak is reachable in the first place.
+        float core = exp(-d * d * 50.0) * env * 26.0;
         flashRgb += vec3(1.0, 1.0, 1.0) * core;
 
         // ── Inner glow: soft, fills the billboard ─────────────────
-        float inner = exp(-d * 8.0) * env * 30.0;
+        float inner = exp(-d * 8.0) * env * 7.0;
         flashRgb += vec3(1.0, 0.95, 0.9) * inner;
 
         // ── Expanding ring (wider than before: σ=0.08) ────────────
         float ringR = t * 0.8;
-        float ring = exp(-abs(d - ringR) * 18.0) * env * 8.0;
+        float ring = exp(-abs(d - ringR) * 18.0) * env * 3.5;
         // Ring echo (inner)
-        ring += exp(-abs(d - ringR * 0.5) * 16.0) * env * 3.0;
+        ring += exp(-abs(d - ringR * 0.5) * 16.0) * env * 1.4;
         // Ring precursor (outer)
-        ring += exp(-abs(d - ringR * 1.5) * 12.0) * env * 1.5;
+        ring += exp(-abs(d - ringR * 1.5) * 12.0) * env * 0.7;
 
         vec3 ringCol = mix(vec3(1.0, 1.0, 1.0), vec3(0.4, 0.6, 1.0), smoothstep(0.0, 0.5, t));
         ringCol = mix(ringCol, vec3(0.6, 0.2, 1.0), smoothstep(0.5, 1.0, t));
         flashRgb += ringCol * ring;
 
         // ── Afterglow: wide, soft, fading ─────────────────────────
-        float after = (1.0 - t) * (1.0 - t) * exp(-d * 3.5) * 3.0;
+        float after = (1.0 - t) * (1.0 - t) * exp(-d * 3.5) * 1.2;
         vec3 afterCol = vec3(0.4, 0.12, 0.85);
         flashRgb += afterCol * after;
 
-        // ── Global faint screen brightening ───────────────────────
-        flashRgb += vec3(0.2, 0.15, 0.6) * env * 0.5;
+        flashRgb *= intensity * em;
 
-        flashRgb *= intensity * 2.0 * em;
+        // Compress the peak with a Reinhard knee applied to the largest channel
+        // and shared by all three, so the violet halo stays violet. Clamping per
+        // channel clips red and green first and bleaches the wash to grey, and a
+        // hard ceiling instead flattens everything above 1 into one white
+        // plateau. This maps the whole flash into 0.6–0.9 after ACES, which is
+        // where it still has shape.
+        float hotChannel = max(max(flashRgb.r, flashRgb.g), flashRgb.b);
+        flashRgb *= 1.0 / (1.0 + hotChannel / 1.6);
 
         // Luminance-based alpha for HDR additive blending
         float flashAlpha = dot(flashRgb, vec3(0.299, 0.587, 0.114)) * alpha;

@@ -32,7 +32,8 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
  *
  * <h3>Pipelines</h3>
  * <ul>
- *   <li>{@link #MAGIC_PIPE} — Magic circle + tower (additive, depth-tested)</li>
+ *   <li>{@link #MAGIC_PIPE} — Summoning array: ground sigil, tower tiers and
+ *       armillary cage, one world-space plane per quad (additive, depth-tested)</li>
  *   <li>{@link #BLACK_HOLE_PIPE} — Event horizon + photon ring + lens distortion</li>
  *   <li>{@link #PARTICLE_PIPE} — Accretion particles (additive, depth-tested)</li>
  *   <li>{@link #HYPERNOVA_PIPE} — Explosion flash overlay (no depth, always visible)</li>
@@ -42,14 +43,22 @@ import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
  *
  * <h3>Vertex encoding (POSITION_TEX_COLOR, all pipelines)</h3>
  * <ul>
- *   <li>UV.x/y — billboard quad corner (0..1), maps to effect-local coordinates in FS</li>
- *   <li>Color.r — time progress 0→1 (within current stage)</li>
- *   <li>Color.g — normalized identifier: stage/8 (magic, hole), layer/4 (glow),
- *       mode flag 0/0.5/1 (nova, particle), ray index 0..1 (ray)</li>
- *   <li>Color.b — intensity/4 (hole, glow, nova, ray) or raw ≤1 (magic);
- *       shaders rescale by ×4 where applicable (bytes can only hold 0..1)</li>
+ *   <li>UV.x/y — quad corner (0..1). Camera-facing billboards map it to the
+ *       effect-local coordinates the shader reads; a summoning-array plane maps
+ *       it to its own in-plane axes instead</li>
+ *   <li>Color.r — time progress 0→1 (nova, hole, ray) or the summon script's
+ *       reveal (magic)</li>
+ *   <li>Color.g — normalized identifier: stage/8 (hole), layer/4 (glow),
+ *       mode flag 0/0.5/1 (nova, particle), ray index 0..1 (ray), or the
+ *       wrapping animation phase (magic)</li>
+ *   <li>Color.b — intensity/4 (hole, glow, nova, ray, magic) — magic carries
+ *       HDR energy here, so the ×4 rescale happens in the shader</li>
  *   <li>Color.a — master alpha</li>
  * </ul>
+ *
+ * <p>Every channel is a byte. Nothing that must turn monotonically — an angle,
+ * a spin, a long ramp — may be sent through one: it would advance in 1.4° steps
+ * and stutter. Those go in the geometry instead; see {@link #emitDisc}.</p>
  */
 public final class KillEffectRenderer {
 
@@ -273,137 +282,352 @@ public final class KillEffectRenderer {
     }
 
     // ════════════════════════════════════════════════════════════════
-    //  Magic Circle + Tower drawing
+    //  Summoning array (magic circle + tower + armillary cage)
     // ════════════════════════════════════════════════════════════════
 
+    /** Period of the array's looping internal animation (line boil + pulses). */
+    private static final long MAGIC_CYCLE_MS = 3600L;
+
+    /** Stacked tiers between the ground sigil and the hole. */
+    private static final int MAGIC_TIERS = 9;
+
+    /** Great tilted rings enclosing the tower — the armillary cage. */
+    private static final int MAGIC_CAGE_RINGS = 3;
+
+    /** Ground shock rings sweeping outward at any one moment. */
+    private static final int MAGIC_WAVES = 3;
+
+    /** Filaments streaming from the array into the hole while it is swallowed. */
+    private static final int MAGIC_INFLOW = 3;
+
+    /** Seconds one shock ring takes to cross the array. */
+    private static final float MAGIC_WAVE_SEC = 2.6f;
+
+    /** How far the hole opens above the ground sigil's own plane. */
+    private static final float MAGIC_HOLE_LIFT = KillEffectInstance.HOLE_VISUAL_LIFT - 0.03f;
+
+    private static final float TAU = (float) (2.0 * Math.PI);
+
+    /** Scratch for {@link ThaumaturgySigilGeometry#axes}. */
+    private static final float[] DISC_AXES = new float[6];
+    private static final Vector3f DISC_E1 = new Vector3f();
+    private static final Vector3f DISC_E2 = new Vector3f();
+
     /**
-     * Draw magic circle and tower for an effect instance.
+     * Draw the summoning array for an effect instance.
      *
-     * <p>Magic circle: single large ground-plane billboard with rune pattern.
-     * Tower: up to 12 stacked billboards with decreasing scale and alpha.
+     * <p>Every plane is the same shader disc, distinguished only by where the
+     * renderer puts it and how far it is allowed to read the summon script:</p>
+     * <ul>
+     *   <li>the ground sigil and its echo — the full design, drawn ring by ring
+     *       by two pens running in opposite directions</li>
+     *   <li>nine tower tiers — a pinched column that counter-rotates by tier,
+     *       the upper ones capped at the rune band so the stack stays legible</li>
+     *   <li>an armillary cage of three great tilted rings, precessing round the
+     *       tower so the array has real volume from every angle</li>
+     *   <li>shock rings sweeping outward across the ground</li>
+     * </ul>
      *
-     * <p>During the tower→BH transition (last 30% of tower stage, first 30% of BH stage),
-     * the tower layers compress vertically (squash effect) and fade out, while the
-     * shader color.vertex g is set to stage 2 so the fragment shader renders the tower
-     * pattern even during BH stage.</p>
+     * <h3>How the hole is born</h3>
+     * <p>The array is swallowed plane by plane, top tier first and the ground
+     * sigil last, on a front that sweeps down over {@link
+     * KillEffectInstance#magicDrain}. Each plane contracts onto the axis,
+     * accelerates its turn, flares hot and dies as the front takes it — so at
+     * most two planes are ever mid-swallow. That is deliberate: lifting the
+     * whole stack onto the hole at once parked nine rings plus the sigil inside
+     * one block of each other, and the additive blow-out they produced is where
+     * the horizon was supposed to appear. It opened inside a white bulb and
+     * read as nothing at all.</p>
+     *
+     * @param intensityMul global intensity × AoE merge multiplier (1 = default);
+     *                     scales the master alpha of every emitted quad.
      */
-    public static void drawMagic(PoseStack poseStack, KillEffectInstance inst, long nowMs) {
+    public static void drawMagic(PoseStack poseStack, KillEffectInstance inst, long nowMs,
+                                  float intensityMul) {
         if (!inst.shouldRenderMagic(nowMs)) return;
 
-        int stage = inst.currentStage(nowMs);
-        float progress = inst.stageProgress(nowMs);
+        // Cross-stage transition alpha, scaled by the global intensity setting
+        float alpha = inst.magicTransitionAlpha(nowMs) * intensityMul;
+        if (alpha < 0.001f) return;
 
-        // During BH stage transition: override stage to render magic pattern
-        float shaderStage;
-        if (stage == KillEffectInstance.STAGE_BLACK_HOLE) {
-            shaderStage = KillEffectInstance.STAGE_MAGIC_TOWER; // render tower pattern
-        } else {
-            shaderStage = (float) stage;
-        }
+        float reveal   = inst.magicReveal(nowMs);
+        float spin     = inst.magicSpin(nowMs);
+        float rise     = inst.magicRise(nowMs);
+        float collapse = inst.magicCollapse(nowMs);
+        float drain    = inst.magicDrain(nowMs);
+        float surge    = inst.magicSurge(nowMs);
+        // Bounded, wrapping: the shader only ever takes sin/cos of this, so a
+        // byte channel carries it without stepping.
+        float phase    = (nowMs % MAGIC_CYCLE_MS) / (float) MAGIC_CYCLE_MS;
 
-        // Cross-stage transition alpha
-        float alpha = inst.magicTransitionAlpha(nowMs);
-
-        float px = (float) inst.position.x;
-        float py = (float) inst.position.y;
-        float pz = (float) inst.position.z;
-
-        updateCameraVectors();
         Camera cam = mc.getEntityRenderDispatcher().camera;
         float cx = (float) cam.position().x;
         float cy = (float) cam.position().y;
         float cz = (float) cam.position().z;
         Matrix4f vm = poseStack.last().pose();
 
-        // Distance-based size scaling
+        float px = (float) inst.position.x;
+        float py = (float) inst.position.y;
+        float pz = (float) inst.position.z;
+        float x = px - cx;
+        float z = pz - cz;
+        float groundY = py + 0.03f - cy;
+        float holeY = groundY + MAGIC_HOLE_LIFT;
+
+        // Distance-compensated size: the array stays legible at engagement range
+        // instead of shrinking to a dot, but is capped so it cannot grow into a
+        // continent at long range.
         float dx = px - cx, dy = py - cy, dz = pz - cz;
         float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.01f;
-        float baseSize = 1.5f * (1f + dist * 0.08f);
+        float base = Math.min(2.6f * (1f + dist * 0.085f), 34f);
+
+        // HDR energy rides the bloom chain: the array brightens into the moment
+        // the hole tears open.
+        float energy = 1.0f + 1.25f * surge;
 
         BufferBuilder buf = GeminiTesselator.getInstance()
                 .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-        if (stage == KillEffectInstance.STAGE_MAGIC_CIRCLE) {
-            // Single magic circle on the ground, facing upward (horizontal)
-            float size = baseSize * (0.5f + progress * 0.5f); // grow from 50% to 100%
-            float circleAlpha = alpha * (progress < 0.2f ? progress / 0.2f : 1f); // fade in
-            float yOffset = 0.02f; // slightly above ground
+        // ── Ground sigil: the last thing to go ──────────────────────
+        float sigilEaten = swallowed(drain, SLOT_SIGIL);
+        float echoEaten  = swallowed(drain, SLOT_ECHO);
+        emitDisc(buf, vm, x, mix(groundY, holeY, sigilEaten * sigilEaten), z,
+                spin + sigilEaten * 2.4f, 0f,
+                base * (1f - 0.94f * sigilEaten) * (1f - 0.22f * collapse),
+                reveal, phase, energy * (1f + 1.6f * sigilEaten),
+                alpha * (1f - sigilEaten) * (1f - sigilEaten));
+        // Echo: half a rune cell around and a hand's width lower, so its rim
+        // lines interleave with the primary disc's instead of hiding under them.
+        // Deliberately faint: it lies inside the sigil's own footprint, and two
+        // copies of the same engraving sum until the gaps between the strokes
+        // fill in and the ground becomes one white disc.
+        emitDisc(buf, vm, x, mix(groundY - 0.10f, holeY, echoEaten * echoEaten), z,
+                spin + TAU / 128f + echoEaten * 2.4f, 0f,
+                base * 0.955f * (1f - 0.94f * echoEaten) * (1f - 0.22f * collapse),
+                planeReveal(reveal, 0.05f, KillEffectInstance.SCRIPT_RUNE_END),
+                phase, energy * 0.5f * (1f + 1.6f * echoEaten),
+                alpha * 0.17f * (1f - echoEaten) * (1f - echoEaten));
 
-            int rgba = packColor(progress, 1f / 8f, 0.8f, circleAlpha);
-
-            // Draw horizontal billboard (use up=world-up mapping for UV)
-            float rx = px - cx, ry = py + yOffset - cy, rz = pz - cz;
-            buf.addVertex(vm, rx - size, ry, rz - size).setUv(0f, 0f).setColor(rgba);
-            buf.addVertex(vm, rx - size, ry, rz + size).setUv(0f, 1f).setColor(rgba);
-            buf.addVertex(vm, rx + size, ry, rz + size).setUv(1f, 1f).setColor(rgba);
-            buf.addVertex(vm, rx + size, ry, rz - size).setUv(1f, 0f).setColor(rgba);
-
-        } else {
-            // ── Tower stage (includes tower→BH transition) ────────────
-            int towerLayers = 12;
-            float transT = 0f;
-            boolean isTransition = false;
-
-            // Detect tower→BH transition
-            if (stage == KillEffectInstance.STAGE_MAGIC_TOWER && progress > 1f - 0.30f) {
-                isTransition = true;
-                transT = (progress - (1f - 0.30f)) / 0.30f;
-            } else if (stage == KillEffectInstance.STAGE_BLACK_HOLE) {
-                isTransition = true;
-                transT = 1f; // fully into transition — tower is almost gone
+        if (rise > 0.001f) {
+            // The array tightens as it gives way, but keeps its shape: the
+            // swallow front moves each plane into the hole in turn, so squashing
+            // the whole column flat here would double up the motion.
+            float tighten = 1f - 0.15f * collapse;
+            drawTowerTiers(buf, vm, x, groundY, z, holeY, base,
+                    reveal, spin, rise, drain, surge, phase, energy, alpha, tighten);
+            drawArmillaryCage(buf, vm, x, groundY, z, holeY, base,
+                    reveal, spin, rise, drain, phase, energy, alpha, tighten);
+            if (drain < 0.55f) {
+                drawShockWaves(buf, vm, x, groundY, z, base, nowMs,
+                        spin, rise, phase, energy, alpha);
             }
-
-            // ── Circle→tower crossfade ──────────────────────────────
-            // The ground circle from stage 1 keeps rendering during the
-            // first 25% of the tower stage, fading out as the tower rises —
-            // otherwise it would vanish instantly at the stage boundary.
-            if (stage == KillEffectInstance.STAGE_MAGIC_TOWER && progress < 0.25f) {
-                float circleFade = 1.0f - progress / 0.25f;
-                float size = baseSize * (1.0f + progress * 0.4f); // slight expand as it dissolves
-                int circleRgba = packColor(1f, 1f / 8f, 0.8f, alpha * circleFade);
-                float crx = px - cx, cry = py + 0.02f - cy, crz = pz - cz;
-                buf.addVertex(vm, crx - size, cry, crz - size).setUv(0f, 0f).setColor(circleRgba);
-                buf.addVertex(vm, crx - size, cry, crz + size).setUv(0f, 1f).setColor(circleRgba);
-                buf.addVertex(vm, crx + size, cry, crz + size).setUv(1f, 1f).setColor(circleRgba);
-                buf.addVertex(vm, crx + size, cry, crz - size).setUv(1f, 0f).setColor(circleRgba);
-            }
-
-            for (int i = 0; i < towerLayers; i++) {
-                float layerProgress = (float)i / towerLayers;
-                float scale = (float) Math.pow(0.9, i);
-                float height = i * 0.3f * baseSize;
-                float layerAlpha = (float) Math.pow(0.82, i) * alpha;
-                float yOffset = 0.02f + height;
-
-                // Staggered rise animation
-                float riseDelay = i * 0.05f;
-                float riseProgress = Math.clamp((progress - riseDelay) / 0.15f, 0f, 1f);
-                layerAlpha *= riseProgress;
-
-                // ── Tower compression during transition (squash effect) ──
-                if (isTransition) {
-                    // Compress Y: layers squash toward the ground
-                    float squash = 1.0f - transT * 0.85f;
-                    yOffset = 0.02f + height * squash;
-
-                    // Fade from bottom (layer 0) to top (layer N) during compression
-                    float bottomFade = 1.0f - layerProgress * transT * 0.7f;
-                    layerAlpha *= bottomFade;
-                }
-
-                float size = baseSize * scale;
-
-                int rgba = packColor(progress, shaderStage / 8f, 0.8f, layerAlpha);
-
-                float rx = px - cx, ry = py + yOffset - cy, rz = pz - cz;
-                buf.addVertex(vm, rx - size, ry, rz - size).setUv(0f, 0f).setColor(rgba);
-                buf.addVertex(vm, rx - size, ry, rz + size).setUv(0f, 1f).setColor(rgba);
-                buf.addVertex(vm, rx + size, ry, rz + size).setUv(1f, 1f).setColor(rgba);
-                buf.addVertex(vm, rx + size, ry, rz - size).setUv(1f, 0f).setColor(rgba);
+            if (drain > 0.001f) {
+                drawInflowRings(buf, vm, x, groundY, z, holeY, base, drain,
+                        phase, alpha, intensityMul);
             }
         }
 
         GeminiTesselator.draw(MAGIC_TYPE, buf.buildOrThrow());
+    }
+
+    // ── Swallow schedule ───────────────────────────────────────────
+    //
+    // Plane slots run in the order the hole eats them: the top tier first, the
+    // ground sigil last. Two adjacent planes overlap in their swallow windows,
+    // which is what keeps the front looking like a front.
+
+    private static final int MAGIC_SLOTS = MAGIC_TIERS + MAGIC_CAGE_RINGS + 2;
+    private static final int SLOT_ECHO = MAGIC_TIERS + MAGIC_CAGE_RINGS;
+    private static final int SLOT_SIGIL = MAGIC_TIERS + MAGIC_CAGE_RINGS + 1;
+
+    /** Fraction of one plane's own swallow window, out of the whole drain. */
+    private static final float SWALLOW_W = 0.22f;
+
+    /** How far plane {@code slot} has been eaten, 0 = untouched, 1 = gone. */
+    private static float swallowed(float drain, int slot) {
+        float start = slot * (1f - SWALLOW_W) / (MAGIC_SLOTS - 1);
+        return Math.clamp((drain - start) / SWALLOW_W, 0f, 1f);
+    }
+
+    private static float mix(float a, float b, float t) {
+        return a + (b - a) * t;
+    }
+
+    /** The stacked tiers: a vortex of counter-rotating discs above the sigil. */
+    private static void drawTowerTiers(BufferBuilder buf, Matrix4f vm,
+                                       float x, float groundY, float z, float holeY,
+                                       float base, float reveal, float spin, float rise,
+                                       float drain, float surge, float phase, float energy,
+                                       float alpha, float tighten) {
+        for (int i = 0; i < MAGIC_TIERS; i++) {
+            float u = i / (float) (MAGIC_TIERS - 1);      // 0 = lowest tier
+            // Staggered rise: the column builds from the ground upward.
+            float t = Math.clamp((rise - i * 0.055f) / 0.34f, 0f, 1f);
+            if (t <= 0f) continue;
+            float grown = 1f - (1f - t) * (1f - t) * (1f - t);
+
+            // Eaten from the top down
+            float eaten = swallowed(drain, MAGIC_TIERS - 1 - i);
+            if (eaten >= 1f) continue;
+
+            // Pinched profile — full at the sigil, narrow at the waist — so the
+            // stack reads as a vessel rather than a cone.
+            float profile = 1.02f - 0.58f * (float) Math.sin(u * Math.PI * 0.62);
+            float radius = base * profile * (1f - 0.94f * eaten) * tighten;
+            float height = mix(base * (0.10f + 1.62f * u) * grown,
+                    holeY - groundY, eaten * eaten);
+
+            // Counter-rotation alternates by tier and the upper ones turn faster,
+            // so the stack shears like a vortex instead of spinning as one disc.
+            // Being eaten spins it up further: angular momentum, not decoration.
+            float yaw = spin * ((i & 1) == 0 ? 1f : -1f) * (0.55f + 0.85f * u)
+                    + i * 0.42f + eaten * 3.2f;
+            // Bounded nod only — `phase` rides a byte channel.
+            float pitch = 0.05f * (float) Math.sin(phase * TAU + i * 1.1f);
+
+            // Upper tiers carry fewer figures: the lattice and the seals would
+            // only tangle when stacked nine deep.
+            float ceiling = u < 0.34f ? KillEffectInstance.SCRIPT_LATTICE_END
+                    : KillEffectInstance.SCRIPT_RUNE_END;
+
+            emitDisc(buf, vm, x, groundY + height, z,
+                    yaw, pitch, radius,
+                    planeReveal(reveal, i * 0.012f, ceiling),
+                    phase,
+                    // Flares as it crosses the horizon, then is gone with it.
+                    energy * (1.1f + 0.45f * (1f - u) + 0.6f * surge) * (1f + 1.8f * eaten),
+                    // The stack brightens as it rises. The low tiers sit inside
+                    // the sigil's own footprint when the camera looks down on it,
+                    // and a second copy of the same engraving there does not add
+                    // detail — it fills the gaps between the sigil's strokes and
+                    // the ground reads as one white disc. The upper tiers own
+                    // empty sky, so they can carry the light instead.
+                    alpha * grown * (0.16f + 0.30f * u) * (1f - eaten) * (1f - eaten));
+        }
+    }
+
+    /**
+     * Three great rings nodding about the tower's axis. Because each one's
+     * reveal stops at the rim boundary, they read as nested ellipses rather
+     * than as nine more copies of the sigil — and they are what give the array
+     * height and parallax when seen from the side.
+     */
+    private static void drawArmillaryCage(BufferBuilder buf, Matrix4f vm,
+                                          float x, float groundY, float z, float holeY,
+                                          float base, float reveal, float spin, float rise,
+                                          float drain, float phase, float energy, float alpha,
+                                          float tighten) {
+        for (int k = 0; k < MAGIC_CAGE_RINGS; k++) {
+            float eaten = swallowed(drain, MAGIC_TIERS + k);
+            if (eaten >= 1f) continue;
+
+            float yaw = spin * 0.38f + k * (TAU / MAGIC_CAGE_RINGS) + eaten * 2.6f;
+            // Bounded breathing on the nod, never a monotonic turn through phase.
+            float pitch = ((k & 1) == 0 ? 1f : -1f)
+                    * (0.62f + 0.10f * (float) Math.sin(phase * TAU + k));
+            float radius = base * (1.30f - 0.06f * k) * (1f - 0.95f * eaten) * tighten;
+            float height = mix(base * (0.80f + 0.17f * k) * rise,
+                    holeY - groundY, eaten * eaten);
+
+            emitDisc(buf, vm, x, groundY + height, z,
+                    yaw, pitch, radius,
+                    planeReveal(reveal, 0.02f * k, KillEffectInstance.SCRIPT_RIM_END),
+                    phase, energy * 0.85f * (1f + 1.5f * eaten),
+                    alpha * 0.34f * rise * (1f - eaten) * (1f - eaten));
+        }
+    }
+
+    /** Energy sweeping outward across the ground, three rings in a rolling cycle. */
+    private static void drawShockWaves(BufferBuilder buf, Matrix4f vm,
+                                       float x, float groundY, float z, float base,
+                                       long nowMs, float spin, float rise,
+                                       float phase, float energy, float alpha) {
+        float clock = (nowMs % (long) (MAGIC_WAVE_SEC * 1000f)) / (MAGIC_WAVE_SEC * 1000f);
+        for (int w = 0; w < MAGIC_WAVES; w++) {
+            float t = (clock + w / (float) MAGIC_WAVES) % 1f;
+            float radius = base * (0.30f + 1.55f * t);
+            // Swell in at the sigil's rim and die at the outer edge. A ring that
+            // is brightest at birth spends its whole life inside the disc it is
+            // meant to frame, and that light lands on the engraving.
+            float swell = (float) Math.sin(t * Math.PI);
+            emitDisc(buf, vm, x, groundY + 0.05f + t * base * 0.24f, z,
+                    spin * (0.25f + 0.5f * t), 0f, radius,
+                    KillEffectInstance.SCRIPT_RIM_END,
+                    phase, energy * 0.7f,
+                    alpha * rise * swell * swell * 0.34f);
+        }
+    }
+
+    /**
+     * Filaments of the array's own light running down the last span into the
+     * horizon. These start where the swallow front is and land on the hole, so
+     * the birth reads as a fall rather than as a fade.
+     */
+    private static void drawInflowRings(BufferBuilder buf, Matrix4f vm,
+                                        float x, float groundY, float z, float holeY,
+                                        float base, float drain, float phase,
+                                        float alpha, float intensityMul) {
+        float holeSpan = Math.min(base * 0.10f, MAGIC_HOLE_LIFT);
+        for (int k = 0; k < MAGIC_INFLOW; k++) {
+            // Staggered starts across the drain so the stream never stops.
+            float t = Math.clamp((drain - k * 0.16f) / 0.5f, 0f, 1f);
+            if (t <= 0f || t >= 1f) continue;
+            float ease = t * t * (3f - 2f * t);
+            float radius = mix(base * (1.75f - 0.2f * k), holeSpan, ease);
+            float y = mix(groundY + base * (0.05f + 0.3f * k), holeY, ease);
+            float a = alpha * (float) Math.sin(t * Math.PI) * 0.55f * intensityMul;
+
+            emitDisc(buf, vm, x, y, z, drain * 5.5f + k, 0f, radius,
+                    KillEffectInstance.SCRIPT_RIM_END,
+                    phase, 1.4f + 2.6f * ease, a);
+        }
+    }
+
+    /**
+     * A plane's own share of the summon script: it starts drawing at
+     * {@code delay} and never passes {@code ceiling}, so a plane capped at a
+     * script boundary shows exactly the figures that live below it.
+     */
+    private static float planeReveal(float reveal, float delay, float ceiling) {
+        return Math.clamp((reveal - delay) / (1f - delay), 0f, 1f) * ceiling;
+    }
+
+    /**
+     * Emit one plane of the array: a disc lying in the world XZ plane, spun by
+     * {@code yaw} about the vertical and nodded by {@code pitch} about its own
+     * turning axis, so the lean precesses as the plane turns.
+     *
+     * <p>The turn is in the geometry on purpose. A vertex-colour channel is a
+     * byte, so an angle sent through it advances in 1.4° steps and the array
+     * would stutter instead of sweeping.</p>
+     */
+    private static void emitDisc(BufferBuilder buf, Matrix4f vm,
+                                 float x, float y, float z,
+                                 float yaw, float pitch, float half,
+                                 float reveal, float phase, float energy, float alpha) {
+        if (alpha < 0.004f || half <= 0f) return;
+        ThaumaturgySigilGeometry.axes(yaw, pitch, DISC_AXES);
+        DISC_E1.set(DISC_AXES[0], DISC_AXES[1], DISC_AXES[2]);
+        DISC_E2.set(DISC_AXES[3], DISC_AXES[4], DISC_AXES[5]);
+        emitOrientedQuad(buf, vm, x, y, z, DISC_E1, DISC_E2, half,
+                packColor(reveal, phase, energy / 4f, alpha));
+    }
+
+    /**
+     * Unit quad centred on {@code x,y,z}, spanning {@code ±half} along two
+     * orthonormal world-space axes. UV.x runs along {@code e1}, UV.y along
+     * {@code e2}, which is how the disc shader gets its own plane coordinates.
+     */
+    private static void emitOrientedQuad(BufferBuilder buf, Matrix4f vm,
+                                         float x, float y, float z,
+                                         Vector3f e1, Vector3f e2,
+                                         float half, int rgba) {
+        float ax = e1.x * half, ay = e1.y * half, az = e1.z * half;
+        float bx = e2.x * half, by = e2.y * half, bz = e2.z * half;
+        buf.addVertex(vm, x - ax - bx, y - ay - by, z - az - bz).setUv(0f, 0f).setColor(rgba);
+        buf.addVertex(vm, x - ax + bx, y - ay + by, z - az + bz).setUv(0f, 1f).setColor(rgba);
+        buf.addVertex(vm, x + ax + bx, y + ay + by, z + az + bz).setUv(1f, 1f).setColor(rgba);
+        buf.addVertex(vm, x + ax - bx, y + ay - by, z + az - bz).setUv(1f, 0f).setColor(rgba);
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -411,41 +635,41 @@ public final class KillEffectRenderer {
     // ════════════════════════════════════════════════════════════════
 
     /**
-     * Draw the black hole: event horizon, photon ring, gravitational lensing.
-     * Rendered as a single large camera-facing billboard.
+     * Draw the depth-tested half of the black hole: photon ring, photon-sphere
+     * glow, lensed starfield. The opaque shadow, the lensing of the real scene
+     * and the accretion disk are the {@link KillEffectPostProcessor} BLACK_HOLE
+     * pass's job; this quad exists so blocks in front of the hole hide it.
      *
-     * <p>During the tower→BH transition (last 30% of tower stage), the black hole
-     * appears as a small faint dot that grows and brightens as the tower compresses.</p>
+     * <p>During the tower→BH crossfade the hole appears as a small faint dot
+     * that grows and brightens as the array is driven into it.</p>
+     *
+     * @param intensityMul global intensity × AoE merge multiplier (1 = default);
+     *                     scales the master alpha so the Intensity setting and
+     *                     merged kills actually reach the black hole visuals.
      */
-    public static void drawBlackHole(PoseStack poseStack, KillEffectInstance inst, long nowMs) {
+    public static void drawBlackHole(PoseStack poseStack, KillEffectInstance inst, long nowMs,
+                                      float intensityMul) {
         if (!inst.shouldRenderBlackHole(nowMs)) return;
 
         int stage = inst.currentStage(nowMs);
         float progress = inst.stageProgress(nowMs);
 
-        // Cross-stage transition alpha
+        // Cross-stage transition alpha (intensity applied at the final clamp —
+        // the forming branch below force-ramps alpha, so scaling here is lost)
         float alpha = inst.blackHoleTransitionAlpha(nowMs);
         if (alpha < 0.001f) return;
 
         // ── Pre-appearance during tower→BH transition ────────────────
-        float holeSize = 1.5f;
         float brightness = 1f;
 
         if (stage == KillEffectInstance.STAGE_MAGIC_TOWER) {
-            // During tower's last portion: black hole pre-appears as a tiny dot
-            float t = (progress - (1f - 0.30f)) / 0.30f; // 0→1 within the overlap
-            // Exponential growth: very small at first, growing to 30% of full size
-            holeSize = 0.02f + t * t * 0.28f;
-            brightness = 0.3f + t * 0.7f;
+            brightness = 0.3f + ((progress - (1f - KillEffectInstance.XFADE_TOWER))
+                    / KillEffectInstance.XFADE_TOWER) * 0.7f;
 
         } else if (stage == KillEffectInstance.STAGE_BLACK_HOLE) {
-            // Normal forming: grow from small to full
-            holeSize = 0.3f + progress * 1.2f;
-
-            // During first 30% (transition completion), rapid growth
-            if (progress < 0.30f) {
-                float t = progress / 0.30f;
-                holeSize = Math.max(holeSize, 0.05f + t * 0.5f);
+            // During the crossfade, brighten rapidly
+            if (progress < KillEffectInstance.XFADE_HOLE) {
+                float t = progress / KillEffectInstance.XFADE_HOLE;
                 brightness = 0.5f + t * 0.5f;
             } else {
                 brightness = 1f;
@@ -453,15 +677,11 @@ public final class KillEffectRenderer {
             alpha = progress < 0.15f ? Math.max(alpha, progress / 0.15f) : Math.max(alpha, 1f);
 
         } else if (stage == KillEffectInstance.STAGE_COLLAPSE) {
-            holeSize = 1.5f * (1f - progress * 0.8f);
             brightness = 1f + progress * 3f;
-
-        } else {
-            // Accretion: full size
-            holeSize = 1.5f;
         }
 
-        alpha = Math.clamp(alpha, 0f, 1f);
+        alpha = Math.clamp(alpha * intensityMul, 0f, 1f);
+        if (alpha < 0.001f) return;
 
         updateCameraVectors();
         Camera cam = mc.getEntityRenderDispatcher().camera;
@@ -471,15 +691,16 @@ public final class KillEffectRenderer {
         Matrix4f vm = poseStack.last().pose();
 
         float px = (float) inst.position.x;
-        float py = (float) inst.position.y + 1.5f; // raised above ground
+        float py = (float) inst.position.y + KillEffectInstance.HOLE_VISUAL_LIFT;
         float pz = (float) inst.position.z;
 
         BufferBuilder buf = GeminiTesselator.getInstance()
                 .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
         int rgba = packColor(progress, stage / 8f, brightness / 4f, alpha);
-        // Leave enough UV room for the wide disk and its lensed far-side arc.
-        float halfSize = holeSize * 3.25f;
+        // KillEffectInstance owns the size curve so the screen-space shadow in
+        // KillEffectPostProcessor covers exactly the same disk.
+        float halfSize = inst.blackHoleSizeWorld(nowMs) * KillEffectInstance.HOLE_UV_SPAN;
 
         emitBillboard(buf, vm, cx, cy, cz, px, py, pz, halfSize,
                 0f, 0f, 1f, 1f, rgba);
@@ -547,8 +768,12 @@ public final class KillEffectRenderer {
      *
      * <p>The combination creates a physically plausible blinding light that
      * interacts correctly with the 3D environment.</p>
+     *
+     * @param intensityMul global intensity × AoE merge multiplier (1 = default);
+     *                     scales the master alpha of every emitted quad.
      */
-    public static void drawHypernova(PoseStack poseStack, KillEffectInstance inst, long nowMs) {
+    public static void drawHypernova(PoseStack poseStack, KillEffectInstance inst, long nowMs,
+                                      float intensityMul) {
         int stage = inst.currentStage(nowMs);
         if (stage != KillEffectInstance.STAGE_HYPERNOVA
                 && stage != KillEffectInstance.STAGE_AFTERGLOW
@@ -566,6 +791,7 @@ public final class KillEffectRenderer {
             alpha = 0.08f * inst.getFadeOutAlpha(nowMs);
         }
 
+        alpha *= intensityMul;
         if (alpha < 0.005f) return;
 
         updateCameraVectors();
@@ -614,10 +840,10 @@ public final class KillEffectRenderer {
 
         // ── Layer 1: Full-screen flash overlay (no depth, always visible) ──
         float novaSize = dist * 0.44f;
-        float lightSize = dist * 0.29f;
+        float lightSize = dist * 0.21f;
         float flashTime = 0.33f + 0.045f * (float)Math.sin(progress * Math.PI * 4.0);
         // The white core rides over the wider fireball only during detonation.
-        float flashIntensity = 3.85f + (float)Math.sin(progress * Math.PI * 3.5f)
+        float flashIntensity = 1.8f + (float)Math.sin(progress * Math.PI * 3.5f)
                 * 0.15f * (1.0f - progress);
 
         BufferBuilder buf = GeminiTesselator.getInstance()
@@ -630,7 +856,10 @@ public final class KillEffectRenderer {
         float novaProgress = stage == KillEffectInstance.STAGE_HYPERNOVA ? progress : 1.0f;
         float novaIntensity = stage == KillEffectInstance.STAGE_HYPERNOVA ? 1.0f
                 : stage == KillEffectInstance.STAGE_AFTERGLOW ? 0.65f : 0.25f;
-        int novaRgba = packColor(novaProgress, 0.5f, novaIntensity, alpha);
+        // The nova shader rescales this channel by ×4, like every other one that
+        // carries HDR. Packing it raw left the whole fireball four times hotter
+        // than intended, which ACES then flattened into a screen-wide white sheet.
+        int novaRgba = packColor(novaProgress, 0.5f, novaIntensity / 4f, alpha);
         emitBillboard(buf, vm, cx, cy, cz, px, py, pz, novaSize,
                 0f, 0f, 1f, 1f, novaRgba);
 

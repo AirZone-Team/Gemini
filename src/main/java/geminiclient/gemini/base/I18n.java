@@ -100,7 +100,7 @@ public final class I18n {
 
     /**
      * 当前语言下所有中文文案的码点集合（供字形预热）。英文模式下返回空集，
-     * 避免为不必要的字形生成 MSDF。
+     * 避免为不必要的字形做三角化。
      */
     public static Set<Integer> cjkCodepoints() {
         Set<Integer> cps = new LinkedHashSet<>();
@@ -120,12 +120,15 @@ public final class I18n {
 
     /**
      * 启动时预热的文案（按码点去重）：仅主菜单可见的少量文字。中文模式下这些
-     * 是进入游戏后第一屏的全部中文，预热后首帧无需现场生成 MSDF。
+     * 是进入游戏后第一屏的全部中文，预热后首帧无需现场三角化。
      *
-     * <p>覆盖范围刻意保持很小（约 20+ 个汉字）：MSDF 栅格化成本约 17ms/字形
-     * （96px em 光栅面），超出主菜单的预热会让加载界面停顿不可接受。其余界面
-     * （ClickGui、AltManager 等）的中文仍由 {@link CustomFontRenderer} 惰性
-     * 栅格化，缺失字形有 vanilla 兜底，不会出现空白。英文模式返回空串。</p>
+     * <p>覆盖范围刻意保持很小（约 20+ 个汉字）：三角化仍是一次性的（18px 实测稳态
+     * 约 1.5ms/字形、p90 约 3.5ms，远低于旧 MSDF 的约 17ms/字形），但字形
+     * 一旦预热就常驻数百个三角形的顶点数据，且进程里头几个字形还要承担 JIT 冷
+     * 启动（数十毫秒）。现在扩大预热集的成本已经很低，若首屏文案变多可直接加
+     * 进来。其余界面（ClickGui、AltManager 等）的中文仍由
+     * {@link CustomFontRenderer} 惰性三角化，缺失字形有 vanilla 兜底，
+     * 不会出现空白。英文模式返回空串。</p>
      */
     public static String warmupText() {
         if (language != Language.CHINESE) {
@@ -172,6 +175,7 @@ public final class I18n {
         pair("Arraylists", "阵列", "Arraylists");
         pair("AutoTool", "自动工具", "AutoTool");
         pair("BackTrack", "回溯", "BackTrack");
+        pair("BlackHolePet", "黑洞宠物", "BlackHolePet");
         pair("Blink", "闪烁", "Blink");
         pair("BlockESP", "方块ESP", "BlockESP");
         pair("Breaker", "隔墙破坏", "Breaker");
@@ -219,6 +223,7 @@ public final class I18n {
         // ── 配置项 ──
         pair("Accent", "强调色", "Accent");
         pair("Accent Color", "强调色", "Accent Color");
+        pair("Accent Mix", "强调混合", "Accent Mix");
         pair("AdrenalineBoost", "肾上腺素加成", "AdrenalineBoost");
         pair("AdrenalineRange", "肾上腺素范围", "AdrenalineRange");
         pair("Afterimages", "残影", "Afterimages");
@@ -226,6 +231,7 @@ public final class I18n {
         pair("AimMode", "瞄准模式", "AimMode");
         pair("AimModulo360", "360度瞄准", "AimModulo360");
         pair("AimPointSmooth", "瞄准点平滑", "AimPointSmooth");
+        pair("Air Tear", "撕裂空气", "Air Tear");
         pair("Alpha", "透明度", "Alpha");
         pair("Anim Speed", "动画速度", "Anim Speed");
         pair("Animal", "动物", "Animal");
@@ -260,6 +266,7 @@ public final class I18n {
         pair("Bow Priority", "弓优先级", "Bow Priority");
         pair("BowMode", "弓模式", "BowMode");
         pair("Bows", "弓", "Bows");
+        pair("Birth Burst", "出生爆发", "Birth Burst");
         pair("Box Color", "框体颜色", "Box Color");
         pair("Brightness", "亮度", "Brightness");
         pair("CPS", "每秒点击", "CPS");
@@ -269,7 +276,8 @@ public final class I18n {
         pair("Case", "大小写", "Case");
         pair("Chance", "概率", "Chance");
         pair("Chromatic Split", "色差分离", "Chromatic Split");
-        pair("Circle Color", "光环颜色", "Circle Color");
+        pair("Circle Color", "魔法阵颜色", "Circle Color");
+        pair("Clarity", "清晰度", "Clarity");
         pair("ClickVariance", "点击偏差", "ClickVariance");
         pair("CloseDelay", "关闭延迟", "CloseDelay");
         pair("Color", "颜色", "Color");
@@ -288,6 +296,7 @@ public final class I18n {
         pair("Delay", "延迟", "Delay");
         pair("Density", "密度", "Density");
         pair("Depth Mode", "深度模式", "Depth Mode");
+        pair("Detail", "细节", "Detail");
         pair("Detail Scale", "细节缩放", "Detail Scale");
         pair("DistanceSpread", "距离扩散", "DistanceSpread");
         pair("Distortion", "扭曲", "Distortion");
@@ -297,9 +306,11 @@ public final class I18n {
         pair("Dual Tone", "双色调", "Dual Tone");
         pair("Duration", "持续时间", "Duration");
         pair("Dynamic Color", "动态颜色", "Dynamic Color");
+        pair("Dynamics", "动感", "Dynamics");
         pair("Easing", "缓动", "Easing");
         pair("EasingCurve", "缓动曲线", "EasingCurve");
         pair("Echo Spacing", "回声间隔", "Echo Spacing");
+        pair("Echoes", "回声层", "Echoes");
         pair("Edge Glow", "边缘发光", "Edge Glow");
         pair("Eggs & Snowballs", "鸡蛋与雪球", "Eggs & Snowballs");
         pair("Ender Pearls", "末影珍珠", "Ender Pearls");
@@ -310,6 +321,7 @@ public final class I18n {
         pair("Entity Hit", "命中实体", "Entity Hit");
         pair("FOV", "视野", "FOV");
         pair("Factor", "系数", "Factor");
+        pair("Feather Color", "羽毛颜色", "Feather Color");
         pair("Feathers", "羽毛", "Feathers");
         pair("Fill Color", "填充颜色", "Fill Color");
         pair("Fishing Hooks", "钓鱼钩", "Fishing Hooks");
@@ -334,6 +346,7 @@ public final class I18n {
         pair("Guide Width", "引导宽度", "Guide Width");
         pair("Halo Intensity", "光环强度", "Halo Intensity");
         pair("Halo Size", "光环大小", "Halo Size");
+        pair("Hands", "手部数量", "Hands");
         pair("Health Alert", "生命警报", "Health Alert");
         pair("Held Only", "仅手持", "Held Only");
         pair("Heavy Color", "重落颜色", "Heavy Color");
@@ -342,6 +355,7 @@ public final class I18n {
         pair("Heavy Threshold", "重落阈值", "Heavy Threshold");
         pair("Height", "高度", "Height");
         pair("Height Offset", "高度偏移", "Height Offset");
+        pair("Hexagon Color", "六边形颜色", "Hexagon Color");
         pair("Hexagons", "六边形", "Hexagons");
         pair("Hue Range", "色相范围", "Hue Range");
         pair("HurtTime", "受击时间", "HurtTime");
@@ -446,10 +460,13 @@ public final class I18n {
         pair("OpeningScreen", "打开界面", "OpeningScreen");
         pair("Orbit Height", "轨道高度", "Orbit Height");
         pair("Orbit Radius", "轨道半径", "Orbit Radius");
+        pair("Orbit Ring", "环绕法阵", "Orbit Ring");
         pair("Orbitals", "环绕物", "Orbitals");
         pair("Orientation", "朝向", "Orientation");
         pair("OtherMode", "其他模式", "OtherMode");
         pair("Outline Color", "描边颜色", "Outline Color");
+        pair("Outline Width", "描边宽度", "Outline Width");
+        pair("Enchanted Only", "仅附魔物品", "Enchanted Only");
         pair("Overshoot", "过冲", "Overshoot");
         pair("Palette", "调色板", "Palette");
         pair("Paper Cranes", "纸鹤", "Paper Cranes");
@@ -523,6 +540,7 @@ public final class I18n {
         pair("RotationMode", "旋转模式", "RotationMode");
         pair("RotationSpeed", "旋转速度", "RotationSpeed");
         pair("RotationVariation", "旋转变化", "RotationVariation");
+        pair("Rune Color", "符文颜色", "Rune Color");
         pair("Rune Crown", "符文皇冠", "Rune Crown");
         pair("Rune Detail", "符文细节", "Rune Detail");
         pair("Runes", "符文", "Runes");
@@ -578,6 +596,7 @@ public final class I18n {
         pair("Star Density", "星密度", "Star Density");
         pair("Stardust", "星尘", "Stardust");
         pair("Starfield", "星空", "Starfield");
+        pair("Starlight Color", "星光颜色", "Starlight Color");
         pair("Starlights", "星光", "Starlights");
         pair("StealDelay", "窃取延迟", "StealDelay");
         pair("StopWorking", "停止工作", "StopWorking");
@@ -594,6 +613,9 @@ public final class I18n {
         pair("Tail Width", "尾部宽度", "Tail Width");
         pair("Takeoff", "起飞", "Takeoff");
         pair("Takeoff Color", "起飞颜色", "Takeoff Color");
+        pair("Tear Hold", "裂口滞留", "Tear Hold");
+        pair("Tear Slices", "裂空条数", "Tear Slices");
+        pair("Tear Width", "裂口宽度", "Tear Width");
         pair("TargetEffects", "目标特效", "TargetEffects");
         pair("TargetIndicator", "目标指示器", "TargetIndicator");
         pair("Targets", "目标", "Targets");
@@ -620,6 +642,7 @@ public final class I18n {
         pair("Trail Secondary", "轨迹次色", "Trail Secondary");
         pair("Trail Sparks", "轨迹火花", "Trail Sparks");
         pair("Trail While Idle", "空闲时轨迹", "Trail While Idle");
+        pair("Triangle Color", "三角形颜色", "Triangle Color");
         pair("Triangles", "三角形", "Triangles");
         pair("Tridents", "三叉戟", "Tridents");
         pair("Triggers", "触发器", "Triggers");
@@ -659,6 +682,36 @@ public final class I18n {
         pair("barrel", "木桶", "barrel");
         pair("tnt", "TNT", "tnt");
         pair("bedrock", "基岩", "bedrock");
+
+        // ── BlackHolePet 黑洞宠物 ──
+        pair("Shoulder", "肩膀", "Shoulder");
+        pair("Follow Speed", "跟随速度", "Follow Speed");
+        pair("Swing", "摆动", "Swing");
+        pair("Side Offset", "侧向距离", "Side Offset");
+        pair("Forward Offset", "前后偏移", "Forward Offset");
+        pair("Idle Orbit", "悬浮轨道", "Idle Orbit");
+        pair("Orbit Speed", "轨道速度", "Orbit Speed");
+        pair("Bob", "上下浮动", "Bob");
+        pair("Disk Scale", "吸积盘尺度", "Disk Scale");
+        pair("Disk Tilt", "盘面倾角", "Disk Tilt");
+        pair("Spin Speed", "自转速度", "Spin Speed");
+        pair("Doppler Beaming", "多普勒集束", "Doppler Beaming");
+        pair("Grav Redshift", "引力红移", "Grav Redshift");
+        pair("Filament Scale", "条纹尺度", "Filament Scale");
+        pair("Accretion Disk", "吸积盘", "Accretion Disk");
+        pair("Lensed Arc", "透镜弧", "Lensed Arc");
+        pair("Relativistic Jets", "相对论喷流", "Relativistic Jets");
+        pair("Jet Length", "喷流长度", "Jet Length");
+        pair("Infall Motes", "落入尘埃", "Infall Motes");
+        pair("Mote Count", "尘埃数量", "Mote Count");
+        pair("Gravitational Lensing", "引力透镜", "Gravitational Lensing");
+        pair("Lens Strength", "透镜强度", "Lens Strength");
+        pair("Photon Ring", "光子环", "Photon Ring");
+        pair("Frame Drag", "参考系拖曳", "Frame Drag");
+        pair("Light Capture", "光线捕获", "Light Capture");
+        pair("Gargantua", "卡冈图雅", "Gargantua");
+        pair("Ice", "寒冰", "Ice");
+        pair("Spectrum", "光谱", "Spectrum");
 
         // ── ListValue 选项 ──
         pair("2D", "2D", "2D");
@@ -728,8 +781,10 @@ public final class I18n {
         pair("Golden Apple", "金苹果", "Golden Apple");
         pair("Head", "头部", "Head");
         pair("Health", "生命", "Health");
+        pair("Hell Hand", "地狱之手", "Hell Hand");
         pair("Heypixel", "空岛", "Heypixel");
         pair("High", "高", "High");
+        pair("Hypernova", "极超新星", "Hypernova");
         pair("Inventory", "背包", "Inventory");
         pair("Jump", "跳跃", "Jump");
         pair("Legs", "腿部", "Legs");
@@ -748,6 +803,7 @@ public final class I18n {
         pair("Perlin", "柏林", "Perlin");
         pair("Packet2", "数据包2", "Packet2");
         pair("Pickaxe", "镐", "Pickaxe");
+        pair("Pillars", "光柱数量", "Pillars");
         pair("Rainbow", "彩虹", "Rainbow");
         pair("Plasma", "等离子", "Plasma");
         pair("Power Bow", "力量弓", "Power Bow");
@@ -775,6 +831,7 @@ public final class I18n {
         pair("Static", "静态", "Static");
         pair("TellyBridge", "Telly搭路", "TellyBridge");
         pair("Sync", "同步", "Sync");
+        pair("Thaumaturgy Strike", "奇术打击", "Thaumaturgy Strike");
         pair("Vanilla", "原版", "Vanilla");
         pair("Top", "上", "Top");
         pair("Ultra", "终极", "Ultra");
@@ -835,6 +892,9 @@ public final class I18n {
         pair("Shows information about your target", "显示目标的信息", "Shows information about your target");
         pair("Shows module toggle notifications", "显示模块开关通知", "Shows module toggle notifications");
         pair("Custom sweep attack visual effects", "自定义横扫攻击视觉特效", "Custom sweep attack visual effects");
+        pair("Plays a cinematic effect on every kill", "每次击杀播放电影级特效（极超新星/地狱之手/奇术打击）", "Plays a cinematic effect on every kill");
+        pair("Makes held items glow along their edges", "让手持物品的边缘发光", "Makes held items glow along their edges");
+        pair("A black hole that rides your shoulder", "停在你肩上的黑洞宠物", "A black hole that rides your shoulder");
 
         // ── 通知 ──
         pair("Module", "模块", "Module");

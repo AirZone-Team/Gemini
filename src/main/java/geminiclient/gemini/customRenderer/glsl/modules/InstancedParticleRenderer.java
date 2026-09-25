@@ -1,5 +1,6 @@
 package geminiclient.gemini.customRenderer.glsl.modules;
 
+import com.mojang.blaze3d.GpuFormat;
 import com.mojang.blaze3d.IndexType;
 
 import geminiclient.gemini.customRenderer.GeminiTesselator;
@@ -9,19 +10,16 @@ import geminiclient.gemini.customRenderer.GeminiRenderPipelines;
 import com.mojang.blaze3d.PrimitiveTopology;
 
 import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.CompareOp;
 import com.mojang.blaze3d.platform.BlendFactor;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
 import net.minecraft.client.Camera;
-import net.minecraft.client.renderer.RenderPipelines;
 import org.joml.*;
 
 import java.lang.Math;
@@ -34,13 +32,41 @@ import static geminiclient.gemini.base.MinecraftInstance.mc;
 import static geminiclient.gemini.utils.ResourceLocationUtils.getIdentifier;
 
 /**
- * Instanced particle renderer — all particles batched into one buffer.
+ * GPU renderer for the instanced particle sigils.
  *
- * <p>Manual pipeline rendering (like MagicHaloRenderer).</p>
+ * <p>Each particle is one camera-facing quad whose in-plane roll is baked into
+ * the basis, so the shader never has to decode an angle. Per-particle
+ * configuration and the shared material block ride as two 32-bit words split
+ * across the four 16-bit components of UV1/UV2 and forwarded as flat integer
+ * varyings — the same contract {@code JumpCircleRenderer} uses. A shape id sent
+ * through a byte colour channel quantises to 1/255 and picks up its neighbour's
+ * value from interpolation, which is how the previous version selected shapes.</p>
  */
 public final class InstancedParticleRenderer {
 
-    private InstancedParticleRenderer() {}
+    private static final VertexFormat PARTICLE_FORMAT = VertexFormat.builder(0)
+            .addAttribute("Position", GpuFormat.RGB32_FLOAT)
+            .addAttribute("Color", GpuFormat.RGBA8_UNORM)
+            .addAttribute("UV0", GpuFormat.RG32_FLOAT)
+            .addAttribute("UV1", GpuFormat.RG16_SINT)
+            .addAttribute("UV2", GpuFormat.RG16_SINT)
+            .build();
+
+    /** Everything the fragment shader needs that is the same for all particles. */
+    public record Settings(
+            int colorMode,
+            int ornament,
+            int detail,
+            int quality,
+            float thickness,
+            float glow,
+            float clarity,
+            float brightness,
+            float opacity,
+            float dynamics,
+            float accent,
+            boolean orbit
+    ) {}
 
     // ── Pipeline ─────────────────────────────────────────────────
 
@@ -56,7 +82,7 @@ public final class InstancedParticleRenderer {
             .withLocation(getIdentifier("pipeline/particle_instanced"))
             .withVertexShader(getIdentifier("core/particle_instanced"))
             .withFragmentShader(getIdentifier("core/particle_instanced"))
-            .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
+            .withVertexBinding(0, PARTICLE_FORMAT)
             .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withDepthStencilState(PARTICLE_DEPTH)
             .withColorTargetState(PARTICLE_BLEND)
@@ -89,7 +115,7 @@ public final class InstancedParticleRenderer {
 
     public static void draw(PoseStack poseStack,
                             List<ParticleData> particles,
-                            float intensity) {
+                            Settings settings) {
         if (particles.isEmpty()) return;
 
         updateCameraVectors();
@@ -99,45 +125,48 @@ public final class InstancedParticleRenderer {
         float cz = (float) cam.position().z;
         var vm = poseStack.last().pose();
 
+        int materialBits = packMaterialBits(settings);
+
         var buf = GeminiTesselator.getInstance()
-                .begin(PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+                .begin(PrimitiveTopology.QUADS, PARTICLE_FORMAT);
 
         int drawn = 0;
         for (ParticleData p : particles) {
             if (!p.alive) continue;
             if (drawn >= MAX_PARTICLES) break;
 
-            float fadeAlpha = p.alpha();
-            if (fadeAlpha < 0.005f) continue;
-
+            float progress = p.progress();
             float halfSize = p.size * 0.5f;
             float rx = p.x - cx;
             float ry = p.y - cy;
             float rz = p.z - cz;
 
-            float rpx = CAM_RIGHT.x * halfSize;
-            float rpy = CAM_RIGHT.y * halfSize;
-            float rpz = CAM_RIGHT.z * halfSize;
-            float upx = CAM_UP.x * halfSize;
-            float upy = CAM_UP.y * halfSize;
-            float upz = CAM_UP.z * halfSize;
+            // Roll the billboard about its own normal. Doing it here keeps the
+            // angle exact; the shader's shape fields stay isotropic.
+            float cos = (float) Math.cos(p.rotation);
+            float sin = (float) Math.sin(p.rotation);
+            float arx = (CAM_RIGHT.x * cos + CAM_UP.x * sin) * halfSize;
+            float ary = (CAM_RIGHT.y * cos + CAM_UP.y * sin) * halfSize;
+            float arz = (CAM_RIGHT.z * cos + CAM_UP.z * sin) * halfSize;
+            float aux = (CAM_UP.x * cos - CAM_RIGHT.x * sin) * halfSize;
+            float auy = (CAM_UP.y * cos - CAM_RIGHT.y * sin) * halfSize;
+            float auz = (CAM_UP.z * cos - CAM_RIGHT.z * sin) * halfSize;
 
-            float typeEncoded = p.type * 0.2f; // 0.0, 0.2, 0.4, 0.6, 0.8
+            int argb = packColor(p.r, p.g, p.b, progress);
+            int styleBits = packStyleBits(p, settings);
+            int lowStyle = styleBits & 0xFFFF;
+            int highStyle = styleBits >>> 16 & 0xFFFF;
+            int lowMaterial = materialBits & 0xFFFF;
+            int highMaterial = materialBits >>> 16 & 0xFFFF;
 
-            int rgba = packColor(
-                    p.age / Math.max(p.life, 0.001f),
-                    typeEncoded,
-                    intensity * p.a,
-                    fadeAlpha * p.a);
-
-            buf.addVertex(vm, rx - rpx - upx, ry - rpy - upy, rz - rpz - upz)
-                    .setUv(0f, 0f).setColor(rgba);
-            buf.addVertex(vm, rx - rpx + upx, ry - rpy + upy, rz - rpz + upz)
-                    .setUv(0f, 1f).setColor(rgba);
-            buf.addVertex(vm, rx + rpx + upx, ry + rpy + upy, rz + rpz + upz)
-                    .setUv(1f, 1f).setColor(rgba);
-            buf.addVertex(vm, rx + rpx - upx, ry + rpy - upy, rz + rpz - upz)
-                    .setUv(1f, 0f).setColor(rgba);
+            addVertex(buf, vm, argb, lowStyle, highStyle, lowMaterial, highMaterial,
+                    rx - arx - aux, ry - ary - auy, rz - arz - auz, 0f, 0f);
+            addVertex(buf, vm, argb, lowStyle, highStyle, lowMaterial, highMaterial,
+                    rx - arx + aux, ry - ary + auy, rz - arz + auz, 0f, 1f);
+            addVertex(buf, vm, argb, lowStyle, highStyle, lowMaterial, highMaterial,
+                    rx + arx + aux, ry + ary + auy, rz + arz + auz, 1f, 1f);
+            addVertex(buf, vm, argb, lowStyle, highStyle, lowMaterial, highMaterial,
+                    rx + arx - aux, ry + ary - auy, rz + arz - auz, 1f, 0f);
 
             drawn++;
         }
@@ -148,6 +177,17 @@ public final class InstancedParticleRenderer {
         if (mesh.drawState().vertexCount() == 0) { mesh.close(); return; }
 
         drawMesh(mesh, System.currentTimeMillis() / 1000f);
+    }
+
+    private static void addVertex(BufferBuilder buffer, Matrix4f matrix, int argb,
+                                  int lowStyle, int highStyle,
+                                  int lowMaterial, int highMaterial,
+                                  float x, float y, float z, float u, float v) {
+        buffer.addVertex(matrix, x, y, z)
+                .setColor(argb)
+                .setUv(u, v)
+                .setUv1(lowStyle, highStyle)
+                .setUv2(lowMaterial, highMaterial);
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -187,7 +227,7 @@ public final class InstancedParticleRenderer {
                     : null;
 
             var encoder = RenderSystem.getDevice().createCommandEncoder();
-            try (var pass = encoder.createRenderPass(
+            try (RenderPass pass = encoder.createRenderPass(
                     () -> "InstancedParticle",
                     colorTexture,
                     Optional.empty(),
@@ -207,14 +247,47 @@ public final class InstancedParticleRenderer {
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────
+    // ── Bit packing ───────────────────────────────────────────────
 
+    /** Layout read by particle_instanced.frag.slang; bits 16..25 are the seed. */
+    static int packStyleBits(ParticleData p, Settings settings) {
+        int bits = p.type & 0x7;
+        bits |= (settings.colorMode() & 0x3) << 3;
+        bits |= (settings.ornament() & 0x7) << 5;
+        bits |= (settings.detail() & 0x3) << 8;
+        bits |= (p.variant & 0x7) << 10;
+        bits |= ((p.echoCount - 1) & 0x3) << 13;
+        if (p.burst) bits |= 1 << 15;
+        bits |= (int) (clamp01(p.seed) * 1023f) << 16;
+        return bits;
+    }
+
+    static int packMaterialBits(Settings s) {
+        int bits = quantize(s.thickness(), 0.15f, 2.5f);
+        bits |= quantize(s.glow(), 0f, 2.5f) << 4;
+        bits |= quantize(s.clarity(), 0.4f, 2.2f) << 8;
+        bits |= quantize(s.brightness(), 0.25f, 2.5f) << 12;
+        bits |= quantize(s.opacity(), 0.05f, 1f, 7) << 16;
+        bits |= quantize(s.dynamics(), 0f, 2f) << 19;
+        bits |= quantize(s.accent(), 0f, 1f, 7) << 23;
+        bits |= (s.quality() & 0x3) << 26;
+        if (s.orbit()) bits |= 1 << 28;
+        return bits;
+    }
+
+    private static int quantize(float value, float min, float max) {
+        return Math.round(clamp01((value - min) / (max - min)) * 15f);
+    }
+
+    private static int quantize(float value, float min, float max, int levels) {
+        return Math.round(clamp01((value - min) / (max - min)) * levels);
+    }
     private static int packColor(float r, float g, float b, float a) {
         int ir = (int) (clamp01(r) * 255f);
         int ig = (int) (clamp01(g) * 255f);
         int ib = (int) (clamp01(b) * 255f);
         int ia = (int) (clamp01(a) * 255f);
-        return (ia << 24) | (ir << 16) | (ig << 8) | ib;
+        return (ia << 24) | (ib << 16) | (ig << 8) | ir;
     }
 
     private static float clamp01(float v) {

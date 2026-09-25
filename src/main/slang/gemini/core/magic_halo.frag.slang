@@ -1,5 +1,36 @@
 // Slang source of truth. Generated Minecraft GLSL is written to build/generated.
 // GLSL-compatible spellings below are provided by Slang's compatibility module.
+// ═══════════════════════════════════════════════════════════════════
+//  Orbiting halo array (魔法光环)
+//
+//  The same discharge language as jump_circle, but running continuously
+//  instead of over one life cycle:
+//    · a crest line with a hairline riding just inside it, dashed per style
+//    · counter-rotating echo rings and dashed satellites
+//    · a rune band that ignites cell by cell as a sweep head passes over it
+//    · tapered energy flares outside the crest
+//    · pressure rings that are emitted at the crest and run outward
+//    · an inscribed polygon lattice turning in the middle
+//    · a core iris throwing rotating rays
+//    · orbiting sparks stretched along their own motion, plus a starfield
+//
+//  Three sweep heads ride the crest in opposite directions and every element
+//  brightens as one passes over it, which is what makes the array look driven
+//  round rather than simply faded in place. Nothing shares a rotation rate:
+//  the frame stays still and each element carries its own phase, so the whole
+//  ornament reads as mechanism with depth instead of one spinning decal.
+//
+//  Clarity comes from the same two rules used throughout:
+//    1. every stroke is an analytic line whose width widens to one screen pixel
+//       (px, from fwidth), so the foreshortened far side of a tilted halo stops
+//       turning into mush;
+//    2. colour is tone-mapped on its PEAK, not per channel, so an over-driven
+//       stroke rolls off towards white without the palette washing out — the
+//       old per-channel clamp is exactly what turned this halo into a white bulb.
+//
+//  HaloReserved.x = dynamics, HaloReserved.y = accent pass (0 or 1)
+// ═══════════════════════════════════════════════════════════════════
+
 layout(std140) uniform DynamicTransforms {
     mat4 ModelViewMat;
     vec4 ColorModulator;
@@ -12,10 +43,10 @@ layout(std140) uniform HaloUniforms {
     vec4 HaloPrimary;    // custom primary rgb, opacity
     vec4 HaloSecondary;  // custom secondary rgb, brightness
     vec4 HaloAccent;     // custom accent rgb, glow
-    vec4 HaloGeometry;   // radius, thickness, spike length, spike count
+    vec4 HaloGeometry;   // radius, thickness, flare length, flare count
     vec4 HaloDetail;     // layers, rune detail, star density, sharpness
     vec4 HaloMotion;     // rotation, pulse, distortion, rainbow speed
-    vec4 HaloReserved;
+    vec4 HaloReserved;   // dynamics, accent pass, unused, unused
 };
 
 in vec2 uvCoord;
@@ -24,67 +55,67 @@ out vec4 fragColor;
 const float PI = 3.14159265359;
 const float TAU = 6.28318530718;
 
-float saturate(float value) {
-    return clamp(value, 0.0, 1.0);
+float hash11(float p) {
+    return fract(sin(p * 127.1) * 43758.5453123);
 }
 
-float hash11(float value) {
-    return fract(sin(value * 127.17) * 43758.5453);
+float hash21(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
 
-float hash21(vec2 value) {
-    return fract(sin(dot(value, vec2(127.1, 311.7))) * 43758.5453);
-}
-
-float valueNoise(vec2 value) {
-    vec2 cell = floor(value);
-    vec2 local = fract(value);
-    local = local * local * (3.0 - 2.0 * local);
+float valueNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
     return mix(
-        mix(hash21(cell), hash21(cell + vec2(1.0, 0.0)), local.x),
-        mix(hash21(cell + vec2(0.0, 1.0)), hash21(cell + vec2(1.0, 1.0)), local.x),
-        local.y
+        mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x),
+        mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x),
+        f.y
     );
 }
 
-float fbm(vec2 value) {
-    float result = 0.0;
-    float weight = 0.5;
-    for (int i = 0; i < 4; i++) {
-        result += valueNoise(value) * weight;
-        value = value * 2.03 + 7.13;
-        weight *= 0.5;
+float fbm(vec2 p) {
+    float sum = 0.0;
+    float amplitude = 0.5;
+    for (int i = 0; i < 3; i++) {
+        sum += valueNoise(p) * amplitude;
+        p = p * 2.07 + 3.17;
+        amplitude *= 0.5;
     }
-    return result;
+    return sum * 1.142857;
 }
 
-vec2 rotate2d(vec2 value, float angle) {
-    float sineValue = sin(angle);
-    float cosineValue = cos(angle);
-    return mat2(cosineValue, -sineValue, sineValue, cosineValue) * value;
+// Analytic stroke: a core that never goes sub-pixel plus a gaussian halo.
+// `gain` trades brightness for the extra coverage a widened stroke needs, on a
+// square root so a foreshortened line stays hot enough to read as light.
+float neon(float dist, float w, float px, float haloAmp, float haloSq) {
+    float ww = max(w, px);
+    float gain = sqrt(w / ww);
+    float a = abs(dist);
+    return smoothstep(ww, 0.0, a) * gain
+         + exp(-a * a * haloSq / (ww * ww)) * haloAmp * gain;
 }
 
-float band(float distanceValue, float radius, float halfWidth, float softness) {
-    return 1.0 - smoothstep(halfWidth, halfWidth + softness, abs(distanceValue - radius));
+// AA'd interval on a periodic coordinate. The feather is capped below half the
+// interval so a collapsing window cannot flip the smoothstep edges.
+float window(float x, float lo, float hi, float feather) {
+    float w = clamp(feather, 1e-5, max((hi - lo) * 0.45, 1e-5));
+    return smoothstep(lo - w, lo + w, x) * (1.0 - smoothstep(hi - w, hi + w, x));
 }
 
-float disc(vec2 point, float radius, float softness) {
-    return 1.0 - smoothstep(radius, radius + softness, length(point));
+// AA'd interval on a radius.
+float band(float x, float lo, float hi, float feather) {
+    float w = max(feather, 1e-5);
+    return smoothstep(lo - w, lo + w, x) * (1.0 - smoothstep(hi - w, hi + w, x));
 }
 
-float angularCell(float angle, float count) {
-    float width = TAU / max(count, 1.0);
-    return mod(angle + width * 0.5, width) - width * 0.5;
+// Shortest signed angular offset, used by anything anchored to a direction.
+float angleDelta(float a, float b) {
+    return abs(mod(a - b + PI, TAU) - PI);
 }
 
-float dashedArc(float angle, float count, float fill, float phase, float softness) {
-    float wave = cos(angle * count + phase);
-    return smoothstep(cos(PI * fill) - softness, cos(PI * fill) + softness, wave);
-}
-
-bool hasFeature(int featureBit) {
-    int flags = int(HaloMeta.w + 0.5);
-    return (flags & featureBit) != 0;
+bool hasFeature(int bit) {
+    return (int(HaloMeta.w + 0.5) & bit) != 0;
 }
 
 void stylePalette(int styleId, out vec3 primary, out vec3 secondary, out vec3 accent) {
@@ -123,294 +154,385 @@ vec3 spectralColor(float phase) {
     return 0.58 + 0.42 * cos(TAU * (phase + vec3(0.00, 0.33, 0.67)));
 }
 
-void resolvePalette(int styleId, int colorMode, float angle,
-                    out vec3 primary, out vec3 secondary, out vec3 accent) {
-    stylePalette(styleId, primary, secondary, accent);
-    if (colorMode == 1) {
-        primary = HaloPrimary.rgb;
-        secondary = HaloSecondary.rgb;
-        accent = HaloAccent.rgb;
-    } else if (colorMode == 2) {
-        float phase = angle / TAU + HaloMeta.x * HaloMotion.w * 0.16;
-        primary = spectralColor(phase);
-        secondary = spectralColor(phase + 0.18);
-        accent = spectralColor(phase + 0.42);
-    }
-}
-
-float radialSpike(float distanceValue, float angle, float baseRadius,
-                  float lengthValue, float count, float widthScale,
-                  float variation, float softness) {
-    float cellWidth = TAU / max(count, 1.0);
-    float localAngle = angularCell(angle, count);
-    float cellIndex = floor((angle + PI) / cellWidth);
-    float alternating = mix(1.0, 0.58, mod(cellIndex, 2.0));
-    float randomScale = mix(1.0, 0.62 + 0.52 * hash11(cellIndex + 11.0), variation);
-    float tipRadius = baseRadius + lengthValue * alternating * randomScale;
-    float progress = saturate((distanceValue - baseRadius) / max(tipRadius - baseRadius, 0.001));
-    float halfWidth = cellWidth * widthScale * pow(1.0 - progress, 1.25) + 0.002;
-    float angularMask = 1.0 - smoothstep(halfWidth, halfWidth + softness, abs(localAngle));
-    float radialMask = smoothstep(baseRadius - softness, baseRadius + softness, distanceValue)
-                     * (1.0 - smoothstep(tipRadius - softness * 2.0, tipRadius + softness, distanceValue));
-    return angularMask * radialMask;
-}
-
-float directionalSpike(vec2 point, float centerAngle, float baseRadius,
-                       float tipRadius, float width, float softness) {
-    float distanceValue = length(point);
-    float angle = atan(point.y, point.x);
-    float delta = abs(mod(angle - centerAngle + PI, TAU) - PI);
-    float progress = saturate((distanceValue - baseRadius) / max(tipRadius - baseRadius, 0.001));
-    float taperedWidth = mix(width, 0.003, pow(progress, 0.72));
-    float angularMask = 1.0 - smoothstep(taperedWidth, taperedWidth + softness, delta);
-    float radialMask = smoothstep(baseRadius - softness, baseRadius + softness, distanceValue)
-                     * (1.0 - smoothstep(tipRadius - softness, tipRadius + softness, distanceValue));
-    return angularMask * radialMask;
-}
-
-float layeredRings(float distanceValue, float angle, float radius,
-                   float thickness, int layers, int styleId, float softness, float time) {
-    float result = band(distanceValue, radius, thickness, softness);
-    for (int i = 1; i < 5; i++) {
-        if (i >= layers) break;
-        float layer = float(i);
-        float layerRadius = radius - thickness * (1.9 + layer * 1.48);
-        float ring = band(distanceValue, layerRadius, thickness * (0.42 + 0.07 * layer), softness);
-        float segmentation = 1.0;
-        if (styleId == 1) {
-            segmentation = dashedArc(angle, 8.0 + layer * 5.0, 0.69, time * (0.7 + layer * 0.15), 0.06);
-        } else if (styleId == 2) {
-            segmentation = dashedArc(angle, 16.0 + layer * 8.0, 0.38, -time * 1.3, 0.03);
-        } else if (styleId == 3) {
-            segmentation = 0.45 + 0.55 * smoothstep(0.12, 0.85,
-                hash11(floor((angle + PI) * (5.0 + layer))));
-        } else if (styleId == 4) {
-            segmentation = 0.68 + 0.32 * sin(angle * (5.0 + layer * 2.0) - time * 2.0);
-        } else if (styleId == 5) {
-            segmentation = dashedArc(angle, 6.0 + layer * 6.0, 0.72, layer * PI * 0.3, 0.06);
-        } else if (styleId == 6) {
-            segmentation = 0.55 + 0.45 * sin(angle * (3.0 + layer * 2.0) + time);
-        }
-        result = max(result, ring * saturate(segmentation));
-    }
-    return result;
-}
-
-float styleOrnament(vec2 point, float distanceValue, float angle, int styleId,
-                    float radius, float thickness, float spikeLength,
-                    float spikeCount, float softness, float time) {
-    float ornament = 0.0;
-
-    if (styleId == 0) {
-        float rays = radialSpike(distanceValue, angle, radius + thickness * 0.4,
-            spikeLength, spikeCount, 0.25, 0.18, softness);
-        float fineRays = radialSpike(distanceValue, angle + PI / spikeCount,
-            radius, spikeLength * 0.58, spikeCount, 0.12, 0.0, softness);
-        ornament = max(rays, fineRays * 0.78);
-    } else if (styleId == 1) {
-        float arcaneRays = radialSpike(distanceValue, angle + time * 0.07,
-            radius, spikeLength * 0.72, spikeCount, 0.18, 0.35, softness);
-        float sigil = band(distanceValue, radius + spikeLength * 0.44,
-            thickness * 0.12, softness) * dashedArc(angle, spikeCount * 0.5, 0.24, -time, 0.04);
-        ornament = max(arcaneRays, sigil);
-    } else if (styleId == 2) {
-        float railRadius = radius + spikeLength * 0.32;
-        float rails = band(distanceValue, railRadius, thickness * 0.26, softness)
-                    * dashedArc(angle, spikeCount, 0.33, time * 1.8, 0.025);
-        float ticks = radialSpike(distanceValue, angle, radius,
-            spikeLength * 0.46, spikeCount, 0.32, 0.0, softness);
-        ornament = max(rails, ticks);
-    } else if (styleId == 3) {
-        float jagged = radialSpike(distanceValue, angle + sin(time * 0.3) * 0.15,
-            radius - thickness * 0.2, spikeLength * 1.08, spikeCount, 0.20, 1.0, softness);
-        float fractures = band(distanceValue, radius + spikeLength * 0.48,
-            thickness * 0.11, softness) * dashedArc(angle, spikeCount * 0.72, 0.20, time * 2.3, 0.02);
-        ornament = max(jagged, fractures);
-    } else if (styleId == 4) {
-        float flameWave = sin(angle * spikeCount - time * 3.0) * 0.5 + 0.5;
-        float flameTip = radius + spikeLength * (0.38 + 0.62 * pow(flameWave, 2.0));
-        float flameBody = smoothstep(radius - softness, radius + softness, distanceValue)
-                        * (1.0 - smoothstep(flameTip - thickness, flameTip + softness, distanceValue));
-        float flameCuts = dashedArc(angle, spikeCount, 0.43, -time * 1.6, 0.04);
-        ornament = flameBody * flameCuts;
-    } else if (styleId == 5) {
-        float crystal = radialSpike(distanceValue, angle, radius,
-            spikeLength, max(6.0, floor(spikeCount / 6.0) * 6.0), 0.19, 0.0, softness);
-        float branches = radialSpike(distanceValue, angle + PI / 6.0,
-            radius + spikeLength * 0.26, spikeLength * 0.43,
-            max(12.0, floor(spikeCount / 3.0) * 3.0), 0.11, 0.0, softness);
-        ornament = max(crystal, branches * 0.82);
-    } else {
-        float petals = abs(sin(angle * max(3.0, spikeCount * 0.25) + time * 0.35));
-        float petalRadius = radius + spikeLength * (0.28 + 0.72 * pow(petals, 1.8));
-        float petalBand = band(distanceValue, petalRadius, thickness * 0.30, softness);
-        float prismTicks = radialSpike(distanceValue, angle - time * 0.12,
-            radius, spikeLength * 0.55, spikeCount, 0.14, 0.15, softness);
-        ornament = max(petalBand, prismTicks * 0.72);
-    }
-    return ornament;
-}
-
-float runeField(float distanceValue, float angle, float radius, float thickness,
-                int runeDetail, int styleId, float softness, float time) {
-    if (!hasFeature(2) || runeDetail <= 0) return 0.0;
-    float runeRadius = radius - thickness * (3.4 + float(runeDetail) * 0.35);
-    float count = 10.0 + float(runeDetail) * 8.0;
-    float direction = styleId == 3 ? -1.0 : 1.0;
-    float track = band(distanceValue, runeRadius, thickness * 0.15, softness);
-    float glyphs = dashedArc(angle, count, 0.30, time * direction * 1.7, 0.04);
-    float punctuation = band(distanceValue, runeRadius - thickness * 0.85,
-        thickness * 0.09, softness) * dashedArc(angle, count * 0.5, 0.12, -time * 1.1, 0.03);
-    return max(track * glyphs, punctuation);
-}
-
-float crownField(vec2 point, float radius, float thickness,
-                 float spikeLength, int styleId, float softness, float time) {
-    if (!hasFeature(1)) return 0.0;
-    float crownLength = spikeLength * (styleId == 0 ? 1.30 : 1.05);
-    float base = radius - thickness * 0.25;
-    float center = directionalSpike(point, PI * 0.5, base,
-        radius + crownLength, 0.105, softness);
-    float left = directionalSpike(point, PI * 0.5 + 0.31, base,
-        radius + crownLength * 0.74, 0.076, softness);
-    float right = directionalSpike(point, PI * 0.5 - 0.31, base,
-        radius + crownLength * 0.74, 0.076, softness);
-    float jewelPosition = radius + crownLength * (0.42 + sin(time * 2.0) * 0.015);
-    vec2 jewelCenter = vec2(0.0, jewelPosition);
-    float jewel = disc(point - jewelCenter, thickness * 0.48, softness);
-    return max(max(center, max(left, right)), jewel);
-}
-
-float orbitalField(vec2 point, float radius, float spikeLength,
-                   int starDensity, float softness, float time) {
-    if (!hasFeature(4)) return 0.0;
-    int satelliteCount = 2 + starDensity * 2;
-    float result = 0.0;
-    for (int i = 0; i < 8; i++) {
-        if (i >= satelliteCount) break;
-        float seed = float(i);
-        float orbitAngle = time * (0.58 + seed * 0.075) + seed * TAU / float(satelliteCount);
-        float orbitRadius = radius + spikeLength * (0.34 + 0.09 * mod(seed, 3.0));
-        vec2 center = vec2(cos(orbitAngle), sin(orbitAngle)) * orbitRadius;
-        float size = 0.010 + 0.008 * hash11(seed + 3.0);
-        float core = disc(point - center, size, softness);
-        vec2 trailCenter = vec2(cos(orbitAngle - 0.05), sin(orbitAngle - 0.05)) * orbitRadius;
-        float trail = disc(point - trailCenter, size * 1.7, softness * 2.0) * 0.28;
-        result += core + trail;
-    }
-    return saturate(result);
-}
-
-float starField(vec2 point, float distanceValue, float radius,
-                int density, float softness, float time) {
-    if (!hasFeature(8) || density <= 0) return 0.0;
-    float gridScale = 11.0 + float(density) * 5.0;
-    vec2 grid = point * gridScale;
-    vec2 cell = floor(grid);
-    vec2 local = fract(grid) - 0.5;
-    vec2 randomOffset = vec2(hash21(cell), hash21(cell + 19.3)) - 0.5;
-    float randomValue = hash21(cell + 7.7);
-    float presence = step(0.78 - float(density) * 0.09, randomValue);
-    float region = smoothstep(radius * 0.55, radius * 0.95, distanceValue)
-                 * (1.0 - smoothstep(radius + 0.45, radius + 0.62, distanceValue));
-    float flicker = 0.45 + 0.55 * sin(time * (3.0 + randomValue * 5.0) + randomValue * 20.0);
-    float star = 1.0 - smoothstep(0.035, 0.115 + softness, length(local - randomOffset * 0.55));
-    return star * presence * region * flicker;
-}
-
 [shader("fragment")]
 
 void main() {
     float time = HaloMeta.x;
     int styleId = clamp(int(HaloMeta.y + 0.5), 0, 6);
     int colorMode = clamp(int(HaloMeta.z + 0.5), 0, 2);
+
     float opacity = HaloPrimary.a;
     float brightness = HaloSecondary.a;
-    float glowStrength = HaloAccent.a;
+    float glow = HaloAccent.a;
 
-    if (opacity < 0.001 || brightness < 0.001) {
-        discard;
-        return;
-    }
+    vec2 p = uvCoord * 2.0 - 1.0;
+    float d = length(p);
+    float ang = atan(p.y, p.x);
 
-    float radius = HaloGeometry.x;
+    // One screen pixel measured in UV units, taken before any discard so the
+    // derivatives are always evaluated in uniform control flow.
+    float px = max(length(vec2(fwidth(p.x), fwidth(p.y))), 1e-6);
+    if (d > 1.06 || opacity < 0.001 || brightness < 0.001) discard;
+
+    float ringRadius = HaloGeometry.x;
     float thickness = HaloGeometry.y;
-    float spikeLength = HaloGeometry.z;
-    float spikeCount = max(4.0, floor(HaloGeometry.w + 0.5));
-    int layers = clamp(int(HaloDetail.x + 0.5), 1, 5);
+    float flareLength = HaloGeometry.z;
+    float flareCount = max(4.0, floor(HaloGeometry.w + 0.5));
+    int layerCount = clamp(int(HaloDetail.x + 0.5), 1, 5);
     int runeDetail = clamp(int(HaloDetail.y + 0.5), 0, 3);
     int starDensity = clamp(int(HaloDetail.z + 0.5), 0, 3);
-    float sharpness = saturate(HaloDetail.w);
-    float pulseAmount = HaloMotion.y;
+    float sharpness = clamp(HaloDetail.w, 0.0, 1.0);
+    float rotation = HaloMotion.x;
+    float pulse = HaloMotion.y;
     float distortion = HaloMotion.z;
+    float dynamics = clamp(HaloReserved.x, 0.0, 2.0);
+    bool accentPass = HaloReserved.y > 0.5;
 
-    vec2 point = (uvCoord - 0.5) * 2.0;
-    point = rotate2d(point, time * HaloMotion.x * 0.22);
+    // Sharpness drives clarity: narrow strokes, a tighter halo, and a lower
+    // pixel floor before a line is widened back out.
+    float clarity = mix(0.55, 2.10, sharpness);
+    float lw = 1.0 / clarity;
+    float haloGain = clamp(0.035 + glow * 0.085, 0.02, 0.30) * (1.45 - clarity * 0.22);
+    float haloSq = mix(1.0 / 11.0, 1.0 / 34.0, clamp((clarity - 0.4) / 1.8, 0.0, 1.0));
+    float aaFloor = px * mix(1.7, 0.75, clamp((clarity - 0.4) / 1.8, 0.0, 1.0));
+    float edge = max(px * 0.9, aaFloor * 0.35);
 
-    float rawDistance = length(point);
-    float rawAngle = atan(point.y, point.x);
-    float warp = (fbm(vec2(rawAngle * 2.8, rawDistance * 6.0 - time * 0.28)) - 0.5)
-               * distortion * 0.065;
-    float styleWarp = styleId == 3 ? sin(rawAngle * 7.0 - time * 1.4) * distortion * 0.035 : 0.0;
-    float distanceValue = rawDistance + warp + styleWarp;
-    float angle = rawAngle + sin(rawDistance * 11.0 - time) * distortion * 0.016;
+    // ── Frame ─────────────────────────────────────────────────────
+    float breathe = 0.5 + 0.5 * sin(time * 2.1);
+    float r = ringRadius * (1.0 + (breathe - 0.5) * pulse * 0.055)
+            * (accentPass ? 1.045 : 1.0);
+    float w0 = (0.0035 + thickness * 0.42) * lw * (accentPass ? 0.58 : 1.0);
 
-    float pulseWave = sin(time * 3.0) * 0.5 + 0.5;
-    float pulsedRadius = radius * (1.0 + (pulseWave - 0.5) * pulseAmount * 0.055);
-    float softness = mix(0.018, 0.0025, sharpness);
+    // Spiral shear: the array twists against its own radius as it turns, so the
+    // spokes bend instead of staying radially straight.
+    float twist = clamp(rotation, -1.0, 1.0) * (0.012 + dynamics * 0.030) * (1.0 - d)
+                * sin(time * 0.9);
+    float ua = fract(ang / TAU + 0.5 + twist);
+    float au = px / max(d, 0.06) / TAU;
 
-    float rings = layeredRings(distanceValue, angle, pulsedRadius,
-        thickness, layers, styleId, softness, time);
-    float ornaments = styleOrnament(point, distanceValue, angle, styleId,
-        pulsedRadius, thickness, spikeLength, spikeCount, softness, time);
-    float runes = runeField(distanceValue, angle, pulsedRadius,
-        thickness, runeDetail, styleId, softness, time);
-    float crown = crownField(point, pulsedRadius, thickness,
-        spikeLength, styleId, softness, time);
-    float orbitals = orbitalField(point, pulsedRadius, spikeLength,
-        starDensity, softness, time);
-    float stars = starField(point, rawDistance, pulsedRadius,
-        starDensity, softness, time);
+    float noiseField = fbm(p * mix(3.0, 7.0, distortion)
+                           + vec2(31.7) + time * rotation * 0.55);
+    float dw = d + (noiseField - 0.5) * distortion * 0.050;
 
-    float structure = max(max(rings, ornaments), max(runes, crown));
-    float details = max(orbitals, stars * 0.82);
+    // ── Sweep heads ───────────────────────────────────────────────
+    // Three of them, at incommensurate rates and opposite directions, so the
+    // pattern never visibly loops and the ring always has something arriving.
+    float sweep = (rotation * 0.55 + 0.40) * (0.35 + dynamics * 0.85);
+    float headA = fract(time * sweep * 0.110);
+    float headB = fract(0.5 - time * sweep * 0.075);
+    float headC = fract(0.31 + time * sweep * 0.160);
+    float tailK = mix(13.0, 5.0, clamp(dynamics * 0.5, 0.0, 1.0));
+    float comet = max(exp(-fract(headA - ua) * tailK),
+                  max(exp(-fract(ua - headB) * tailK) * 0.78,
+                      exp(-fract(headC - ua) * tailK * 1.7) * 0.42));
 
-    float ringDistance = abs(distanceValue - pulsedRadius);
-    float tightGlow = exp(-ringDistance * ringDistance / max(thickness * thickness * 5.0, 0.0002));
-    float innerAura = exp(-abs(distanceValue - pulsedRadius) * (7.0 - glowStrength * 0.6));
-    float outerAura = exp(-max(distanceValue - pulsedRadius, 0.0) * (3.6 - glowStrength * 0.45))
-                    * smoothstep(pulsedRadius * 0.45, pulsedRadius, distanceValue);
-    float rayAura = ornaments * 0.34 + exp(-abs(distanceValue - (pulsedRadius + spikeLength * 0.32)) * 9.0)
-                  * dashedArc(angle, spikeCount, 0.34, time, 0.12) * 0.16;
-    float glow = (tightGlow * 0.34 + innerAura * 0.16 + outerAura * 0.055 + rayAura)
-               * glowStrength;
+    // ── Style gate: how the crest is broken up ────────────────────
+    float cellScale = accentPass ? 1.37 : 1.0;
+    float gate = 1.0;
+    if (styleId == 0) {
+        float cells = 9.0 * cellScale;
+        float t = fract(ua * cells);
+        gate = 0.34 + 0.66 * window(t, 0.05, 0.95, au * cells * 0.5);
+    } else if (styleId == 1) {
+        float cells = 12.0 * cellScale;
+        float t = fract(ua * cells);
+        gate = 0.32 + 0.68 * window(t, 0.07, 0.93, au * cells * 0.5);
+    } else if (styleId == 2) {
+        float cells = 28.0 * cellScale;
+        float idx = floor(ua * cells);
+        float t = fract(ua * cells);
+        float hi = 0.42 + hash11(idx + 7.0) * 0.45;
+        gate = 0.16 + 0.84 * window(t, 0.06, hi, au * cells * 0.5);
+    } else if (styleId == 3) {
+        float cells = 22.0 * cellScale;
+        float idx = floor(ua * cells);
+        float t = fract(ua * cells);
+        float on = step(0.34, hash11(idx + floor(time * 0.9) * 0.17));
+        gate = 0.10 + 0.90 * on * window(t, 0.04, 0.96, au * cells * 0.5);
+    } else if (styleId == 4) {
+        gate = 0.40 + 0.85 * noiseField;
+    } else if (styleId == 5) {
+        gate = 0.52 + 0.48 * (0.5 + 0.5 * cos(ua * TAU * 6.0 - time * rotation * 3.0));
+    } else {
+        float cells = 16.0 * cellScale;
+        float idx = floor(ua * cells);
+        float t = fract(ua * cells);
+        float hi = 0.30 + hash11(idx * 1.7 + 4.0) * 0.62;
+        gate = 0.22 + 0.78 * window(t, 0.08, hi, au * cells * 0.45);
+    }
 
-    float shimmer = 0.78 + 0.22 * sin(angle * (6.0 + float(styleId)) - time * 2.0)
-                  + (fbm(point * 8.0 + time * 0.12) - 0.5) * distortion * 0.25;
-    float energy = saturate(structure * shimmer);
-    float alpha = saturate(energy * 0.92 + details + glow * 0.36) * opacity;
+    // ── Crest: main line plus a hairline riding just inside it ────
+    float crest = neon(dw - r, w0, aaFloor, haloGain, haloSq) * (0.42 + 1.30 * comet) * gate;
+    crest += neon(dw - (r - w0 * 1.7), w0 * 0.20, aaFloor, haloGain, haloSq)
+           * (0.28 + 0.90 * comet) * gate;
+    // A continuous spine through the dash gaps keeps the ring reading as one
+    // closed circuit rather than a scatter of unrelated arcs.
+    crest += neon(dw - r, w0 * 0.13, aaFloor, haloGain, haloSq) * 0.34;
+    // Broad palette wash behind the crest: this is what gives the ring mass. It
+    // stays a wide low bump rather than more stacked hairlines, so it survives
+    // the LOD gate instead of turning into fog.
+    float auraQ = (dw - r) / max(w0 * 6.0 + 0.030, 1e-4);
+    float aura = exp(-auraQ * auraQ) * (0.10 + 0.16 * comet) * (0.55 + glow * 0.25);
+
+    // ── Echo rings: concentric, each running its own way ──────────
+    float echoes = 0.0;
+    for (int layer = 1; layer < 5; layer++) {
+        if (layer >= layerCount) break;
+        float lf = float(layer);
+        float er = r - lf * (w0 * 1.55 + 0.011);
+        float ew = w0 * (1.0 - lf * 0.17);
+        float ea = 1.0 - lf / (float(layerCount) + 0.75);
+        float dir = mix(1.0, -1.0, mod(lf, 2.0));
+        float cells = (styleId == 2 ? 30.0 : 11.0) + lf * 6.0;
+        float t = fract(ua * cells + lf * 0.21 + time * rotation * (0.09 + lf * 0.05) * dir);
+        float dash = styleId == 0 || styleId == 5
+                ? 0.55 + 0.45 * (0.5 + 0.5 * cos(t * TAU))
+                : window(t, 0.08, 0.62, au * cells * 0.40);
+        echoes += neon(dw - er, ew, aaFloor, haloGain, haloSq) * ea * dash
+                * (0.30 + 0.80 * comet);
+    }
+
+    // ── Satellites: thin dashed rings outside the crest ───────────
+    float sats = 0.0;
+    for (int ring = 0; ring < 3; ring++) {
+        float rf = float(ring);
+        float sr = r + w0 * 1.1 + rf * (w0 * 1.4 + 0.013);
+        float cells = 8.0 + rf * 7.0;
+        float dir = rf == 1.0 ? -1.0 : 1.0;
+        float t = fract(ua * cells + rf * 0.17 + time * rotation * (0.14 + rf * 0.09) * dir);
+        float dash = window(t, 0.10, 0.60, au * cells * 0.40);
+        sats += neon(dw - sr, w0 * 0.24, aaFloor, haloGain, haloSq) * dash
+             * (0.62 - rf * 0.13) * (0.45 + 0.85 * comet);
+    }
+
+    // ── Rune band: cells ignite behind whichever head just passed ─
+    float runes = 0.0;
+    if (hasFeature(2) && runeDetail > 0) {
+        float cells = 10.0 + float(runeDetail) * 7.0;
+        float idx = floor(ua * cells);
+        float t = fract(ua * cells);
+        float h = hash11(idx + 13.0);
+        float feather = max(au * cells * 0.45, 1e-4);
+        float rr = r * 0.815;
+        float rh = 0.010 + w0 * 0.55;
+
+        float body = window(t, 0.16, 0.30 + h * 0.32, feather)
+                   * band(dw, rr - rh, rr + rh, edge);
+        float bar = window(t, 0.44, 0.62, feather)
+                  * band(dw, rr - rh * 1.8, rr - rh * 0.7, edge) * step(0.48, h);
+        float pip = window(t, 0.66, 0.78, feather)
+                  * band(dw, rr + rh * 1.4, rr + rh * 2.1, edge) * step(0.66, h);
+
+        float centre = (idx + 0.5) / cells;
+        float ignite = clamp(exp(-fract(headA - centre) * 13.0)
+                           + exp(-fract(centre - headB) * 13.0) * 0.6
+                           + exp(-fract(headC - centre) * 18.0) * 0.45, 0.0, 1.5);
+        runes = (body + bar * 0.85 + pip) * (0.16 + 1.05 * ignite)
+              * (accentPass ? 1.15 : 0.85);
+    }
+
+    // ── Energy flares: tapered wedges outside the crest ───────────
+    float flares = 0.0;
+    {
+        float cells = flareCount * cellScale;
+        float idx = floor(ua * cells);
+        float t = fract(ua * cells);
+        float h = hash11(idx + floor(time * 1.7) * 0.31);
+        float base = r + w0 * 0.45;
+        float len = flareLength * (0.45 + h * 0.85) * (0.75 + dynamics * 0.45)
+                  * (accentPass ? 0.62 : 1.0);
+        float k = clamp((dw - base) / max(len, 1e-4), 0.0, 1.0);
+        float hw = 0.30 * (1.0 - k) * (1.0 - k) + au * cells * 0.25;
+        flares = window(t, 0.5 - hw, 0.5 + hw, au * cells * 0.5)
+               * band(dw, base, base + len, edge)
+               * (1.0 - k * 0.55) * (0.30 + 0.85 * h) * (0.40 + 1.05 * comet);
+    }
+
+    // ── Pressure rings: emitted at the crest, running outward ────
+    float pressure = 0.0;
+    if (pulse > 0.001) {
+        for (int wave = 0; wave < 3; wave++) {
+            float wf = float(wave);
+            float ph = fract(time * (0.20 + dynamics * 0.14) + wf * 0.3333);
+            float pr = r + ph * (flareLength * 0.9 + 0.16);
+            float fade = (1.0 - ph) * (1.0 - ph) * pulse;
+            pressure += neon(dw - pr, (0.0030 + 0.0075 * (1.0 - ph)) * lw,
+                             aaFloor, haloGain, haloSq) * fade * (0.5 + 0.6 * comet);
+        }
+    }
+
+    // ── Figurehead: a crown riding the leading head ───────────────
+    float crown = 0.0;
+    if (hasFeature(1)) {
+        float headAng = headA * TAU - PI;
+        float reach = flareLength * (0.85 + dynamics * 0.30) + w0 * 2.0;
+        for (int prong = 0; prong < 3; prong++) {
+            float pf = float(prong) - 1.0;
+            float centre = headAng + pf * 0.17;
+            float plen = reach * (pf == 0.0 ? 1.0 : 0.58);
+            float k = clamp((dw - r) / max(plen, 1e-4), 0.0, 1.0);
+            float hw = mix(0.055, 0.004, pow(k, 0.7)) * (pf == 0.0 ? 1.0 : 0.62) * lw;
+            crown += (1.0 - smoothstep(hw, hw + edge, angleDelta(ang, centre)))
+                   * band(dw, r, r + plen, edge) * (1.0 - k * 0.5);
+        }
+        vec2 jewel = vec2(cos(headAng), sin(headAng)) * (r + reach * 0.82);
+        float js = (0.010 + w0 * 0.42) * lw;
+        crown += (1.0 - smoothstep(js, js * 2.2, length(p - jewel))) * 1.4;
+        crown *= 0.55 + 0.85 * comet;
+    }
+
+    // ── Lattice: the array's rotating skeleton ────────────────────
+    // Two counter-running figures, so the middle keeps turning even when the
+    // rings around it are nearly still.
+    float lattice = 0.0;
+    if (runeDetail > 1) {
+        float sides = styleId == 2 ? 6.0 : (styleId == 4 ? 5.0 : (styleId == 3 ? 4.0 : 3.0));
+        float seg = TAU / sides;
+        for (int fig = 0; fig < 2; fig++) {
+            float ff = float(fig);
+            float la = ang + time * rotation * (0.22 + ff * 0.30) * (ff > 0.5 ? -1.0 : 1.0)
+                     + ff * (PI / sides);
+            float lr = r * (0.66 - ff * 0.16) + sin(time * 1.7 + ff * 2.0) * pulse * 0.010;
+            float poly = cos(seg * 0.5) / cos(fract(la / seg) * seg - seg * 0.5);
+            lattice += neon(d - lr * poly, w0 * 0.42, aaFloor, haloGain, haloSq)
+                     * (0.50 + 0.90 * comet) * (1.0 - ff * 0.25);
+        }
+    }
+
+    // ── Core iris: a hot centre throwing rotating rays ────────────
+    float coreHeat = 0.55 + 0.45 * sin(time * 2.6);
+    float coreR = (0.026 + w0 * 1.10) * (0.75 + coreHeat * 0.6) * lw;
+    float core = exp(-d * d / max(coreR * coreR * 2.2, 1e-5)) * (0.7 + 0.9 * comet);
+    float rays = 0.0;
+    {
+        float cells = 18.0;
+        float idx = floor(ua * cells);
+        float t = fract(ua * cells);
+        float h = hash11(idx + 5.0);
+        float rayLen = r * (0.30 + h * 0.72) * (0.55 + coreHeat * 0.7);
+        rays = window(t, 0.38, 0.62, au * cells * 0.35)
+             * (1.0 - smoothstep(rayLen * 0.10, max(rayLen, 1e-4), d))
+             * (0.55 + 1.30 * comet) * (0.5 + pulse * 0.5);
+    }
+
+    // ── Sparks: orbiting points stretched along their own motion ──
+    float sparks = 0.0;
+    if (hasFeature(4)) {
+        int sparkLimit = min(14, 4 + starDensity * 4);
+        float spinDir = rotation >= 0.0 ? 1.0 : -1.0;
+        for (int i = 0; i < 14; i++) {
+            if (i >= sparkLimit) break;
+            float fi = float(i);
+            float s1 = hash11(fi * 7.13 + 3.0);
+            float s2 = hash11(fi * 19.4 + 2.0);
+            float s3 = hash11(fi * 4.71 + 9.0);
+            float orbit = (s1 + time * spinDir * (0.10 + s2 * 0.22)
+                         * (0.4 + dynamics * 0.9)) * TAU;
+            float orad = mix(0.30, 1.05, s2) * r;
+            vec2 centre = vec2(cos(orbit), sin(orbit)) * max(orad, 0.02);
+            vec2 radial = centre / max(orad, 0.02);
+            vec2 q = p - centre;
+            vec2 local = vec2(dot(q, vec2(-radial.y, radial.x)) / (1.0 + s3 * 3.5 * dynamics),
+                              dot(q, radial));
+            float size = mix(0.006, 0.014, s3) * max(lw, 0.6);
+            float twinkle = 0.30 + 0.70 * (0.5 + 0.5 * sin(time * 5.5 + fi * 2.39));
+            sparks += (1.0 - smoothstep(size, size * 2.8, length(local))) * twinkle;
+        }
+        sparks = min(sparks, 1.8);
+    }
+
+    // ── Starfield: twinkling points spread across the disc ────────
+    float stars = 0.0;
+    if (hasFeature(8) && starDensity > 0) {
+        float gridScale = 9.0 + float(starDensity) * 5.0;
+        vec2 grid = p * gridScale;
+        vec2 cell = floor(grid);
+        vec2 local = fract(grid) - 0.5;
+        vec2 jitter = vec2(hash21(cell), hash21(cell + 19.3)) - 0.5;
+        float rv = hash21(cell + 7.7);
+        float presence = step(0.72 - float(starDensity) * 0.10, rv);
+        float region = smoothstep(0.10, 0.42, d) * (1.0 - smoothstep(0.92, 1.05, d));
+        float twinkle = 0.30 + 0.70 * (0.5 + 0.5 * sin(time * (2.0 + rv * 4.0) + rv * 20.0));
+        float size = mix(0.012, 0.030, rv) * max(lw, 0.7);
+        stars = (1.0 - smoothstep(size, size * 2.4, length(local - jitter * 0.55)))
+              * presence * region * twinkle;
+    }
+
+    // A low inner sheen keeps the array from reading as free-standing wirework,
+    // and it rides the sweep heads so the disc has somewhere to look alive.
+    float sheen = smoothstep(r, r * 0.22, d) * (0.030 + 0.095 * comet)
+                * (0.45 + 0.55 * noiseField);
+
+    // Level of detail: once one screen pixel spans more of the array than a stroke
+    // does, the fine figures only stack up into fog, so they yield to the crest.
+    float detail = 1.0 - smoothstep(w0 * 0.85, w0 * 2.4, px);
+
+    // Split the stack into a palette-weighted half and an accent-weighted half so
+    // the three user colours keep their places instead of averaging into beige.
+    float cool = crest * 0.72 + echoes * 0.85 + sats + flares + pressure * 0.55
+               + lattice * 0.75 + sheen * 1.2 + aura;
+    float hot = crest * 0.28 + runes * 1.25 + crown * 1.6 + core * 2.2 + rays
+              + (sparks * 1.15 + stars * 1.1) * detail;
+
+    float energy;
+    if (accentPass) {
+        // The accent pass carries only its own crest, flares, runes, figurehead
+        // and burst. Stacking a second copy of every ring merges the two layers
+        // into one pale blur.
+        energy = (crest + flares + pressure * 0.6 + runes * detail + crown + rays + core) * 0.55;
+        cool *= 0.45;
+        hot *= 0.55;
+    } else {
+        energy = cool + hot;
+    }
+    energy *= 1.0 - smoothstep(0.92, 1.08, d);
+
+    // Glow feeds the stroke halos above; here it adds a modest master gain that
+    // bottoms out well above zero, so turning it down softens the array instead
+    // of switching it off.
+    float intensity = energy * (0.70 + glow * 0.45);
+    if (intensity < 0.004) discard;
+
+    float alpha = clamp(intensity * opacity, 0.0, 1.0);
 
     vec3 primary;
     vec3 secondary;
     vec3 accent;
-    resolvePalette(styleId, colorMode, angle, primary, secondary, accent);
+    stylePalette(styleId, primary, secondary, accent);
+    if (colorMode == 1) {
+        primary = HaloPrimary.rgb;
+        secondary = HaloSecondary.rgb;
+        accent = HaloAccent.rgb;
+    } else if (colorMode == 2) {
+        float phase = ua + time * HaloMotion.w * 0.11;
+        primary = spectralColor(phase);
+        secondary = spectralColor(phase + 0.18);
+        accent = spectralColor(phase + 0.42);
+    }
+    // Warm one side of the ring, cool the other, and let the split turn with the
+    // array so the palette reads as a lit object rather than a flat tint.
+    float ramp = clamp(0.5 + 0.5 * sin(ang - time * rotation * 0.30), 0.0, 1.0);
+    ramp = ramp * 0.72 + clamp(d / max(r * 1.8, 1e-3), 0.0, 1.0) * 0.28;
+    vec3 base = mix(primary, secondary, ramp);
+    float accentMix = clamp(hot / max(hot + cool, 1e-4), 0.0, 1.0);
+    base = mix(base, accent, accentMix * 0.80);
 
-    float gradient = sin(angle * (styleId == 6 ? 3.0 : 1.5) - time * 0.55) * 0.5 + 0.5;
-    gradient = saturate(gradient * 0.72 + distanceValue * 0.42);
-    vec3 baseColor = mix(primary, secondary, gradient);
-    vec3 coreColor = mix(baseColor, accent, saturate(tightGlow * 0.72 + details));
-    vec3 color = baseColor * (energy + glow * 0.48)
-               + coreColor * (tightGlow * 0.52 + details * 1.45)
-               + accent * (crown * 0.32 + orbitals * 1.7 + stars * 0.7);
+    // Hue ramp: the palette, its own brighter tint, then white — but white only
+    // where several elements genuinely stack up, so a lone stroke stays coloured.
+    float heat = clamp(intensity * 0.30 - 0.18, 0.0, 1.0);
+    vec3 col = mix(base, mix(base, vec3(1.0), 0.80), heat * heat);
+    col *= 0.72 + intensity * brightness * 0.55;
 
-    float whiteCore = pow(saturate(structure), mix(2.8, 0.82, sharpness));
-    color += accent * whiteCore * (0.22 + glowStrength * 0.10);
-    color *= brightness * (0.92 + pulseWave * pulseAmount * 0.16);
+    // Stacked strokes read pale, so lift saturation before rolling the peak off:
+    // the hue then survives at full value.
+    float grey = dot(col, vec3(0.299, 0.587, 0.114));
+    col = max(vec3(0.0), mix(vec3(grey), col, 1.28));
 
-    // A restrained HDR lift keeps bloom-compatible highlights without
-    // flattening the user-selected palette.
-    color *= 1.0 + tightGlow * glowStrength * 0.24 + orbitals * 0.5;
+    // Roll the peak off rather than clipping channels: the ratio between them,
+    // which is the hue, survives being driven past white.
+    float peak = max(max(col.r, col.g), col.b);
+    col *= (1.0 - exp(-peak * 1.35)) / max(peak, 1e-4);
 
-    fragColor = vec4(color, alpha) * ColorModulator;
+    fragColor = vec4(col, alpha) * ColorModulator;
     if (fragColor.a < 0.001) discard;
 }

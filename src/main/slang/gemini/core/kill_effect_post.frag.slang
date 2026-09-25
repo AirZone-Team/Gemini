@@ -35,7 +35,12 @@
 //    vec4 CameraParams: x=FOV(rad), y=aspect, z=near, w=far
 //    vec4 LightViewPos: xyz=light pos (view space), w=radius
 //    vec4 LightColor:   rgb=light color, a=intensity
-//    vec4 MiscParams:   x=ssrIntensity, y=volumetricSteps, z=chainFade, w=unused
+//    vec4 MiscParams:   x=ssrIntensity, y=volumetricSteps, z=chainFade,
+//                       w=bloomFalloff (0=whole-screen bloom; >0=extract
+//                         bright pixels only near Center1, Hell Hand)
+//    vec4 DiskPlane:    xy=screen direction of the accretion disk normal,
+//                       z=minor/major ratio of the projected circle,
+//                       w=+1 when the far rim is on the +axis side (BLACK_HOLE)
 // ═══════════════════════════════════════════════════════════════════
 
 uniform sampler2D SceneSampler;
@@ -51,7 +56,8 @@ layout(std140) uniform PostUniforms {
     vec4 CameraParams;  // x=FOV(rad), y=aspect, z=near, w=far        [96..111]
     vec4 LightViewPos;  // xyz=light pos (view space), w=radius       [112..127]
     vec4 LightColor;    // rgb=color, w=intensity                     [128..143]
-    vec4 MiscParams;    // x=ssrIntensity, y=volumetricSteps, z=chainFade [144..159]
+    vec4 MiscParams;    // x=ssr, y=volSteps, z=chainFade, w=bloomFalloff [144..159]
+    vec4 DiskPlane;     // xy=normal dir, z=squash, w=far side        [160..175]
 };
 
 in vec2 vUv;
@@ -94,6 +100,15 @@ void main() {
     float w = clamp((lum - t + knee) / (2.0 * knee), 0.0, 1.0);
     float bright = w * max(lum - t, 0.0) / max(lum, 0.001);
 
+    // Spatial bloom gating (Hell Hand): when MiscParams.w > 0, fade the
+    // luminance extraction with screen-space distance to Center1 so the
+    // glow wraps the rift instead of hazing the whole screen.
+    if (MiscParams.w > 0.0) {
+        vec2 ndc = vUv * 2.0 - 1.0;
+        float distToLight = length(ndc - Center1.xy);
+        bright *= exp(-distToLight * MiscParams.w * 2.5);
+    }
+
     fragColor = vec4(color * bright, 1.0);
 }
 
@@ -128,6 +143,20 @@ void main() {
     float w = clamp((lum - t + knee) / (2.0 * knee), 0.0, 1.0);
     float bright = w * max(lum - t, 0.0) / max(lum, 0.001);
 
+    // ── Proximity to light source in screen space ────────────────
+    vec2 lightNDC = Center1.xy;  // already NDC [-1,1]
+    vec2 ndc = vUv * 2.0 - 1.0;
+    float distToLight = length(ndc - lightNDC);
+    float proximity = exp(-distToLight * 2.8);
+
+    // ── Spatial bloom gating (Hell Hand): fade the whole-frame
+    //    luminance extraction with screen-space distance to the effect
+    //    center so the glow wraps the rift instead of hazing the
+    //    entire screen. 0 = off (Hypernova, full-frame bloom).
+    if (MiscParams.w > 0.0) {
+        bright *= exp(-distToLight * MiscParams.w * 2.5);
+    }
+
     // ── Depth edge detection (Sobel 3×3) ────────────────────────
     vec2 ts = vec2(1.0 / Params.x, 1.0 / Params.y);
 
@@ -143,12 +172,6 @@ void main() {
     float gx = -dTL - 2.0*dL - dBL + dTR + 2.0*dR + dBR;
     float gy = -dTL - 2.0*dT - dTR + dBL + 2.0*dB + dBR;
     float edge = sqrt(gx*gx + gy*gy);
-
-    // ── Proximity to light source in screen space ────────────────
-    vec2 lightNDC = Center1.xy;  // already NDC [-1,1]
-    vec2 ndc = vUv * 2.0 - 1.0;
-    float distToLight = length(ndc - lightNDC);
-    float proximity = exp(-distToLight * 2.8);
 
     // ── Edge boost ──────────────────────────────────────────────
     float edgeBoost = edge * 3.5 * proximity;
@@ -938,15 +961,21 @@ void main() {
 //  In:  SceneSampler (composited HDR scene with 3D BH, bloom, etc.)
 //  Out: fragColor (scene + screen-space BH center)
 //
-//  Renders the black hole in screen space (n = radius / horizon radius):
+//  Renders the black hole in screen space (n = radius / shadow radius):
 //    1. Event horizon    — pure black disk, crisp edge (n < 1)
-//    2. Horizon outline  — thin bright rim at the capture radius (n ≈ 1)
-//    3. Photon ring      — extreme HDR ring at the photon sphere (n ≈ 1.3)
-//    4. Accretion disk   — Keplerian differential rotation (ω ∝ n^-1.5),
+//    2. Photon ring      — thin HDR rim imaged on the capture radius (n ≈ 1),
+//                          with a fainter higher-order loop just outside it
+//    3. Accretion disk   — Keplerian differential rotation (ω ∝ n^-1.5),
 //                          spiral density waves + fbm turbulence, relativistic
-//                          doppler beaming, blackbody temperature ramp
+//                          doppler beaming, blackbody temperature ramp. Its
+//                          ellipse comes from DiskPlane so it tilts with the
+//                          camera like the 3D particle disk does; the half
+//                          passing behind the hole is occluded by the shadow.
 //    + Screen-space gravitational lensing on the real scene background
 //    + Photon sphere volumetric glow + polar corona
+//
+//  The shadow radius itself is animated in Java and shared with the
+//  world-space billboard, so the two hole renders cover one disk.
 //
 //  Runs BEFORE ACES so HDR photon ring survives bloom extraction
 //  and tone mapping.
@@ -997,10 +1026,10 @@ vec2 bhGravLens(vec2 uv, vec2 center, float rs, vec2 aspect) {
     // Weak-field deflection: α ∝ Rs / b² (softened at center)
     float alpha = rs * 0.15 / (b * b + rs * rs * 0.08);
 
-    // Critical boost at photon sphere (r ≈ 1.3 Rs in UV space)
-    // Dramatically enhanced for Interstellar-like background warping
-    float rPhoton = rs * 1.3;
-    float distToPhoton = abs(b - rPhoton);
+    // Critical boost at the capture radius, where deflection diverges and the
+    // photon ring is imaged. Sitting this at 1.3 Rs instead warped the scene
+    // in a band that missed the ring the same pass draws at 1.02 Rs.
+    float distToPhoton = abs(b - rs * 1.02);
     alpha *= 1.0 + exp(-distToPhoton * 25.0 / max(rs, 0.01)) * 6.0;
 
     // Clamp to avoid tearing at extreme angles
@@ -1013,35 +1042,52 @@ vec2 bhGravLens(vec2 uv, vec2 center, float rs, vec2 aspect) {
 // ══════════════════════════════════════════════════════════════
 //  Accretion disk — Keplerian rotation + doppler beaming
 //
-//  Geometrically thin, optically thick disk in normalized radius
-//  units (n = r / Rs;  event horizon at n = 1):
-//    - Emissivity peaks just outside the ISCO (n ≈ 1.6)
+//  A geometrically thin disk in the world XZ plane, projected into this
+//  frame by DiskPlane. In disk-frame units n = radius / Rs, Rs being the
+//  shadow radius:
+//    - Emission stops around n ≈ 3.6, where the orbiting accretion
+//      particles the world pass spawns stop. Reaching further turned the
+//      disk into a screen-spanning wall of noise instead of a ring.
 //    - Differential rotation: ω ∝ n^-1.5 (inner disk orbits faster)
 //    - Relativistic doppler beaming: approaching side brighter/bluer
 //    - Blackbody temperature ramp: blue-white inner → red outer
+//
+//  Both halves of the projected annulus are returned; the caller hides the
+//  one that lies behind the hole.
 // ══════════════════════════════════════════════════════════════
+
+// Screen offset → the disk's own frame: x along the ellipse's major axis,
+// y along the minor one and unsquashed, so a circle here is the real circle
+// in the orbital plane.
+vec2 bhDiskFrame(vec2 delta, float rs) {
+    float along  = dot(delta, DiskPlane.xy);
+    float across = delta.x * -DiskPlane.y + delta.y * DiskPlane.x;
+    return vec2(across, (along + rs * 0.035) / max(DiskPlane.z, 0.05));
+}
 
 vec3 bhAccretionDisk(vec2 delta, float time, float rs, float rotSpeed) {
     float safeRs = max(rs, 0.001);
 
-    // A steeply inclined equatorial plane reads as a disk instead of a halo.
-    vec2 diskP = vec2(delta.x, (delta.y + safeRs * 0.035) / 0.235);
+    vec2 diskP = bhDiskFrame(delta, safeRs);
     float diskR = length(diskP);
     float n = diskR / safeRs;
     float screenN = length(delta) / safeRs;
-    if (n > 8.4 && screenN > 3.8) return vec3(0.0);
+    if (n > 3.7 && screenN > 2.2) return vec3(0.0);
+
+    // Signed so that > 0 is always the rim passing behind the hole.
+    float alongFar = dot(delta, DiskPlane.xy) * DiskPlane.w;
 
     float ang = atan(diskP.y, diskP.x);
     float omega = 5.4 * pow(max(n, 1.0), -1.5) * rotSpeed;
     float rotAng = ang - time * omega;
 
-    float diskMask = smoothstep(1.48, 1.72, n)
-                   * (1.0 - smoothstep(7.2, 8.35, n));
+    float diskMask = smoothstep(1.22, 1.40, n)
+                   * (1.0 - smoothstep(3.05, 3.60, n));
 
-    float profile = exp(-max(n - 1.7, 0.0) * 0.70);
-    profile += 0.52 * exp(-abs(n - 2.65) * 1.9);
-    profile += 0.28 * exp(-abs(n - 4.15) * 1.4);
-    profile += 0.13 * exp(-abs(n - 6.35) * 1.1);
+    float profile = exp(-max(n - 1.45, 0.0) * 0.70);
+    profile += 0.52 * exp(-abs(n - 2.00) * 1.9);
+    profile += 0.28 * exp(-abs(n - 2.70) * 1.4);
+    profile += 0.13 * exp(-abs(n - 3.35) * 1.1);
 
     float spiralA = 0.5 + 0.5 * sin(rotAng * 2.0 + log(max(n, 1.01)) * 10.5);
     float spiralB = 0.5 + 0.5 * sin(rotAng * 5.0 - log(max(n, 1.01)) * 6.5 + 1.4);
@@ -1058,7 +1104,7 @@ vec3 bhAccretionDisk(vec2 delta, float time, float rs, float rotSpeed) {
     float approaching = clamp(-diskP.x / max(diskR, 0.0001), -1.0, 1.0);
     float beam = pow(max(0.38, 1.0 + approaching * 0.72), 2.35);
 
-    float temp = clamp((n - 1.55) / 6.3, 0.0, 1.0);
+    float temp = clamp((n - 1.30) / 2.30, 0.0, 1.0);
     vec3 col = mix(vec3(0.78, 0.90, 1.35), vec3(1.35, 0.58, 0.08),
                    smoothstep(0.02, 0.43, temp));
     col = mix(col, vec3(0.48, 0.035, 0.008), smoothstep(0.43, 1.0, temp));
@@ -1067,8 +1113,8 @@ vec3 bhAccretionDisk(vec2 delta, float time, float rs, float rotSpeed) {
 
     // Far-side matter is bent over the shadow into a thin Einstein arc.
     float farArc = exp(-abs(screenN - 1.58) * 18.0);
-    farArc *= smoothstep(-0.18 * safeRs, 0.72 * safeRs, delta.y);
-    farArc *= 0.32 + 0.68 * smoothstep(0.0, 2.6 * safeRs, abs(delta.x));
+    farArc *= smoothstep(-0.18 * safeRs, 0.72 * safeRs, alongFar);
+    farArc *= 0.32 + 0.68 * smoothstep(0.0, 2.6 * safeRs, abs(diskP.x));
     float arcNoise = 0.62 + 0.38 * bhNoise(vec2(rotAng * 5.0, time * 0.35));
     vec3 arcCol = mix(vec3(1.45, 0.45, 0.06), vec3(1.0, 0.92, 0.72),
                       clamp(approaching * 0.5 + 0.5, 0.0, 1.0));
@@ -1077,15 +1123,18 @@ vec3 bhAccretionDisk(vec2 delta, float time, float rs, float rotSpeed) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  Polar jet / corona (vertical emission near the poles)
+//  Polar jet / corona (emission along the disk's rotation axis)
 // ══════════════════════════════════════════════════════════════
 
 float bhCorona(vec2 delta, float rs) {
-    // Vertical jet-like emission along the y-axis
-    float jet = exp(-abs(delta.x) * 8.0 / max(rs, 0.01))
-              * exp(-abs(delta.y - rs * 0.3) * 4.0 / max(rs, 0.01));
-    jet += exp(-abs(delta.x) * 6.0 / max(rs, 0.01))
-          * exp(-abs(delta.y + rs * 0.3) * 4.0 / max(rs, 0.01)) * 0.5;
+    // The jet fires along the disk normal — the world up vector, which
+    // projects to DiskPlane.xy — not down the screen's y axis.
+    float along  = dot(delta, DiskPlane.xy);
+    float across = delta.x * -DiskPlane.y + delta.y * DiskPlane.x;
+    float jet = exp(-abs(across) * 8.0 / max(rs, 0.01))
+              * exp(-abs(along - rs * 0.3) * 4.0 / max(rs, 0.01));
+    jet += exp(-abs(across) * 6.0 / max(rs, 0.01))
+         * exp(-abs(along + rs * 0.3) * 4.0 / max(rs, 0.01)) * 0.5;
     return jet * 0.15;
 }
 
@@ -1103,29 +1152,22 @@ void main() {
     float r = length(delta);                      // aspect-corrected distance
 
     // ── BH parameters ───────────────────────────────────────────
-    float bhRadius   = BHParams.x;                 // event horizon in UV space
+    float bhRadius   = BHParams.x;                 // shadow radius, this frame
     float stage      = BHParams.y;
     float progress   = BHParams.z;
     float intensity  = clamp(BHParams.w, 0.0, 5.0);
     float time       = TimePack.x;
 
-    // Scale radius by stage (forming → grow, collapse → shrink)
-    float finalRs = bhRadius;
-
-    // Stage 3 (BLACK_HOLE forming): exponential growth from small to full
-    if (stage > 2.5 && stage < 3.5) {
-        float growT = 1.0 - exp(-progress * 4.0);
-        finalRs *= growT;
-
-    // Stage 5 (COLLAPSE): quadratic shrink
-    } else if (stage > 4.5) {
-        float shrinkT = 1.0 - progress * progress * 0.85;
-        finalRs *= max(shrinkT, 0.01);
-    }
+    // The hole's growth and collapse are driven from Java (KillEffectInstance
+    // owns the size curve, and the world-space billboard is sized from it too).
+    // Re-animating the radius here put the two renders on different curves, so
+    // mid-forming the black disk was wider than the ring it was meant to sit
+    // inside and swallowed it.
+    float finalRs = max(bhRadius, 0.0);
 
     // Early-out: negligible, or fully outside the influence zone
     float n = r / max(finalRs, 0.001);
-    if (finalRs < 0.001 || n > 9.0) {
+    if (finalRs < 0.001 || n > 5.0) {
         fragColor = texture(SceneSampler, vUv);
         return;
     }
@@ -1159,21 +1201,33 @@ void main() {
     // ── Event horizon: pure black disk with a crisp edge ─────
     float eh = 1.0 - smoothstep(0.97, 1.01, n);
 
-    // ── Event horizon outline: thin bright rim right at the edge ──
-    // (light trapped at the capture radius outlines the shadow)
+    // ── Event horizon outline: the primary photon ring ─────────
+    // Light that skimmed the capture radius is imaged onto the shadow's edge.
+    // The world-space billboard draws its own photon ring at exactly this
+    // radius, so the two have to land on one circle — stacking a rim, a ring
+    // and a secondary within a few pixels is what read as one fat white slab.
     float rim = exp(-abs(n - 1.02) * 55.0);
 
-    // ── Photon ring: ultra-thin HDR ring at the photon sphere ──
-    float pr  = exp(-abs(n - 1.32) * 42.0);
-    float pr2 = exp(-abs(n - 1.22) * 28.0) * 0.30;
+    // ── Higher-order ring: photons that looped once more, imaged just
+    //    outside the primary and much fainter ──
+    float pr2 = exp(-abs(n - 1.075) * 30.0) * 0.22;
 
     // ── Accretion disk (Keplerian rotation, doppler beamed) ──
     float rotSpeed = (stage > 4.5) ? 2.2 : 1.0;  // spin-up during collapse
     vec3 diskCol = bhAccretionDisk(delta, time, finalRs, rotSpeed);
 
+    // The projected annulus is symmetric, but only the near half passes in
+    // front of the hole — the far half is behind it and the shadow eats it.
+    // Adding both over the black is what turned the round shadow into a
+    // horizontal lens: the disk's inner ellipse is far flatter than the
+    // shadow is tall, so it painted across the top and bottom of the hole.
+    float farSide = smoothstep(-0.05 * finalRs, 0.10 * finalRs,
+                               dot(delta, DiskPlane.xy) * DiskPlane.w);
+    diskCol *= 1.0 - eh * farSide;
+
     // ── Photon-sphere volumetric glow ──
-    float sphereGlow     = exp(-abs(n - 1.3) * 7.0) * 0.50;
-    float sphereGlowWide = exp(-abs(n - 1.6) * 3.0) * 0.20;
+    float sphereGlow     = exp(-abs(n - 1.06) * 9.0) * 0.35;
+    float sphereGlowWide = exp(-abs(n - 1.30) * 3.5) * 0.15;
 
     // ── Corona (polar emission) ──
     float corona = bhCorona(delta, finalRs);
@@ -1191,12 +1245,10 @@ void main() {
     // Accretion disk (additive over the lensed background)
     color += diskCol * intensity * stageRamp;
 
-    // Photon ring: extreme HDR → picked up by bloom + ACES
-    color += vec3(18.0, 13.0, 7.0) * pr * intensity * stageRamp;
-    color += vec3(18.0, 13.0, 7.0) * pr2 * 0.4 * intensity * stageRamp;
-
-    // Event horizon outline rim
-    color += vec3(1.6, 1.2, 0.45) * rim * intensity * stageRamp;
+    // Photon rings: HDR so bloom and ACES pick them up, but within a range
+    // that tone-maps to a hot rim rather than clipping the whole annulus.
+    color += vec3(9.0, 6.5, 3.4) * rim * intensity * stageRamp;
+    color += vec3(9.0, 6.5, 3.4) * pr2 * intensity * stageRamp;
 
     // Photon-sphere volumetric glow
     color += vec3(2.2, 1.5, 0.50) * sphereGlow * intensity * stageRamp;
@@ -1209,7 +1261,9 @@ void main() {
     //  4. Influence zone: smooth blend outside the BH region
     // ════════════════════════════════════════════════════════════
 
-    float influence = 1.0 - smoothstep(finalRs * 1.4, finalRs * 8.7, r);
+    // Kept inside the disk's outer rim: lensing that reaches further smears
+    // foreground geometry that has nothing to do with the hole.
+    float influence = 1.0 - smoothstep(finalRs * 1.05, finalRs * 4.6, r);
     influence = max(influence, eh); // horizon is always fully opaque black
     vec3 finalColor = mix(sceneOrig, color, influence);
 
@@ -1267,21 +1321,25 @@ void main() {
     // Radius grows from 0 to ~1.2 screen units over the flash duration
     float ringRadius = preExpansionR * 1.2;
 
-    // ── Core: extremely bright central spot (HDR) ──
-    float core = exp(-dist * 80.0) * flashMod * 200.0;
+    // HDR levels are deliberately headroom-limited: this pass feeds ACES
+    // downstream, and anything above ~4 there lands on the flat part of the
+    // curve, so a ×200 core did not read as "hotter" — it just ate the frame.
+    // ── Core: blown-out central spot ──
+    float core = exp(-dist * 80.0) * flashMod * 30.0;
 
     // ── Inner glow: softer, wider ──
-    float innerGlow = exp(-dist * 15.0) * flashMod * 30.0;
+    float innerGlow = exp(-dist * 15.0) * flashMod * 5.0;
 
     // ── Main ring: expands from center ──
-    float ring = exp(-abs(dist - ringRadius) * 35.0) * flashMod * 15.0;
+    float ring = exp(-abs(dist - ringRadius) * 35.0) * flashMod * 5.0;
     // Ring echo (inner)
-    ring += exp(-abs(dist - ringRadius * 0.5) * 30.0) * flashMod * 6.0;
+    ring += exp(-abs(dist - ringRadius * 0.5) * 30.0) * flashMod * 2.2;
     // Ring precursor (outer, fainter)
-    ring += exp(-abs(dist - ringRadius * 1.6) * 18.0) * flashMod * 3.0;
+    ring += exp(-abs(dist - ringRadius * 1.6) * 18.0) * flashMod * 1.1;
 
     // ── Wide halo ──
-    float wideHalo = exp(-dist / (ringRadius * 1.5 + 0.1)) * flashMod * 8.0;
+    // The widest term, so this one sets how much of the screen whites out.
+    float wideHalo = exp(-dist / (ringRadius * 1.5 + 0.1)) * flashMod * 0.9;
 
     // ── Color progression ──
     // Core: pure white
@@ -1299,8 +1357,14 @@ void main() {
                    + ringColor * (innerGlow + ring)
                    + haloColor * wideHalo;
 
-    // Global screen brightening (very subtle)
-    glowColor += vec3(0.4, 0.3, 1.0) * flashMod * 0.8;
+    // A touch of ambient lift; at 0.8 this alone pushed every dark pixel
+    // through ACES to ~0.47 and erased the frame.
+    glowColor += vec3(0.4, 0.3, 1.0) * flashMod * 0.15;
+
+    // Soft shoulder: roll the peak off instead of clipping it. This keeps the
+    // centre hot while the falloff around it stays visible as colour.
+    float gfPeak = max(max(glowColor.r, glowColor.g), glowColor.b);
+    glowColor *= 1.0 / (1.0 + gfPeak / 1.6);
 
     fragColor = vec4(scene + glowColor, 1.0);
 }
@@ -1456,22 +1520,40 @@ void main() {
         return;
     }
 
-    // ── Global white flash ──────────────────────────────────────
-    // Re-shape through smoothstep: zero-slope onset, no harsh snap.
+    // ── Glare, not a white sheet ──────────────────────────────────
+    // The blast is where the light comes from, so the wash is centred on it and
+    // falls off. This pass used to replace the whole frame instead — its only
+    // shape was a vignette that barely dimmed at the edges — which left the
+    // player staring at a white screen with nothing to orient by. Measured over
+    // the frame with the harness in build/magic-preview: mean luminance at the
+    // detonation peak went 0.76 → 0.23 for the hypernova, and 0.82 → 0.67 for
+    // the pre-flash (that one still carries the whole-screen bell pulse, so it
+    // is allowed to be bright — but not to erase every edge in it).
+    vec2 centerUV = Center1.xy * 0.5 + 0.5;
+    vec2 aspect = vec2(1.0, Params.y / Params.x);
+    // Normalised so the side edge of the frame sits at 1.0.
+    float dist = length((vUv - centerUV) * aspect) / 0.5;
+
     float flash = clamp(flashIntensity, 0.0, 1.0);
     flash = flash * flash * (3.0 - 2.0 * flash);
 
-    // Slight color: warm white → cool white based on intensity
-    vec3 flashColor = mix(vec3(1.0, 0.95, 0.85), vec3(1.0, 1.0, 1.0), flash);
+    // The wash widens with the blast but never reaches the edges of the screen.
+    float reach = 0.20 + 0.42 * flash;
+    float radial = 1.0 - smoothstep(reach * 0.35, reach * 1.5, dist);
+    float wash = radial * flash;
 
-    // Preserve vignette at screen edges (flash fades at corners)
-    float vignette = 1.0 - length(vUv - 0.5) * 0.5;
+    // Warm at the rim of the wash, white-hot through the middle.
+    vec3 glareCol = mix(vec3(1.0, 0.86, 0.62), vec3(1.0, 0.97, 0.93), wash);
 
-    // Composite: scene → partially flash → near-white at peak
-    vec3 result = mix(scene, flashColor * 1.5, flash * vignette);
+    // Glare is light *added* to the frame, and it closes the iris a little as
+    // it rises. Adding keeps the world's structure readable; replacing it,
+    // which is what the old mix() did, is what made the detonation useless.
+    vec3 result = scene * (1.0 - wash * 0.35)
+                + glareCol * wash * 0.72 * (1.0 - 0.12 * wash);
 
-    // At peak flash (>0.8), push toward pure white
-    result = mix(result, vec3(1.0), smoothstep(0.8, 1.0, flash) * 0.9);
+    // Only the blast itself goes opaque-white, and only at the peak.
+    float core = 1.0 - smoothstep(0.0, 0.10 + 0.06 * flash, dist);
+    result = mix(result, vec3(1.6), core * smoothstep(0.70, 1.0, flash));
 
     fragColor = vec4(result, 1.0);
 }

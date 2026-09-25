@@ -39,54 +39,64 @@ public class MagicHalo extends Module {
     private final FloatValue size = new FloatValue("Size", 1.15f, 0.3f, 3.5f);
     private final FloatValue heightOffset = new FloatValue("Height", 0.58f, -1.0f, 2.5f);
     private final FloatValue tilt = new FloatValue("Tilt", 0.0f, -45.0f, 45.0f);
-    private final FloatValue ringRadius = new FloatValue("Ring Radius", 0.36f, 0.18f, 0.52f);
+    private final FloatValue ringRadius = new FloatValue("Ring Radius", 0.40f, 0.14f, 0.62f);
     private final FloatValue ringThickness = new FloatValue("Ring Thickness", 0.065f, 0.012f, 0.18f);
-    private final IntValue spikeCount = new IntValue("Spike Count", 20, 4, 32);
-    private final FloatValue spikeLength = new FloatValue("Spike Length", 0.30f, 0.0f, 0.58f);
+    private final IntValue spikeCount = new IntValue("Spike Count", 18, 4, 32);
+    private final FloatValue spikeLength = new FloatValue("Spike Length", 0.26f, 0.0f, 0.58f);
     private final IntValue layers = new IntValue("Ring Layers", 3, 1, 5);
 
     // Ornament density
     private final IntValue runeDetail = new IntValue("Rune Detail", 2, 0, 3);
-    private final IntValue particleDensity = new IntValue("Star Density", 2, 0, 3);
+    private final IntValue particleDensity = new IntValue("Star Density", 3, 0, 3);
     private final BoolValue crown = new BoolValue("Crown", true);
     private final BoolValue runes = new BoolValue("Runes", true);
     private final BoolValue orbitals = new BoolValue("Orbitals", true);
     private final BoolValue starfield = new BoolValue("Starfield", true);
+    private final BoolValue dualTone = new BoolValue("Dual Tone", true);
 
     // Material and animation
     private final FloatValue alpha = new FloatValue("Opacity", 0.92f, 0.05f, 1.0f);
-    private final FloatValue intensity = new FloatValue("Brightness", 1.35f, 0.2f, 2.8f);
-    private final FloatValue glow = new FloatValue("Glow", 1.45f, 0.0f, 3.0f);
-    private final FloatValue sharpness = new FloatValue("Sharpness", 0.78f, 0.0f, 1.0f);
+    private final FloatValue intensity = new FloatValue("Brightness", 1.25f, 0.2f, 2.8f);
+    private final FloatValue glow = new FloatValue("Glow", 1.15f, 0.0f, 3.0f);
+    private final FloatValue sharpness = new FloatValue("Sharpness", 0.72f, 0.0f, 1.0f);
     private final FloatValue animSpeed = new FloatValue("Anim Speed", 1.0f, 0.0f, 3.0f);
-    private final FloatValue rotation = new FloatValue("Rotation", 0.65f, -3.0f, 3.0f);
-    private final FloatValue pulse = new FloatValue("Pulse", 0.45f, 0.0f, 1.5f);
-    private final FloatValue distortion = new FloatValue("Distortion", 0.18f, 0.0f, 1.0f);
+    private final FloatValue rotation = new FloatValue("Rotation", 0.80f, -3.0f, 3.0f);
+    private final FloatValue pulse = new FloatValue("Pulse", 0.80f, 0.0f, 1.5f);
+    private final FloatValue distortion = new FloatValue("Distortion", 0.22f, 0.0f, 1.0f);
+    private final FloatValue dynamics = new FloatValue("Dynamics", 1.0f, 0.0f, 2.0f);
 
     private float elapsedTime;
+    private long lastFrameNanos;
 
     public MagicHalo() {
         super("MagicHalo", ModuleEnum.Visual);
         addValue(
                 style, colorMode, primaryColor, secondaryColor, accentColor, rainbowSpeed,
                 size, heightOffset, tilt, ringRadius, ringThickness, spikeCount, spikeLength, layers,
-                runeDetail, particleDensity, crown, runes, orbitals, starfield,
+                runeDetail, particleDensity, crown, runes, orbitals, starfield, dualTone,
                 alpha, intensity, glow, sharpness,
-                animSpeed, rotation, pulse, distortion
+                animSpeed, rotation, pulse, distortion, dynamics
         );
     }
 
     @Override
     public void onDisabled() {
         elapsedTime = 0f;
+        lastFrameNanos = 0L;
     }
 
     @EventTarget
     public void onRender3D(Render3DEvent event) {
         if (mc.player == null || mc.level == null) return;
 
-        elapsedTime += 0.05f * animSpeed.getValue();
-        if (elapsedTime > 3600f) elapsedTime -= 3600f;
+        // Accumulated from a real clock: a per-frame step makes the sweep rate
+        // depend on the frame rate, which reads as the array speeding up and
+        // slowing down rather than turning.
+        long now = System.nanoTime();
+        if (lastFrameNanos != 0L) {
+            elapsedTime += (now - lastFrameNanos) / 1.0E9f * animSpeed.getValue();
+        }
+        lastFrameNanos = now;
 
         Vec3 pos = mc.player.getPosition(event.partialTick());
         double haloY = pos.y + mc.player.getEyeHeight() + heightOffset.getValue();
@@ -120,7 +130,9 @@ public class MagicHalo extends Module {
                 pulse.getValue(),
                 distortion.getValue(),
                 rainbowSpeed.getValue(),
-                tilt.getValue()
+                tilt.getValue(),
+                dynamics.getValue(),
+                dualTone.enabled
         );
 
         MagicHaloRenderer.draw(

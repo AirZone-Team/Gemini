@@ -82,10 +82,10 @@ public class AltManagerScreen extends Screen {
 
     /**
      * 预热 AltManager 字体，由 {@code UiShaderWarmup} 在加载界面调用。调用方
-     * 需随后执行 {@code CustomFontRenderer.flushAllPages()}。
+     * 需随后执行 {@code CustomFontRenderer.flushPendingGlyphs()}。
      *
-     * <p>仅预热 ASCII 与常用符号：中文文案按需惰性栅格化（约 17ms/字形），
-     * 全量预热会让加载界面卡顿。缺失字形有 vanilla 字体兜底。</p>
+     * <p>仅预热 ASCII 与常用符号：中文文案留到首次绘制时才生成（三角化成本随
+     * 字形复杂度变化，全量预热会拖慢加载界面）。缺失字形有 vanilla 字体兜底。</p>
      */
     public static void warmup() {
         try {
@@ -107,7 +107,7 @@ public class AltManagerScreen extends Screen {
                 }
             }
         } catch (Throwable t) {
-            // 预热失败不影响运行：字形仍会惰性栅格化。
+            // 预热失败不影响运行：字形仍会惰性三角化。
         }
     }
 

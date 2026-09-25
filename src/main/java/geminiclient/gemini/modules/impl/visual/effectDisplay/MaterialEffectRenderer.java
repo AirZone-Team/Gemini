@@ -40,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *       peak opacity 16 % (identical to Mellow's shadow tuning).</li>
  *   <li><b>Shape</b> — card corner radius 12 (MD3 "medium" shape scale),
  *       icon container fully round, progress indicator fully rounded.</li>
- *   <li><b>Type</b> — Google Sans (MSDF pipeline): title 9 bold
+ *   <li><b>Type</b> — Google Sans (Slug pipeline): title 9 bold
  *       (≈ MD3 title-small), duration 8 regular (≈ MD3 label-medium).</li>
  * </ul>
  *
@@ -334,7 +334,7 @@ public final class MaterialEffectRenderer {
         int disc = scaleAlpha(withAlpha(mixRgb(accent, surface, DISC_TONE)), alpha);
         int discX = ix + PAD_LEFT;
 
-        // ---- 4. Icon + title + duration pill (Google Sans, MSDF pipeline) ----
+        // ---- 4. Icon + title + duration pill (Google Sans, Slug pipeline) ----
         float textX = ix + PAD_LEFT + DISC_SIZE + TEXT_GAP;
         float titleH = titleLineHeight();
         String name = getDisplayName(effect.value(), info).getString();
